@@ -317,71 +317,70 @@ def plot_violin(
     n_blocks: int = 10,
     downsample: int = 100,
 ) -> Path:
-    """Split violin plot: entropy and compressibility distributions over time.
+    """Split violin: entropy (upper) vs inverted compressibility (lower) per time block.
 
-    Two rows (entropy top, compressibility bottom) x one column per run.
-    Compressibility shows W=L solid and W=L/4 as lighter overlay.
+    One column per run. Upper half = entropy distribution (blue),
+    lower half = 1/compression_ratio distribution (red = W=L, lighter = W=L/4).
+    Higher compressibility = more structured/repetitive.
     """
     n_runs = len(runs)
-    fig, axes = plt.subplots(2, n_runs, figsize=(5 * n_runs, 8), squeeze=False)
+    fig, axes = plt.subplots(1, n_runs, figsize=(5 * n_runs, 5), squeeze=False)
 
     for run_idx, run in enumerate(runs):
-        ax_ent = axes[0][run_idx]
-        ax_comp = axes[1][run_idx]
+        ax = axes[0][run_idx]
 
         comp_primary = run.analysis["compressibility_primary"]
         comp_secondary = run.analysis["compressibility_secondary"]
 
         block_size = len(run.exp) // n_blocks
 
+        # Twin axis: entropy on top x-axis, compressibility on bottom
+        ax_top = ax.twiny()
+
         for b in range(n_blocks):
             sl = slice(b * block_size, (b + 1) * block_size)
             y = b
 
-            # Entropy -- symmetric violin
+            # Entropy -- upper half (blue)
             ent_block = run.exp.entropy.to_numpy()[sl]
-            _draw_half_violin(ax_ent, ent_block, y, "upper", "#2166ac")
-            _draw_half_violin(ax_ent, ent_block, y, "lower", "#2166ac")
-            ax_ent.axhline(y, color="grey", linewidth=0.3, alpha=0.5)
+            _draw_half_violin(ax_top, ent_block, y, "upper", "#2166ac")
 
-            # Compressibility W=L -- solid
+            # Inverted compressibility W=L -- lower half (red)
             comp_block = comp_primary[sl]
             comp_valid = comp_block[~np.isnan(comp_block)]
-            _draw_half_violin(ax_comp, comp_valid, y, "upper", "#b2182b")
-            _draw_half_violin(ax_comp, comp_valid, y, "lower", "#b2182b")
+            if len(comp_valid) > 0:
+                _draw_half_violin(ax, 1.0 / comp_valid, y, "lower", "#b2182b")
 
-            # Compressibility W=L/4 -- lighter overlay
+            # Inverted compressibility W=L/4 -- lower half (lighter red)
             comp_s_block = comp_secondary[sl]
             comp_s_valid = comp_s_block[~np.isnan(comp_s_block)]
-            _draw_half_violin(ax_comp, comp_s_valid, y, "upper", "#b2182b",
-                              alpha=0.25)
-            _draw_half_violin(ax_comp, comp_s_valid, y, "lower", "#b2182b",
-                              alpha=0.25)
-            ax_comp.axhline(y, color="grey", linewidth=0.3, alpha=0.5)
+            if len(comp_s_valid) > 0:
+                _draw_half_violin(ax, 1.0 / comp_s_valid, y, "lower", "#b2182b",
+                                  alpha=0.25)
+
+            ax.axhline(y, color="grey", linewidth=0.3, alpha=0.5)
 
         block_k = block_size // 1000
         yticks = range(n_blocks)
         yticklabels = [f"{b * block_k}-{(b + 1) * block_k}k" for b in range(n_blocks)]
-        for ax in (ax_ent, ax_comp):
-            ax.set_yticks(yticks)
-            ax.set_yticklabels(yticklabels)
-            ax.grid(True, axis="x", alpha=0.3)
+        ax.set_yticks(yticks)
+        ax.set_yticklabels(yticklabels)
+        ax.grid(True, axis="x", alpha=0.3)
 
-        ax_ent.set_title(run.label)
-        ax_comp.set_xlabel("Value")
+        ax.set_xlabel("1 / compression ratio (↑ = more structured)", fontsize=8)
+        ax_top.set_xlabel("Entropy (nats)", fontsize=8)
+        ax.set_title(run.label)
 
-    axes[0][0].set_ylabel("Entropy\n\nTime block")
-    axes[1][0].set_ylabel("Compressibility\n\nTime block")
+    axes[0][0].set_ylabel("Time block")
 
-    # Add legend manually
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor="#2166ac", alpha=0.7, label="Entropy"),
-        Patch(facecolor="#b2182b", alpha=0.7, label="Compr. W=L"),
-        Patch(facecolor="#b2182b", alpha=0.25, label="Compr. W=L/4"),
+        Patch(facecolor="#2166ac", alpha=0.7, label="Entropy (upper)"),
+        Patch(facecolor="#b2182b", alpha=0.7, label="1/compr. W=L (lower)"),
+        Patch(facecolor="#b2182b", alpha=0.25, label="1/compr. W=L/4 (lower)"),
     ]
     fig.legend(handles=legend_elements, loc="lower center", ncol=3,
-               fontsize=9, bbox_to_anchor=(0.5, -0.02))
+               fontsize=9, bbox_to_anchor=(0.5, -0.04))
 
     fig.suptitle(title, y=1.02)
     fig.tight_layout()
