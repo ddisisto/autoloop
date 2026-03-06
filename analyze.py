@@ -6,7 +6,6 @@ Computes derived metrics from generation Parquet files:
 - Per-run summary statistics
 """
 
-import gzip
 import logging
 import pickle
 from pathlib import Path
@@ -14,13 +13,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from utils import compressibility
+
 log = logging.getLogger(__name__)
-
-
-def compressibility(text: bytes) -> float:
-    """Compression ratio: compressed_size / original_size. Lower = more compressible."""
-    compressed = gzip.compress(text, compresslevel=6)
-    return len(compressed) / len(text)
 
 
 def sliding_compressibility(decoded_texts: pd.Series, window_size: int) -> np.ndarray:

@@ -19,6 +19,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.logging import disable_progress_bar
 
+from utils import compressibility
+
 log = logging.getLogger(__name__)
 
 CHECKPOINT_INTERVAL = 1000
@@ -60,7 +62,6 @@ def save_checkpoint(
         "rng_numpy": np.random.get_state(),
     }, checkpoint_path)
     pd.DataFrame(records).to_parquet(parquet_path, index=False)
-    log.info("Checkpoint at step %d (%d records)", step, len(records))
 
 
 def load_checkpoint(checkpoint_path: Path, device: str) -> dict:
@@ -103,6 +104,8 @@ def run_generation(
         records = []
         start_step = 1
 
+    interval_start = time.monotonic()
+
     for t in range(start_step, total_steps + 1):
         is_prefill = t <= context_length
         phase = "prefill" if is_prefill else "experiment"
@@ -140,7 +143,20 @@ def run_generation(
 
         if t % CHECKPOINT_INTERVAL == 0:
             save_checkpoint(checkpoint_path, parquet_path, t, context, records)
-            log.info("step %d / %d (%.1f%%)", t, total_steps, 100 * t / total_steps)
+            now = time.monotonic()
+            tok_s = CHECKPOINT_INTERVAL / (now - interval_start)
+            # Recent stats over trailing context_length tokens
+            recent = records[-context_length:]
+            ent_vals = [r["entropy"] for r in recent]
+            ent_mean = sum(ent_vals) / len(ent_vals)
+            # Trailing-window compressibility (W=L)
+            trail_text = "".join(r["decoded_text"] for r in recent)
+            comp = compressibility(trail_text.encode("utf-8"))
+            log.info(
+                "step %d/%d (%.0f%%) | %.1f tok/s | ent=%.2f comp=%.3f",
+                t, total_steps, 100 * t / total_steps, tok_s, ent_mean, comp,
+            )
+            interval_start = now
 
         log.debug(
             "step=%d phase=%s token=%d text=%r entropy=%.4f log_prob=%.4f eos=%s",
