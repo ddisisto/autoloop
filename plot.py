@@ -2,9 +2,18 @@
 
 Generates plots from generation data and derived metrics.
 All plots saved to data/figures/.
+
+Usage:
+    python plot.py --runs data/runs/L0064_T*.parquet
+    python plot.py --runs data/runs/L*_T0.50_S42.parquet
+    python plot.py --runs data/runs/L0064_T0.50_S42.parquet data/runs/L0256_T0.50_S42.parquet
+    python plot.py --runs data/runs/L0064_T*_S42.parquet --plots entropy phase
+    python plot.py --runs data/runs/L0064_T*_S42.parquet --downsample 50
 """
 
+import argparse
 import logging
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -17,6 +26,80 @@ log = logging.getLogger(__name__)
 
 FIGURES_DIR = Path("data/figures")
 
+PLOT_TYPES = ["entropy", "compressibility", "phase"]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Plot autoloop analysis results")
+    parser.add_argument(
+        "--runs", type=str, nargs="+", required=True,
+        help="Parquet files to plot (supports shell globs)",
+    )
+    parser.add_argument(
+        "--plots", type=str, nargs="+", default=PLOT_TYPES,
+        choices=PLOT_TYPES,
+        help=f"Which plots to generate (default: all). Choices: {PLOT_TYPES}",
+    )
+    parser.add_argument(
+        "--downsample", type=int, default=100,
+        help="Downsample factor for time series (default: 100)",
+    )
+    parser.add_argument(
+        "--suffix", type=str, default="",
+        help="Optional suffix for output filenames",
+    )
+    return parser.parse_args()
+
+
+def parse_run_name(path: Path) -> dict:
+    """Extract L, T, S from a run filename like L0064_T0.50_S42."""
+    m = re.match(r"L(\d+)_T([\d.]+)_S(\d+)", path.stem)
+    if not m:
+        raise ValueError(f"Cannot parse run name: {path.stem}")
+    return {
+        "L": int(m.group(1)),
+        "T": float(m.group(2)),
+        "S": int(m.group(3)),
+    }
+
+
+def make_label(params: dict, all_params: list[dict]) -> str:
+    """Build a concise label showing only the dimensions that vary across runs."""
+    parts = []
+    if len({p["L"] for p in all_params}) > 1:
+        parts.append(f"L={params['L']}")
+    if len({p["T"] for p in all_params}) > 1:
+        parts.append(f"T={params['T']:.2f}")
+    if len({p["S"] for p in all_params}) > 1:
+        parts.append(f"S={params['S']}")
+    return " ".join(parts) if parts else f"L={params['L']} T={params['T']:.2f} S={params['S']}"
+
+
+def make_output_prefix(all_params: list[dict], suffix: str) -> str:
+    """Build a descriptive output filename prefix from the set of runs."""
+    ls = sorted({p["L"] for p in all_params})
+    ts = sorted({p["T"] for p in all_params})
+    ss = sorted({p["S"] for p in all_params})
+
+    parts = []
+    if len(ls) == 1:
+        parts.append(f"L{ls[0]:04d}")
+    else:
+        parts.append("Lmulti")
+    if len(ts) == 1:
+        parts.append(f"T{ts[0]:.2f}")
+    else:
+        parts.append("Tmulti")
+    if len(ss) == 1:
+        parts.append(f"S{ss[0]}")
+    else:
+        parts.append("Smulti")
+
+    prefix = "_".join(parts)
+    if suffix:
+        prefix += f"_{suffix}"
+    return prefix
+
 
 def ensure_figures_dir() -> Path:
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -25,7 +108,6 @@ def ensure_figures_dir() -> Path:
 
 def plot_entropy_timeseries(
     run_paths: list[Path],
-    context_length: int,
     labels: list[str],
     title: str,
     output_name: str,
@@ -37,7 +119,6 @@ def plot_entropy_timeseries(
     for path, label in zip(run_paths, labels):
         df = pd.read_parquet(path)
         exp = df[df.phase == "experiment"].reset_index(drop=True)
-        # Downsample by taking block means
         n = len(exp) // downsample * downsample
         entropy = exp.entropy.to_numpy()[:n].reshape(-1, downsample).mean(axis=1)
         steps = np.arange(downsample // 2, n, downsample)
@@ -59,7 +140,7 @@ def plot_entropy_timeseries(
 
 def plot_compressibility_timeseries(
     run_paths: list[Path],
-    context_length: int,
+    context_lengths: list[int],
     labels: list[str],
     title: str,
     output_name: str,
@@ -68,7 +149,7 @@ def plot_compressibility_timeseries(
     """Plot compressibility (W=L) over time for multiple runs."""
     fig, ax = plt.subplots(figsize=(12, 4))
 
-    for path, label in zip(run_paths, labels):
+    for path, context_length, label in zip(run_paths, context_lengths, labels):
         result = analyze_run(path, context_length)
         comp = result["compressibility_primary"]
         valid = comp[~np.isnan(comp)]
@@ -78,7 +159,7 @@ def plot_compressibility_timeseries(
         ax.plot(steps, comp_ds, label=label, linewidth=0.8)
 
     ax.set_xlabel("Step (experiment phase)")
-    ax.set_ylabel(f"Compressibility (W={context_length})")
+    ax.set_ylabel("Compressibility (W=L)")
     ax.set_title(title)
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -93,7 +174,7 @@ def plot_compressibility_timeseries(
 
 def plot_phase_portrait(
     run_paths: list[Path],
-    context_length: int,
+    context_lengths: list[int],
     labels: list[str],
     title: str,
     output_name: str,
@@ -102,18 +183,16 @@ def plot_phase_portrait(
     """2D scatter: entropy vs compressibility for multiple runs."""
     fig, ax = plt.subplots(figsize=(8, 6))
 
-    for path, label in zip(run_paths, labels):
+    for path, context_length, label in zip(run_paths, context_lengths, labels):
         df = pd.read_parquet(path)
         exp = df[df.phase == "experiment"].reset_index(drop=True)
         result = analyze_run(path, context_length)
         comp = result["compressibility_primary"]
 
-        # Align: compressibility starts at index context_length-1
         valid_mask = ~np.isnan(comp)
         entropy = exp.entropy.to_numpy()[valid_mask]
         comp_valid = comp[valid_mask]
 
-        # Downsample both together
         n = len(entropy) // downsample * downsample
         entropy_ds = entropy[:n].reshape(-1, downsample).mean(axis=1)
         comp_ds = comp_valid[:n].reshape(-1, downsample).mean(axis=1)
@@ -121,7 +200,7 @@ def plot_phase_portrait(
         ax.scatter(entropy_ds, comp_ds, label=label, s=5, alpha=0.5)
 
     ax.set_xlabel("Softmax entropy (nats)")
-    ax.set_ylabel(f"Compressibility (W={context_length})")
+    ax.set_ylabel("Compressibility (W=L)")
     ax.set_title(title)
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -134,36 +213,64 @@ def plot_phase_portrait(
     return out
 
 
-if __name__ == "__main__":
+def main() -> None:
+    args = parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
 
-    # Plot all available L=64 seed=42 runs
-    runs_dir = Path("data/runs")
-    paths = sorted(runs_dir.glob("L0064_T*_S42.parquet"))
-    if not paths:
-        log.info("No L=64 runs found")
-        raise SystemExit(1)
+    paths = sorted(Path(p) for p in args.runs)
+    for p in paths:
+        if not p.exists():
+            raise FileNotFoundError(f"Run file not found: {p}")
 
-    labels = [p.stem.split("_")[1] for p in paths]  # e.g. "T0.50"
+    all_params = [parse_run_name(p) for p in paths]
+    labels = [make_label(p, all_params) for p in all_params]
+    context_lengths = [p["L"] for p in all_params]
+    prefix = make_output_prefix(all_params, args.suffix)
 
-    plot_entropy_timeseries(
-        paths, 64, labels,
-        title="Entropy over time (L=64, seed=42)",
-        output_name="L0064_S42_entropy_timeseries.png",
-    )
+    # Build title from varying dimensions
+    fixed_parts = []
+    ls = sorted({p["L"] for p in all_params})
+    ts = sorted({p["T"] for p in all_params})
+    ss = sorted({p["S"] for p in all_params})
+    if len(ls) == 1:
+        fixed_parts.append(f"L={ls[0]}")
+    if len(ts) == 1:
+        fixed_parts.append(f"T={ts[0]:.2f}")
+    if len(ss) == 1:
+        fixed_parts.append(f"seed={ss[0]}")
+    title_ctx = ", ".join(fixed_parts) if fixed_parts else "all runs"
 
-    plot_compressibility_timeseries(
-        paths, 64, labels,
-        title="Compressibility over time (L=64, W=64, seed=42)",
-        output_name="L0064_S42_compressibility_timeseries.png",
-    )
+    log.info("Plotting %d runs: %s", len(paths), [p.stem for p in paths])
 
-    plot_phase_portrait(
-        paths, 64, labels,
-        title="Phase portrait (L=64, W=64, seed=42)",
-        output_name="L0064_S42_phase_portrait.png",
-    )
+    if "entropy" in args.plots:
+        plot_entropy_timeseries(
+            paths, labels,
+            title=f"Entropy over time ({title_ctx})",
+            output_name=f"{prefix}_entropy.png",
+            downsample=args.downsample,
+        )
+
+    if "compressibility" in args.plots:
+        plot_compressibility_timeseries(
+            paths, context_lengths, labels,
+            title=f"Compressibility over time ({title_ctx})",
+            output_name=f"{prefix}_compressibility.png",
+            downsample=args.downsample,
+        )
+
+    if "phase" in args.plots:
+        plot_phase_portrait(
+            paths, context_lengths, labels,
+            title=f"Phase portrait ({title_ctx})",
+            output_name=f"{prefix}_phase.png",
+            downsample=args.downsample,
+        )
+
+
+if __name__ == "__main__":
+    main()
