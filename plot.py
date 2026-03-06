@@ -200,31 +200,50 @@ def plot_compressibility_timeseries(
     return out
 
 
+def _phase_data(run: RunBundle, downsample: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Downsample entropy, compressibility, and EOS flag for phase plots.
+
+    Returns (entropy_ds, comp_ds, has_eos) where has_eos is True for any
+    downsampled block containing at least one EOS token.
+    """
+    comp = _comp(run, run.params["L"])
+    valid_mask = ~np.isnan(comp)
+    entropy = run.exp.entropy.to_numpy()[valid_mask]
+    comp_valid = comp[valid_mask]
+    eos = run.exp.eos.to_numpy()[valid_mask].astype(float)
+
+    n = len(entropy) // downsample * downsample
+    entropy_ds = entropy[:n].reshape(-1, downsample).mean(axis=1)
+    comp_ds = comp_valid[:n].reshape(-1, downsample).mean(axis=1)
+    has_eos = eos[:n].reshape(-1, downsample).any(axis=1)
+
+    return entropy_ds, comp_ds, has_eos
+
+
 def plot_phase_portrait(
     runs: list[RunBundle],
     title: str,
     output_name: str,
     downsample: int = 100,
 ) -> Path:
-    """2D scatter: entropy vs compressibility for multiple runs."""
+    """2D scatter: entropy vs compressibility, EOS tokens marked with diamonds."""
     fig, ax = plt.subplots(figsize=(8, 6))
 
     for run in runs:
-        comp = _comp(run, run.params["L"])
-        valid_mask = ~np.isnan(comp)
-        entropy = run.exp.entropy.to_numpy()[valid_mask]
-        comp_valid = comp[valid_mask]
+        entropy_ds, comp_ds, has_eos = _phase_data(run, downsample)
 
-        n = len(entropy) // downsample * downsample
-        entropy_ds = entropy[:n].reshape(-1, downsample).mean(axis=1)
-        comp_ds = comp_valid[:n].reshape(-1, downsample).mean(axis=1)
-
-        ax.scatter(entropy_ds, comp_ds, label=run.label, s=5, alpha=0.5)
+        ax.scatter(entropy_ds[~has_eos], comp_ds[~has_eos],
+                   label=run.label, s=5, alpha=0.5)
+        if has_eos.any():
+            ax.scatter(entropy_ds[has_eos], comp_ds[has_eos],
+                       s=18, alpha=0.7, marker="D", edgecolors="k",
+                       linewidths=0.3, zorder=5,
+                       label=f"{run.label} (EOS)")
 
     ax.set_xlabel("Softmax entropy (nats)")
     ax.set_ylabel("Compressibility (W=L)")
     ax.set_title(title)
-    ax.legend()
+    ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
 
@@ -253,32 +272,31 @@ def plot_temporal_phase(
     run_data = []
 
     for run in runs:
-        comp = _comp(run, run.params["L"])
-        valid_mask = ~np.isnan(comp)
-        entropy = run.exp.entropy.to_numpy()[valid_mask]
-        comp_valid = comp[valid_mask]
-
-        n = len(entropy) // downsample * downsample
-        entropy_ds = entropy[:n].reshape(-1, downsample).mean(axis=1)
-        comp_ds = comp_valid[:n].reshape(-1, downsample).mean(axis=1)
+        entropy_ds, comp_ds, has_eos = _phase_data(run, downsample)
         time_ds = np.arange(len(entropy_ds))
 
         all_entropy.extend(entropy_ds)
         all_comp.extend(comp_ds)
-        run_data.append((entropy_ds, comp_ds, time_ds))
+        run_data.append((entropy_ds, comp_ds, time_ds, has_eos))
 
     e_min, e_max = min(all_entropy), max(all_entropy)
     c_min, c_max = min(all_comp), max(all_comp)
     e_pad = (e_max - e_min) * 0.05
     c_pad = (c_max - c_min) * 0.05
 
-    for idx, (run, (entropy_ds, comp_ds, time_ds)) in enumerate(zip(runs, run_data)):
+    for idx, (run, (entropy_ds, comp_ds, time_ds, has_eos)) in enumerate(zip(runs, run_data)):
         row, col = divmod(idx, cols)
         ax = axes[row][col]
         sc = ax.scatter(
             entropy_ds, comp_ds, c=time_ds, cmap="cividis",
             s=8, alpha=0.6, edgecolors="none",
         )
+        if has_eos.any():
+            ax.scatter(
+                entropy_ds[has_eos], comp_ds[has_eos],
+                s=24, alpha=0.8, marker="D", edgecolors="k",
+                linewidths=0.4, facecolors="none", zorder=5,
+            )
         ax.set_xlim(e_min - e_pad, e_max + e_pad)
         ax.set_ylim(c_min - c_pad, c_max + c_pad)
         ax.set_title(run.label)
