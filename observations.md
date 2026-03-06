@@ -104,6 +104,58 @@ python plot.py --runs data/runs/L*_T*_S42.parquet
 
 ---
 
+### 2026-03-07 — EOS signal analysis across all runs
+
+**Data:** All available runs (L=64 x 3T, L=128 T=0.50 partial, L=256 x 3T)
+
+**EOS counts and rates:**
+
+| Run | N tokens | EOS count | EOS rate | 5-block profile |
+|-----|----------|-----------|----------|-----------------|
+| L=64 T=0.50 | 100k | 13 | 0.013% | [4, 3, 0, 3, 3] |
+| L=64 T=1.00 | 100k | 91 | 0.091% | [21, 14, 15, 18, 23] |
+| L=64 T=1.50 | 100k | 63 | 0.063% | [15, 8, 8, 18, 14] |
+| L=128 T=0.50 | 52k | 3 | 0.006% | [0, 0, 1, 2, 0] |
+| L=256 T=0.50 | 100k | 1 | 0.001% | [1, 0, 0, 0, 0] |
+| L=256 T=1.00 | 100k | 57 | 0.057% | [11, 12, 14, 2, 18] |
+| L=256 T=1.50 | 100k | 46 | 0.046% | [12, 5, 9, 9, 11] |
+
+**EOS rate peaks at T=1.00** at both L=64 (0.091%) and L=256 (0.057%). Not at the collapse regime, not at noise — at the "interesting" regime. The block profiles at T=1.00 are relatively flat, suggesting EOS events are distributed throughout the run, not clustered in transients.
+
+**L suppresses EOS in the collapse regime.** L=64 T=0.50: 13 EOS. L=128 T=0.50: 3 in 52k tokens. L=256 T=0.50: 1 total, in the first block only — once the attractor locks, EOS probability drops to essentially zero. The model is so confident in the repetitive continuation that it never considers stopping.
+
+**L also suppresses EOS at T=1.00 and T=1.50**, but less dramatically (91→57 and 63→46). The suppression is strongest in the collapse regime.
+
+**Log-probability tracks entropy closely:** mean log-prob ≈ -mean entropy across all runs (e.g., L=64 T=1.00: entropy 3.72, log-prob -3.72). This is expected at equilibrium — average surprisal matches distribution entropy.
+
+**Three-sensor interpretation.** EOS is a model-internal coherence signal (the model's assessment of sequence completeness), distinct from entropy (local uncertainty) and compressibility (observer-assessed structure). The three sensors probe different aspects of the same process. EOS peaking at T=1.00 suggests the rich-dynamics regime is where the model encounters the most "natural boundaries" — possibly marking mode transitions.
+
+**For control:** EOS is sparse (~1 per 1000-10000 tokens), so it's a slow-timescale indicator requiring wide trailing windows for stable rate estimates. More useful as a regime classifier than a fast correction signal. The dramatic L-dependence in the collapse regime (13→3→1 across L=64/128/256) could serve as an early warning of attractor lock-in during dynamic-L control.
+
+```bash
+python -c "
+import pandas as pd
+from pathlib import Path
+for p in sorted(Path('data/runs').glob('*.parquet')):
+    df = pd.read_parquet(p)
+    exp = df[df.phase == 'experiment'].reset_index(drop=True)
+    n = len(exp)
+    bs = n // 5
+    blocks = [int(exp.eos[i*bs:(i+1)*bs].sum()) for i in range(5)]
+    print(f'{p.stem}: {n} tokens, EOS={int(exp.eos.sum())} rate={exp.eos.mean():.6f} blocks={blocks}')
+"
+```
+
+---
+
 ### Reproduction
 
 All standard plots can be regenerated via `python reproduce_plots.py`.
+
+Figures referenced above:
+- `L0064_Tmulti_S42_phase.png` — L=64 three-regime phase portrait
+- `Lmulti_T0.50_S42_temporal.png` — cross-L temporal at T=0.50 (escape vs lock)
+- `Lmulti_T1.00_S42_temporal.png` — cross-L temporal at T=1.00 (operating point shift)
+- `Lmulti_Tmulti_S42_phase.png` — combined phase portrait all runs
+- `Lmulti_Tmulti_S42_violin.png` — combined violin distributions
+- `Lmulti_Tmulti_S42_compressibility.png` — compressibility time series all runs
