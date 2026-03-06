@@ -1,8 +1,8 @@
 # autoloop — Project Brief
 
-**Working paper title:** *Attractor Dynamics in Closed-Loop Autoregressive Generation*
+**Working paper title:** *Multi-Scale Complexity Control in Closed-Loop Autoregressive Generation*
 
-**Status:** Pre-registration draft
+**Status:** Active — Phase 0 pilot in progress
 **Date:** March 2026
 
 ---
@@ -13,7 +13,9 @@ When an autoregressive language model generates tokens indefinitely — with old
 
 Despite the simplicity of this setup, the resulting system has received almost no formal study. Basic questions remain open: What attractors does the system converge to? Is there a crossover between repetitive collapse and incoherent noise? How sharp is that crossover, and what structural modes persist near it?
 
-This project systematically characterizes the dynamical landscape of autoregressive self-play — first at fixed temperature, then under controlled temperature ramps — to map the phase structure and identify attractor dynamics intrinsic to the model.
+**Central insight (emerging from Phase 0 pilot):** Output compressibility measured at different window sizes probes structure at different scales. Short-range compression (W << L) detects local repetitive collapse. Long-range compression (W ≥ L) detects coherence across the model's full memory horizon. The ratio between these signals defines a multi-dimensional characterization of the output regime — and offers a natural sensor array for closed-loop control. Temperature modulation guided by multi-scale compression feedback could maintain the system at a target operating point in complexity space, navigating between collapse and noise.
+
+This project systematically characterizes the dynamical landscape of autoregressive self-play, develops multi-scale compression as a diagnostic framework, and builds toward closed-loop complexity control.
 
 ## 2. Research Questions
 
@@ -21,7 +23,13 @@ This project systematically characterizes the dynamical landscape of autoregress
 
 **RQ2 — Attractor characterization.** What structural modes does the system visit at and near the crossover? What are their dwell time distributions and transition dynamics?
 
-**RQ3 — Path dependence.** Does the system's behavior at a given temperature depend on how that temperature was reached? Do temperature ramps in opposite directions reveal hysteresis, indicating multistability or genuine attractor structure?
+**RQ3 — Multi-scale structure.** How do compressibility signals at different window sizes (W = L/4, L, 2L, 4L) relate to each other? Where do they decouple — i.e., where does local structure exist without global repetition? This decoupling zone is the regime of maximal complexity.
+
+**RQ4 — Context length as control parameter.** How does context length L modulate attractor basin depth, crossover location, and multi-scale structure? (Emerging finding: L dramatically deepens collapse attractors and may shift the crossover temperature.)
+
+**RQ5 — Path dependence.** Does the system's behavior at a given temperature depend on how that temperature was reached? Do temperature ramps in opposite directions reveal hysteresis, indicating multistability or genuine attractor structure?
+
+**RQ6 — Closed-loop complexity control.** Can temperature be dynamically adjusted using multi-scale compression as a feedback signal to maintain the system in a target complexity regime? Can this sustain coherent generation that neither collapses nor becomes noise?
 
 ## 3. Experimental Design
 
@@ -59,15 +67,20 @@ This produces a self-consistent initial state: the context consists entirely of 
 - **Decoded text** — the token decoded to its text representation (cached to avoid needing the model/tokenizer at analysis time)
 - **Softmax entropy** — Shannon entropy of the model's output probability distribution: $H_t = -\sum_i p_i \log p_i$. A property of the model's internal state (how uncertain it is about the next token), computationally free since logits are already available, deterministic (independent of which token is sampled)
 - **Log-probability of sampled token** — how likely the actually-chosen token was under the distribution. The gap between distribution entropy and negative log-probability indicates how "typical" each sample was
-- **Temperature** — current $T_t$ (fixed per run in Phase 1, varying in Phase 2)
+- **Temperature** — current $T_t$ (fixed per run in Phase 1, varying in Phase 2+)
 - **EOS flag** — whether the sampled token was the end-of-sequence token
 
 **Derived in post-hoc analysis (not computed during generation):**
 
-- Output compressibility over sliding windows (gzip compression ratio of decoded text). Primary window $W = L$ (one context-length of output — the natural memory horizon of the system). Secondary diagnostic window $W = L/4$ for detecting local degenerate collapse
+- Output compressibility over sliding windows at multiple scales:
+  - $W = L/4$ — local collapse diagnostic
+  - $W = L$ — primary signal (one context-length, the model's memory horizon)
+  - $W = 2L$, $W = 4L$ — emergent structure beyond the context window (Phase 1+)
+- Multi-scale compression ratio: relationship between compressibility at different W values
 - Smoothed entropy (EMA or other filters at various timescales)
 - Autocorrelation and spectral density of entropy and compressibility time series
 - 2D phase portraits: softmax entropy vs. output compressibility
+- Distribution evolution: per-time-block violin plots of entropy and compressibility
 - Dwell time distributions in identified regimes
 - EOS rate statistics: mean inter-EOS interval, variability, trends
 - Transfer functions: $T \to C$ and $T \to H$ curves
@@ -100,17 +113,21 @@ EOS tokens are retained in the generation stream.
 
 Sampling uses pure temperature scaling only — no top-k or nucleus (top-p) filtering — to keep a single, interpretable control parameter.
 
+Checkpoints saved every 1k steps (context tensor, RNG state, accumulated records). Runs can be interrupted and resumed, or extended to longer N by re-running with higher --num-tokens.
+
 ### 3.6 Independent Variables
 
-**Phase 1 (fixed temperature):**
+**Phase 0–1 (fixed temperature):**
 
 | Variable | Values | Notes |
 |---|---|---|
 | Context length $L$ | 64, 256, 1024 | Pilot grid; may be extended |
-| Temperature $T$ | 0.5, 1.0, 1.5 | Pilot grid; may be extended |
-| PRNG seed | 42, 43, 44 | Three replicates per condition |
+| Temperature $T$ | 0.5, 1.0, 1.5 | Pilot grid; Phase 1 densifies crossover region (~0.6–0.9) |
+| PRNG seed | 42, 123, 7 | Three replicates per condition |
 
 **Phase 2 (temperature ramps):** Design determined by Phase 1 results. Anticipated variables are ramp direction (increasing / decreasing), ramp rate, and temperature range (spanning the crossover region identified in Phase 1).
+
+**Phase 3 (closed-loop control):** Temperature adjusted dynamically using multi-scale compression feedback. Design determined by Phase 1–2 results.
 
 ### 3.7 Run Parameters
 
@@ -122,30 +139,36 @@ Sampling uses pure temperature scaling only — no top-k or nucleus (top-p) filt
 
 ## 4. Implementation Plan
 
-### Phase 0 — Infrastructure and Pilot
+### Phase 0 — Infrastructure and Pilot ← CURRENT
 
-Build core generation loop. Run the pilot grid.
+Build core generation loop. Run the pilot grid. Develop analysis and visualization tooling.
 
 **Deliverables:**
-- Working generation loop with pre-fill procedure
-- Per-step logging: token ID, decoded text, softmax entropy, log-probability, temperature, EOS flag
-- Logging pipeline (Parquet)
-- End-to-end validation on SmolLM-135M
-- Complete pilot grid: 3 temperatures × 3 context lengths × 3 seeds = 27 runs
-- Post-hoc analysis tooling: compressibility computation, phase portrait plotting
-- Per-run timing data
+- Working generation loop with pre-fill procedure and checkpoint/resume ✓
+- Per-step logging to Parquet with JSON metadata sidecar ✓
+- End-to-end validation on SmolLM-135M ✓
+- Post-hoc analysis: compressibility (W=L, W=L/4), stationarity assessment ✓
+- Visualization: entropy/compressibility time series, phase portraits, temporal phase portraits, violin distribution plots ✓
+- Plot reproduction script ✓
+- Pilot grid runs: 3 temperatures × 3 context lengths × 3 seeds = 27 runs (in progress)
 - Assessment: which axes (T, L) show the most interesting variation, and where to focus
 
-### Phase 1 — Fixed-Temperature Characterization
+**Emerging findings (see observations.md):**
+- Three distinct regimes at L=64: collapse (T=0.5), rich dynamics (T=1.0), noise (T=1.5)
+- Context length L dramatically deepens collapse attractor (L=256 vs L=64 at T=0.5)
+- Crossover region likely T=0.6–0.9
+- W=L/4 and W=L compressibility decouple in the interesting regime
 
-Expand the pilot grid based on Phase 0 findings. The exact grid is determined by Phase 0 results, but the anticipated direction is denser temperature spacing through any identified crossover region, and potentially additional $L$ values if context length effects are substantial.
+### Phase 1 — Fixed-Temperature Characterization + Multi-Scale Analysis
+
+Expand the pilot grid based on Phase 0 findings. Dense temperature spacing through crossover region. Introduce compressibility at W=2L and W=4L to probe emergent structure beyond the context window.
 
 **Deliverables:**
 - Transfer functions: $T \to C$ and $T \to H$ curves at each $L$
-- 2D phase portraits: softmax entropy vs. compressibility at each condition
-- Identification and characterization of crossover region(s)
-- Stationarity assessment across conditions
+- Multi-scale compression profiles: how compressibility at W=L/4, L, 2L, 4L varies with T
+- Identification of the "decoupling zone" where local structure exists without global repetition
 - Complete fixed-temperature phase map
+- Correlation length analysis: at what scale does structure disappear, and how does this depend on T and L?
 
 ### Phase 2 — Temperature Ramp Experiments
 
@@ -162,22 +185,43 @@ Controlled temperature ramps through the crossover region identified in Phase 1.
 - Characterization of transition dynamics: does the system snap between modes, or drift smoothly?
 - Comparison to fixed-temperature baselines: do ramp experiments visit states not seen in fixed-$T$ runs?
 
-### Phase 3 — Targeted Extensions
+### Phase 3 — Closed-Loop Complexity Control
 
-Limited extensions guided by findings from Phases 1–2. Possible directions include extended runs at conditions showing slow-timescale dynamics, finer parameter spacing in regions of particular interest, or pre-fill temperature sensitivity checks.
+Use multi-scale compression as a feedback signal to dynamically control temperature, maintaining the system in a target complexity regime.
 
-### Phase 4 — Writing
+**Design (informed by Phase 1–2 results):**
+- Controller that monitors compressibility at multiple scales (W=L/4, L, and potentially longer)
+- Raises T when short-range compression drops too low (approaching loop collapse)
+- Lowers T when long-range compression gets too high (approaching noise)
+- Target: sustain the system in the "decoupling zone" — local structure without global repetition
+- Explore different target points in (short-compression, long-compression) space
+
+**Deliverables:**
+- Working closed-loop controller
+- Demonstration that dynamic T control can maintain the system at criticality
+- Characterization of achievable operating points in multi-scale compression space
+- Comparison to fixed-T baselines: does controlled generation produce qualitatively different output?
+- Analysis of whether structure can be maintained at scales beyond L (emergent long-range order from limited-memory system)
+
+### Phase 4 — Targeted Extensions
+
+Limited extensions guided by findings from Phases 1–3. Possible directions include:
+- Extended runs at conditions showing slow-timescale dynamics
+- Finer parameter spacing in regions of particular interest
+- Pre-fill temperature sensitivity checks
+- Model scaling experiments (1B, 8B)
+
+### Phase 5 — Writing
 
 Paper draft, figures, supplementary materials, code and data release.
-
-The paper presents two main results: the fixed-temperature phase map (Phase 1) and the ramp / hysteresis experiments (Phase 2), with Phase 3 extensions as supplementary material if applicable.
 
 ## 5. Expected Contributions
 
 1. **A systematic characterization** of attractor behavior, repetition dynamics, and phase structure in autoregressive self-play as a function of sampling temperature and context length.
-2. **Hysteresis and path-dependence analysis** revealing multistability and attractor structure through temperature ramp experiments.
-3. **Dual-signal methodology** demonstrating the complementary value of output compressibility (information content of the decoded token stream) and softmax entropy (model uncertainty) for characterizing self-play dynamics.
-4. **A reusable experimental framework** (`autoloop`) for studying closed-loop autoregressive dynamics.
+2. **Multi-scale compression as a diagnostic framework** for characterizing the complexity of autoregressive output — probing structure at local (W << L), context-scale (W = L), and emergent (W >> L) scales.
+3. **Hysteresis and path-dependence analysis** revealing multistability and attractor structure through temperature ramp experiments.
+4. **Closed-loop complexity control** demonstrating that temperature modulation guided by multi-scale compression feedback can maintain a language model at a target operating point in complexity space.
+5. **A reusable experimental framework** (`autoloop`) for studying closed-loop autoregressive dynamics.
 
 ## 6. Risks and Mitigations
 
@@ -187,6 +231,8 @@ The paper presents two main results: the fixed-temperature phase map (Phase 1) a
 | No clear crossover — gradual, featureless transition | Low | Crossover sharpness and its characterization are themselves a finding; methodology contribution stands regardless |
 | Compressibility too noisy at small $W$ | Low-Medium | W is an analysis parameter, not baked into collection; can explore multiple window sizes post-hoc |
 | Pilot grid misses interesting region | Low | Pilot spans a wide range; Phase 1 fills in based on findings |
+| Multi-scale compression signals are too correlated to decouple | Medium | Even high correlation with scale-dependent offsets is informative; the existence or absence of a decoupling zone is itself a finding |
+| Closed-loop controller is unstable or oscillates | Medium | Phase 1–2 provide the static characterization needed to design a stable controller; can start with conservative gain and simple proportional control |
 
 ## 7. Open Questions for Resolution During Phase 0
 
@@ -199,19 +245,22 @@ The paper presents two main results: the fixed-temperature phase map (Phase 1) a
 
 Natural extensions beyond this study include:
 
-- **Model scaling:** Replication at 1B, 8B, and beyond
+- **Model scaling:** Replication at 1B, 8B, and beyond — do phase boundaries and multi-scale structure persist?
 - **Architecture comparison:** Models with different training regimes, tokenizers, or architectural choices
 - **Extended context lengths:** Larger $L$ values, potentially up to native context window limits
-- **Entropy-regulated control:** A closed-loop controller that adjusts temperature to maintain a target output compressibility, enabling precise navigation of the dynamical landscape
 - **Alternative measurements:** Embedding-space analysis, n-gram statistics, alternative compressors
 - **Initial condition sensitivity:** Systematic variation of pre-fill temperature, alternative pre-fill strategies
 - **Alternative sampling strategies:** Top-k, top-p (nucleus) sampling as additional control variables (this study uses pure temperature scaling only)
+- **Multi-dimensional control:** Using multiple actuators (T, top-k, top-p) simultaneously, guided by multi-scale compression feedback, to navigate a higher-dimensional control space
+- **Practical applications:** Compression-guided decoding strategies for production language model inference
 
 ## 9. Tools and Dependencies
 
-- **Model:** SmolLM-135M (HuggingFace), pre-downloaded
+- **Model:** SmolLM-135M (HuggingFace), pre-downloaded to `data/model/SmolLM-135M/`
 - **Model loading / tokenization:** HuggingFace Transformers
-- **Inference / generation loop:** PyTorch (custom)
-- **Logging:** Parquet per run
-- **Analysis:** NumPy, SciPy, matplotlib, Python gzip module
-- **Compute:** Local GPU (single consumer GPU sufficient for 135M model)
+- **Inference / generation loop:** PyTorch (custom), CUDA 12.6
+- **Logging:** Parquet per run, JSON metadata sidecar
+- **Analysis:** NumPy, SciPy, scikit-learn, matplotlib, Python gzip module
+- **Package management:** uv
+- **Compute:** Local GPU (GTX 1070, single consumer GPU sufficient for 135M model)
+- **Throughput:** ~24–38 tok/s at L=64, ~10.5 tok/s at L=1024
