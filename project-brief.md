@@ -84,7 +84,7 @@ This produces a self-consistent initial state: the context consists entirely of 
 - 2D phase portraits: softmax entropy vs. output compressibility
 - Distribution evolution: per-time-block violin plots of entropy and compressibility
 - Dwell time distributions in identified regimes
-- EOS rate statistics: mean inter-EOS interval, variability, trends
+- EOS rate statistics: trailing EOS rate over sliding window, mean inter-EOS interval, variability, trends. EOS is a model-internal coherence signal — the model's assessment of sequence completeness — distinct from entropy (local uncertainty) and compressibility (observer-assessed structure). Emerging finding: EOS rate peaks at T=1.0 (the rich-dynamics regime), not at collapse or noise; L dramatically suppresses EOS in the collapse regime.
 - Transfer functions: $T \to C$ and $T \to H$ curves
 - Hysteresis plots: system state vs. instantaneous $T$ for opposing ramp directions (Phase 2)
 
@@ -194,7 +194,7 @@ Controlled temperature ramps through the crossover region identified in Phase 1.
 Use multi-scale compression as a feedback signal to dynamically control temperature and context length, maintaining the system in a target complexity regime.
 
 **Design (informed by Phase 1–2 results):**
-- Controller that monitors compressibility at multiple scales (W=L/4, L, and potentially longer)
+- Controller that monitors compressibility at multiple scales (W=L/4, L, and potentially longer) plus trailing EOS rate as a third sensor (model-internal coherence signal)
 - **T actuator (fast):** Raises T when short-range compression drops too low (approaching loop collapse); lowers T when long-range compression gets too high (approaching noise)
 - **L actuator (structural):** Shortens L to escape stuck attractors (reducing memory depth makes attractor basins shallower); lengthens L to deepen coherence when the system is in a productive regime. L-reduction is an escape mechanism analogous to simulated annealing for memory depth
 - Target: sustain the system in the "decoupling zone" — local structure without global repetition
@@ -226,7 +226,7 @@ Paper draft, figures, supplementary materials, code and data release.
 1. **A systematic characterization** of attractor behavior, repetition dynamics, and phase structure in autoregressive self-play as a function of sampling temperature and context length.
 2. **Multi-scale compression as a diagnostic framework** for characterizing the complexity of autoregressive output — probing structure at local (W << L), context-scale (W = L), and emergent (W >> L) scales.
 3. **Hysteresis and path-dependence analysis** revealing multistability and attractor structure through temperature ramp experiments.
-4. **Closed-loop complexity control** demonstrating that temperature modulation guided by multi-scale compression feedback can maintain a language model at a target operating point in complexity space.
+4. **Closed-loop complexity control** demonstrating that joint temperature and context-length modulation ("memory-depth annealing"), guided by multi-scale compression and EOS-rate feedback, can maintain a language model at a target operating point in complexity space.
 5. **A reusable experimental framework** (`autoloop`) for studying closed-loop autoregressive dynamics.
 
 ## 6. Risks and Mitigations
@@ -242,10 +242,11 @@ Paper draft, figures, supplementary materials, code and data release.
 
 ## 7. Open Questions for Resolution During Phase 0
 
-- Per-run timing across the pilot grid → confirms 100k tokens is feasible at all conditions
+- ~~Per-run timing across the pilot grid~~ → confirmed: ~24–38 tok/s at L=64, scales with L
 - Compressor choice: gzip vs. zlib (quick empirical comparison)
-- Whether additional $L$ values or $T$ values are needed beyond the pilot grid
+- ~~Whether additional $L$ values or $T$ values are needed~~ → resolved: densify L=64–256, deprioritize L=1024; T crossover sweep in Phase 1
 - Appropriate smoothing timescales for entropy (EMA alpha or alternative filters)
+- How does EOS rate behave at intermediate L (128, 192)? Does the L-suppression curve match the attractor depth curve?
 
 ## 8. Future Directions
 

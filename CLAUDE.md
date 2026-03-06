@@ -8,16 +8,18 @@ Multi-scale complexity control in closed-loop autoregressive generation. See `pr
 
 ```
 generate.py          # Core generation loop, CLI entry point (with checkpoint/resume)
-analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries)
+analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries; cached to .pkl)
 plot.py              # Visualization (5 plot types, CLI with --runs and --plots)
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
+pilot_sweep.py       # Batch runner for pilot grid (idempotent, crash-resilient)
+share.md             # Draft post/article for sharing findings
 pilot-runs.md        # Run tracker: status of each pilot grid condition
 observations.md      # Append-only findings log with reproduction commands
 project-brief.md     # Research design document
-data/                # Gitignored. All generated data lives here
+data/                # Gitignored except figures
   model/SmolLM-135M/ # Local model weights (pre-downloaded)
-  runs/              # Parquet files + JSON sidecars + checkpoints
-  figures/           # Plot outputs
+  runs/              # Parquet files + JSON sidecars + checkpoints + analysis cache
+  figures/           # Plot outputs (tracked in git)
 ```
 
 Scripts, not a package. No `src/` layout. Add modules only when genuinely needed.
@@ -35,20 +37,21 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Modules expose clean interfaces; internals stay internal
 
 ### Data
-- All generated data goes under `data/` (gitignored)
+- All generated data goes under `data/` (gitignored except `data/figures/`)
 - One Parquet file per run, named `L{L:04d}_T{T:.2f}_S{seed}.parquet`
 - Each run includes a JSON sidecar with full metadata (parameters, model revision, torch version, timing)
+- Analysis cache: `.analysis.pkl` sidecars, invalidated by parquet mtime
 - Checkpoints: `L{L:04d}_T{T:.2f}_S{seed}.ckpt` — kept after run completion for extension
 - Model weights: `data/model/SmolLM-135M/` (local, not fetched at runtime)
 
 ### Git
-- No generated data, figures, or model weights in the repo
+- `data/figures/` tracked in git; all other data gitignored
 - `uv.lock` stays committed
 - Small, logical commits
 
 ### Sweep Scripts
-- No sweep script needed for Phase 0 — runs managed manually via `pilot-runs.md`
-- One sweep script per phase if needed: `pilot_sweep.py`, then `phase1_sweep.py`, etc.
+- `pilot_sweep.py`: batch runner for Phase 0 grid (idempotent, skips completed runs, crash-resilient)
+- One sweep script per phase if needed: `phase1_sweep.py`, etc.
 - Grid parameters hardcoded in each sweep script — no external config files
 - Each sweep script calls `generate.py` as a subprocess per condition (crash isolation, natural per-run independence)
 
@@ -62,15 +65,19 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 
 ### Data Collected (see pilot-runs.md for full status)
 - L=64 × T={0.5, 1.0, 1.5} × seed=42: done (100k each)
-- L=256 × T=0.50 × seed=42: done/near done
-- Remaining L=256 and L=1024 conditions: in progress
+- L=256 × T={0.5, 1.0, 1.5} × seed=42: done (100k each)
+- L=128, L=192 sweeps: in progress (pilot_sweep.py running overnight)
 
 ### Key Findings (see observations.md)
 - Three distinct regimes: collapse (T=0.5), rich dynamics (T=1.0), noise (T=1.5)
-- Context length L dramatically deepens collapse attractor
+- T and L are orthogonal actuators: T controls noise floor, L controls memory depth / attractor stickiness
+- L=64 escapes collapse attractors; L=256 locks in permanently — transition maps attractor depth curve
+- At T=1.0, L=256 shifts operating point without collapse — different equilibrium, not just deeper basin
 - W=L/4 and W=L compressibility decouple in the interesting regime
+- EOS rate peaks at T=1.0 (not collapse, not noise); L suppresses EOS dramatically in collapse regime
+- Three-sensor framework: entropy (uncertainty), compressibility (structure), EOS rate (model-assessed coherence)
 - Crossover region likely T=0.6–0.9, target for Phase 1 densification
-- Multi-scale compression ratio is a natural sensor for closed-loop control (Phase 3)
+- "Memory-depth annealing": L-reduction as escape mechanism from stuck attractors
 
 ## Key Parameters (Phase 0 Pilot)
 
