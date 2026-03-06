@@ -10,7 +10,7 @@ Multi-scale complexity control in closed-loop autoregressive generation. See `pr
 generate.py          # Core generation loop, CLI entry point (with checkpoint/resume)
 analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries)
 plot.py              # Visualization (5 plot types, CLI with --runs and --plots)
-reproduce_plots.sh   # Regenerate all standard plots from available data
+reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
 pilot-runs.md        # Run tracker: status of each pilot grid condition
 observations.md      # Append-only findings log with reproduction commands
 project-brief.md     # Research design document
@@ -58,7 +58,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `generate.py`: generation loop with pre-fill, per-step logging, checkpoint/resume
 - `analyze.py`: sliding window gzip compressibility (W=L, W=L/4), 5-block stationarity, run summaries
 - `plot.py`: entropy time series, compressibility time series, phase portraits, temporal phase portraits (cividis colormap), split violin distribution plots
-- `reproduce_plots.sh`: one-command regeneration of all standard plot slices
+- `reproduce_plots.py`: one-command regeneration of all standard plot slices (with mtime caching)
 
 ### Data Collected (see pilot-runs.md for full status)
 - L=64 × T={0.5, 1.0, 1.5} × seed=42: done (100k each)
@@ -94,8 +94,10 @@ python plot.py --runs data/runs/L0064_T*_S42.parquet
 python plot.py --runs data/runs/L*_T0.50_S42.parquet --plots violin temporal
 python plot.py --runs data/runs/L0064_T*_S42.parquet --downsample 50
 
-# Reproduce all standard plots
-bash reproduce_plots.sh
+# Reproduce all standard plots (skips up-to-date slices)
+python reproduce_plots.py
+python reproduce_plots.py --force          # bypass cache
+python reproduce_plots.py --plots entropy  # only specific plot types
 ```
 
 ## Dependencies
