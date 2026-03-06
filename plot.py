@@ -260,7 +260,7 @@ def plot_temporal_phase(
         row, col = divmod(idx, cols)
         ax = axes[row][col]
         sc = ax.scatter(
-            entropy_ds, comp_ds, c=time_ds, cmap="viridis",
+            entropy_ds, comp_ds, c=time_ds, cmap="RdYlGn_r",
             s=8, alpha=0.6, edgecolors="none",
         )
         ax.set_xlim(e_min - e_pad, e_max + e_pad)
