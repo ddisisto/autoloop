@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 FIGURES_DIR = Path("data/figures")
 
-PLOT_TYPES = ["entropy", "compressibility", "phase", "temporal"]
+PLOT_TYPES = ["entropy", "compressibility", "phase", "temporal", "violin"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -260,7 +260,7 @@ def plot_temporal_phase(
         row, col = divmod(idx, cols)
         ax = axes[row][col]
         sc = ax.scatter(
-            entropy_ds, comp_ds, c=time_ds, cmap="RdYlGn_r",
+            entropy_ds, comp_ds, c=time_ds, cmap="cividis",
             s=8, alpha=0.6, edgecolors="none",
         )
         ax.set_xlim(e_min - e_pad, e_max + e_pad)
@@ -276,6 +276,124 @@ def plot_temporal_phase(
     for idx in range(n_runs, rows * cols):
         row, col = divmod(idx, cols)
         axes[row][col].set_visible(False)
+
+    fig.suptitle(title, y=1.02)
+    fig.tight_layout()
+
+    out = ensure_figures_dir() / output_name
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("Saved %s", out)
+    return out
+
+
+def _draw_half_violin(ax: plt.Axes, data: np.ndarray, y_center: float,
+                      side: str, color: str, width: float = 0.35,
+                      alpha: float = 0.7, label: str | None = None) -> None:
+    """Draw a half-violin (KDE) on one side of y_center."""
+    from scipy.stats import gaussian_kde
+
+    if len(data) < 5 or np.std(data) < 1e-10:
+        # Degenerate: draw a thin line at the mean
+        xval = np.mean(data) if len(data) > 0 else 0
+        ax.plot([xval, xval], [y_center - width * 0.3, y_center + width * 0.3],
+                color=color, linewidth=1.5, alpha=alpha, label=label)
+        return
+
+    kde = gaussian_kde(data, bw_method="scott")
+    x_grid = np.linspace(np.percentile(data, 1), np.percentile(data, 99), 200)
+    density = kde(x_grid)
+    density = density / density.max() * width  # normalize to max width
+
+    if side == "upper":
+        ax.fill_between(x_grid, y_center, y_center + density,
+                        color=color, alpha=alpha, label=label)
+        ax.plot(x_grid, y_center + density, color=color, linewidth=0.5, alpha=0.9)
+    else:
+        ax.fill_between(x_grid, y_center - density, y_center,
+                        color=color, alpha=alpha, label=label)
+        ax.plot(x_grid, y_center - density, color=color, linewidth=0.5, alpha=0.9)
+
+
+def plot_violin(
+    run_paths: list[Path],
+    context_lengths: list[int],
+    labels: list[str],
+    title: str,
+    output_name: str,
+    n_blocks: int = 10,
+    downsample: int = 100,
+) -> Path:
+    """Split violin plot: entropy and compressibility distributions over time.
+
+    Two rows (entropy top, compressibility bottom) × one column per run.
+    Compressibility shows W=L solid and W=L/4 as lighter overlay.
+    """
+    n_runs = len(run_paths)
+    fig, axes = plt.subplots(2, n_runs, figsize=(5 * n_runs, 8), squeeze=False)
+
+    for run_idx, (path, context_length, label) in enumerate(
+        zip(run_paths, context_lengths, labels)
+    ):
+        ax_ent = axes[0][run_idx]
+        ax_comp = axes[1][run_idx]
+
+        df = pd.read_parquet(path)
+        exp = df[df.phase == "experiment"].reset_index(drop=True)
+        result = analyze_run(path, context_length)
+        comp_primary = result["compressibility_primary"]
+        comp_secondary = result["compressibility_secondary"]
+
+        block_size = len(exp) // n_blocks
+
+        for b in range(n_blocks):
+            sl = slice(b * block_size, (b + 1) * block_size)
+            y = b
+
+            # Entropy — symmetric violin
+            ent_block = exp.entropy.to_numpy()[sl]
+            _draw_half_violin(ax_ent, ent_block, y, "upper", "#2166ac")
+            _draw_half_violin(ax_ent, ent_block, y, "lower", "#2166ac")
+            ax_ent.axhline(y, color="grey", linewidth=0.3, alpha=0.5)
+
+            # Compressibility W=L — solid
+            comp_block = comp_primary[sl]
+            comp_valid = comp_block[~np.isnan(comp_block)]
+            _draw_half_violin(ax_comp, comp_valid, y, "upper", "#b2182b")
+            _draw_half_violin(ax_comp, comp_valid, y, "lower", "#b2182b")
+
+            # Compressibility W=L/4 — lighter overlay
+            comp_s_block = comp_secondary[sl]
+            comp_s_valid = comp_s_block[~np.isnan(comp_s_block)]
+            _draw_half_violin(ax_comp, comp_s_valid, y, "upper", "#b2182b",
+                              alpha=0.25)
+            _draw_half_violin(ax_comp, comp_s_valid, y, "lower", "#b2182b",
+                              alpha=0.25)
+            ax_comp.axhline(y, color="grey", linewidth=0.3, alpha=0.5)
+
+        block_k = block_size // 1000
+        yticks = range(n_blocks)
+        yticklabels = [f"{b * block_k}–{(b + 1) * block_k}k" for b in range(n_blocks)]
+        for ax in (ax_ent, ax_comp):
+            ax.set_yticks(yticks)
+            ax.set_yticklabels(yticklabels)
+            ax.grid(True, axis="x", alpha=0.3)
+
+        ax_ent.set_title(label)
+        ax_comp.set_xlabel("Value")
+
+    axes[0][0].set_ylabel("Entropy\n\nTime block")
+    axes[1][0].set_ylabel("Compressibility\n\nTime block")
+
+    # Add legend manually
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor="#2166ac", alpha=0.7, label="Entropy"),
+        Patch(facecolor="#b2182b", alpha=0.7, label="Compr. W=L"),
+        Patch(facecolor="#b2182b", alpha=0.25, label="Compr. W=L/4"),
+    ]
+    fig.legend(handles=legend_elements, loc="lower center", ncol=3,
+               fontsize=9, bbox_to_anchor=(0.5, -0.02))
 
     fig.suptitle(title, y=1.02)
     fig.tight_layout()
@@ -350,6 +468,14 @@ def main() -> None:
             paths, context_lengths, labels,
             title=f"Temporal phase portrait ({title_ctx})",
             output_name=f"{prefix}_temporal.png",
+            downsample=args.downsample,
+        )
+
+    if "violin" in args.plots:
+        plot_violin(
+            paths, context_lengths, labels,
+            title=f"Distribution over time ({title_ctx})",
+            output_name=f"{prefix}_violin.png",
             downsample=args.downsample,
         )
 
