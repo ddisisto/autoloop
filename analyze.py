@@ -8,6 +8,7 @@ Computes derived metrics from generation Parquet files:
 
 import gzip
 import logging
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -95,11 +96,30 @@ def summarize_run(df: pd.DataFrame) -> dict:
     }
 
 
+def _cache_path(parquet_path: Path, context_length: int) -> Path:
+    """Return the path for a cached analysis result."""
+    return parquet_path.with_suffix(f".L{context_length}.analysis.pkl")
+
+
+def _is_cache_valid(parquet_path: Path, cache_path: Path) -> bool:
+    """Check if cached analysis exists and is newer than the parquet."""
+    if not cache_path.exists():
+        return False
+    return cache_path.stat().st_mtime > parquet_path.stat().st_mtime
+
+
 def analyze_run(parquet_path: Path, context_length: int) -> dict:
     """Full analysis pipeline for a single run.
 
     Returns dict with summary stats, stationarity, and compressibility data.
+    Uses disk cache to avoid recomputing expensive compressibility.
     """
+    cache = _cache_path(parquet_path, context_length)
+    if _is_cache_valid(parquet_path, cache):
+        log.info("Loading cached analysis for %s", parquet_path.name)
+        with open(cache, "rb") as f:
+            return pickle.load(f)
+
     df = pd.read_parquet(parquet_path)
     exp = df[df.phase == "experiment"].reset_index(drop=True)
 
@@ -120,10 +140,16 @@ def analyze_run(parquet_path: Path, context_length: int) -> dict:
     comp_valid = comp_primary[~np.isnan(comp_primary)]
     comp_stationarity = stationarity_blocks(comp_valid)
 
-    return {
+    result = {
         "summary": summary,
         "entropy_stationarity": entropy_stationarity,
         "compressibility_stationarity": comp_stationarity,
         "compressibility_primary": comp_primary,
         "compressibility_secondary": comp_secondary,
     }
+
+    with open(cache, "wb") as f:
+        pickle.dump(result, f)
+    log.info("Cached analysis to %s", cache.name)
+
+    return result

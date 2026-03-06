@@ -14,6 +14,7 @@ Usage:
 import argparse
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -27,6 +28,18 @@ log = logging.getLogger(__name__)
 FIGURES_DIR = Path("data/figures")
 
 PLOT_TYPES = ["entropy", "compressibility", "phase", "temporal", "violin"]
+
+NEEDS_ANALYSIS = {"compressibility", "phase", "temporal", "violin"}
+
+
+@dataclass
+class RunBundle:
+    """Pre-loaded data for a single run, shared across plot functions."""
+    path: Path
+    params: dict
+    label: str
+    exp: pd.DataFrame
+    analysis: dict | None  # Result of analyze_run; None if no plot needs it
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,8 +120,7 @@ def ensure_figures_dir() -> Path:
 
 
 def plot_entropy_timeseries(
-    run_paths: list[Path],
-    labels: list[str],
+    runs: list[RunBundle],
     title: str,
     output_name: str,
     downsample: int = 100,
@@ -116,13 +128,11 @@ def plot_entropy_timeseries(
     """Plot entropy over time for multiple runs, downsampled for readability."""
     fig, ax = plt.subplots(figsize=(12, 4))
 
-    for path, label in zip(run_paths, labels):
-        df = pd.read_parquet(path)
-        exp = df[df.phase == "experiment"].reset_index(drop=True)
-        n = len(exp) // downsample * downsample
-        entropy = exp.entropy.to_numpy()[:n].reshape(-1, downsample).mean(axis=1)
+    for run in runs:
+        n = len(run.exp) // downsample * downsample
+        entropy = run.exp.entropy.to_numpy()[:n].reshape(-1, downsample).mean(axis=1)
         steps = np.arange(downsample // 2, n, downsample)
-        ax.plot(steps, entropy, label=label, linewidth=0.8)
+        ax.plot(steps, entropy, label=run.label, linewidth=0.8)
 
     ax.set_xlabel("Step (experiment phase)")
     ax.set_ylabel("Softmax entropy (nats)")
@@ -139,9 +149,7 @@ def plot_entropy_timeseries(
 
 
 def plot_compressibility_timeseries(
-    run_paths: list[Path],
-    context_lengths: list[int],
-    labels: list[str],
+    runs: list[RunBundle],
     title: str,
     output_name: str,
     downsample: int = 100,
@@ -149,14 +157,13 @@ def plot_compressibility_timeseries(
     """Plot compressibility (W=L) over time for multiple runs."""
     fig, ax = plt.subplots(figsize=(12, 4))
 
-    for path, context_length, label in zip(run_paths, context_lengths, labels):
-        result = analyze_run(path, context_length)
-        comp = result["compressibility_primary"]
+    for run in runs:
+        comp = run.analysis["compressibility_primary"]
         valid = comp[~np.isnan(comp)]
         n = len(valid) // downsample * downsample
         comp_ds = valid[:n].reshape(-1, downsample).mean(axis=1)
         steps = np.arange(downsample // 2, n, downsample)
-        ax.plot(steps, comp_ds, label=label, linewidth=0.8)
+        ax.plot(steps, comp_ds, label=run.label, linewidth=0.8)
 
     ax.set_xlabel("Step (experiment phase)")
     ax.set_ylabel("Compressibility (W=L)")
@@ -173,9 +180,7 @@ def plot_compressibility_timeseries(
 
 
 def plot_phase_portrait(
-    run_paths: list[Path],
-    context_lengths: list[int],
-    labels: list[str],
+    runs: list[RunBundle],
     title: str,
     output_name: str,
     downsample: int = 100,
@@ -183,21 +188,17 @@ def plot_phase_portrait(
     """2D scatter: entropy vs compressibility for multiple runs."""
     fig, ax = plt.subplots(figsize=(8, 6))
 
-    for path, context_length, label in zip(run_paths, context_lengths, labels):
-        df = pd.read_parquet(path)
-        exp = df[df.phase == "experiment"].reset_index(drop=True)
-        result = analyze_run(path, context_length)
-        comp = result["compressibility_primary"]
-
+    for run in runs:
+        comp = run.analysis["compressibility_primary"]
         valid_mask = ~np.isnan(comp)
-        entropy = exp.entropy.to_numpy()[valid_mask]
+        entropy = run.exp.entropy.to_numpy()[valid_mask]
         comp_valid = comp[valid_mask]
 
         n = len(entropy) // downsample * downsample
         entropy_ds = entropy[:n].reshape(-1, downsample).mean(axis=1)
         comp_ds = comp_valid[:n].reshape(-1, downsample).mean(axis=1)
 
-        ax.scatter(entropy_ds, comp_ds, label=label, s=5, alpha=0.5)
+        ax.scatter(entropy_ds, comp_ds, label=run.label, s=5, alpha=0.5)
 
     ax.set_xlabel("Softmax entropy (nats)")
     ax.set_ylabel("Compressibility (W=L)")
@@ -214,15 +215,13 @@ def plot_phase_portrait(
 
 
 def plot_temporal_phase(
-    run_paths: list[Path],
-    context_lengths: list[int],
-    labels: list[str],
+    runs: list[RunBundle],
     title: str,
     output_name: str,
     downsample: int = 100,
 ) -> Path:
     """Phase portrait with color = time, one subplot per run."""
-    n_runs = len(run_paths)
+    n_runs = len(runs)
     cols = min(n_runs, 3)
     rows = (n_runs + cols - 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 5 * rows), squeeze=False)
@@ -232,14 +231,10 @@ def plot_temporal_phase(
     all_comp = []
     run_data = []
 
-    for path, context_length in zip(run_paths, context_lengths):
-        df = pd.read_parquet(path)
-        exp = df[df.phase == "experiment"].reset_index(drop=True)
-        result = analyze_run(path, context_length)
-        comp = result["compressibility_primary"]
-
+    for run in runs:
+        comp = run.analysis["compressibility_primary"]
         valid_mask = ~np.isnan(comp)
-        entropy = exp.entropy.to_numpy()[valid_mask]
+        entropy = run.exp.entropy.to_numpy()[valid_mask]
         comp_valid = comp[valid_mask]
 
         n = len(entropy) // downsample * downsample
@@ -256,7 +251,7 @@ def plot_temporal_phase(
     e_pad = (e_max - e_min) * 0.05
     c_pad = (c_max - c_min) * 0.05
 
-    for idx, (label, (entropy_ds, comp_ds, time_ds)) in enumerate(zip(labels, run_data)):
+    for idx, (run, (entropy_ds, comp_ds, time_ds)) in enumerate(zip(runs, run_data)):
         row, col = divmod(idx, cols)
         ax = axes[row][col]
         sc = ax.scatter(
@@ -265,12 +260,12 @@ def plot_temporal_phase(
         )
         ax.set_xlim(e_min - e_pad, e_max + e_pad)
         ax.set_ylim(c_min - c_pad, c_max + c_pad)
-        ax.set_title(label)
+        ax.set_title(run.label)
         ax.set_xlabel("Softmax entropy (nats)")
         ax.set_ylabel("Compressibility (W=L)")
         ax.grid(True, alpha=0.3)
         cbar = fig.colorbar(sc, ax=ax)
-        cbar.set_label(f"Step (×{downsample})")
+        cbar.set_label(f"Step (x{downsample})")
 
     # Hide unused subplots
     for idx in range(n_runs, rows * cols):
@@ -316,9 +311,7 @@ def _draw_half_violin(ax: plt.Axes, data: np.ndarray, y_center: float,
 
 
 def plot_violin(
-    run_paths: list[Path],
-    context_lengths: list[int],
-    labels: list[str],
+    runs: list[RunBundle],
     title: str,
     output_name: str,
     n_blocks: int = 10,
@@ -326,43 +319,38 @@ def plot_violin(
 ) -> Path:
     """Split violin plot: entropy and compressibility distributions over time.
 
-    Two rows (entropy top, compressibility bottom) × one column per run.
+    Two rows (entropy top, compressibility bottom) x one column per run.
     Compressibility shows W=L solid and W=L/4 as lighter overlay.
     """
-    n_runs = len(run_paths)
+    n_runs = len(runs)
     fig, axes = plt.subplots(2, n_runs, figsize=(5 * n_runs, 8), squeeze=False)
 
-    for run_idx, (path, context_length, label) in enumerate(
-        zip(run_paths, context_lengths, labels)
-    ):
+    for run_idx, run in enumerate(runs):
         ax_ent = axes[0][run_idx]
         ax_comp = axes[1][run_idx]
 
-        df = pd.read_parquet(path)
-        exp = df[df.phase == "experiment"].reset_index(drop=True)
-        result = analyze_run(path, context_length)
-        comp_primary = result["compressibility_primary"]
-        comp_secondary = result["compressibility_secondary"]
+        comp_primary = run.analysis["compressibility_primary"]
+        comp_secondary = run.analysis["compressibility_secondary"]
 
-        block_size = len(exp) // n_blocks
+        block_size = len(run.exp) // n_blocks
 
         for b in range(n_blocks):
             sl = slice(b * block_size, (b + 1) * block_size)
             y = b
 
-            # Entropy — symmetric violin
-            ent_block = exp.entropy.to_numpy()[sl]
+            # Entropy -- symmetric violin
+            ent_block = run.exp.entropy.to_numpy()[sl]
             _draw_half_violin(ax_ent, ent_block, y, "upper", "#2166ac")
             _draw_half_violin(ax_ent, ent_block, y, "lower", "#2166ac")
             ax_ent.axhline(y, color="grey", linewidth=0.3, alpha=0.5)
 
-            # Compressibility W=L — solid
+            # Compressibility W=L -- solid
             comp_block = comp_primary[sl]
             comp_valid = comp_block[~np.isnan(comp_block)]
             _draw_half_violin(ax_comp, comp_valid, y, "upper", "#b2182b")
             _draw_half_violin(ax_comp, comp_valid, y, "lower", "#b2182b")
 
-            # Compressibility W=L/4 — lighter overlay
+            # Compressibility W=L/4 -- lighter overlay
             comp_s_block = comp_secondary[sl]
             comp_s_valid = comp_s_block[~np.isnan(comp_s_block)]
             _draw_half_violin(ax_comp, comp_s_valid, y, "upper", "#b2182b",
@@ -373,13 +361,13 @@ def plot_violin(
 
         block_k = block_size // 1000
         yticks = range(n_blocks)
-        yticklabels = [f"{b * block_k}–{(b + 1) * block_k}k" for b in range(n_blocks)]
+        yticklabels = [f"{b * block_k}-{(b + 1) * block_k}k" for b in range(n_blocks)]
         for ax in (ax_ent, ax_comp):
             ax.set_yticks(yticks)
             ax.set_yticklabels(yticklabels)
             ax.grid(True, axis="x", alpha=0.3)
 
-        ax_ent.set_title(label)
+        ax_ent.set_title(run.label)
         ax_comp.set_xlabel("Value")
 
     axes[0][0].set_ylabel("Entropy\n\nTime block")
@@ -421,7 +409,6 @@ def main() -> None:
 
     all_params = [parse_run_name(p) for p in paths]
     labels = [make_label(p, all_params) for p in all_params]
-    context_lengths = [p["L"] for p in all_params]
     prefix = make_output_prefix(all_params, args.suffix)
 
     # Build title from varying dimensions
@@ -439,9 +426,28 @@ def main() -> None:
 
     log.info("Plotting %d runs: %s", len(paths), [p.stem for p in paths])
 
+    # Determine whether any requested plot needs analysis
+    needs_analysis = bool(set(args.plots) & NEEDS_ANALYSIS)
+
+    # Pre-load all run data: parquet once, analyze_run once (if needed)
+    runs: list[RunBundle] = []
+    for path, params, label in zip(paths, all_params, labels):
+        log.info("Loading %s", path.stem)
+        df = pd.read_parquet(path)
+        exp = df[df.phase == "experiment"].reset_index(drop=True)
+
+        analysis = None
+        if needs_analysis:
+            log.info("Analyzing %s (context_length=%d)", path.stem, params["L"])
+            analysis = analyze_run(path, params["L"])
+
+        runs.append(RunBundle(
+            path=path, params=params, label=label, exp=exp, analysis=analysis,
+        ))
+
     if "entropy" in args.plots:
         plot_entropy_timeseries(
-            paths, labels,
+            runs,
             title=f"Entropy over time ({title_ctx})",
             output_name=f"{prefix}_entropy.png",
             downsample=args.downsample,
@@ -449,7 +455,7 @@ def main() -> None:
 
     if "compressibility" in args.plots:
         plot_compressibility_timeseries(
-            paths, context_lengths, labels,
+            runs,
             title=f"Compressibility over time ({title_ctx})",
             output_name=f"{prefix}_compressibility.png",
             downsample=args.downsample,
@@ -457,7 +463,7 @@ def main() -> None:
 
     if "phase" in args.plots:
         plot_phase_portrait(
-            paths, context_lengths, labels,
+            runs,
             title=f"Phase portrait ({title_ctx})",
             output_name=f"{prefix}_phase.png",
             downsample=args.downsample,
@@ -465,7 +471,7 @@ def main() -> None:
 
     if "temporal" in args.plots:
         plot_temporal_phase(
-            paths, context_lengths, labels,
+            runs,
             title=f"Temporal phase portrait ({title_ctx})",
             output_name=f"{prefix}_temporal.png",
             downsample=args.downsample,
@@ -473,7 +479,7 @@ def main() -> None:
 
     if "violin" in args.plots:
         plot_violin(
-            paths, context_lengths, labels,
+            runs,
             title=f"Distribution over time ({title_ctx})",
             output_name=f"{prefix}_violin.png",
             downsample=args.downsample,
