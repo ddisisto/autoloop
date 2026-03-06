@@ -13,9 +13,11 @@ When an autoregressive language model generates tokens indefinitely — with old
 
 Despite the simplicity of this setup, the resulting system has received almost no formal study. Basic questions remain open: What attractors does the system converge to? Is there a crossover between repetitive collapse and incoherent noise? How sharp is that crossover, and what structural modes persist near it?
 
-**Central insight (emerging from Phase 0 pilot):** Output compressibility measured at different window sizes probes structure at different scales. Short-range compression (W << L) detects local repetitive collapse. Long-range compression (W ≥ L) detects coherence across the model's full memory horizon. The ratio between these signals defines a multi-dimensional characterization of the output regime — and offers a natural sensor array for closed-loop control. Temperature modulation guided by multi-scale compression feedback could maintain the system at a target operating point in complexity space, navigating between collapse and noise.
+**Central insight (emerging from Phase 0 pilot):** Output compressibility measured at different window sizes probes structure at different scales. Short-range compression (W << L) detects local repetitive collapse. Long-range compression (W ≥ L) detects coherence across the model's full memory horizon. The ratio between these signals defines a multi-dimensional characterization of the output regime — and offers a natural sensor array for closed-loop control.
 
-This project systematically characterizes the dynamical landscape of autoregressive self-play, develops multi-scale compression as a diagnostic framework, and builds toward closed-loop complexity control.
+**Second insight (emerging from cross-L comparison):** Temperature and context length act as orthogonal actuators on fundamentally different axes. Temperature controls the *noise floor* — randomness of each individual sample. Context length controls the *memory horizon* — how much self-generated history the model conditions on, and therefore how deep and sticky attractor basins are. At T=0.50, L=64 shows persistent escape episodes from collapse attractors while L=256 locks in permanently. At T=1.00, L=256 shifts the system to a different operating point (higher entropy, lower compressibility) without causing collapse. This orthogonality suggests a two-actuator controller: T for fast corrections and L for structural regime selection — including using L-reduction as an escape mechanism from stuck attractors, analogous to simulated annealing but for memory depth.
+
+This project systematically characterizes the dynamical landscape of autoregressive self-play, develops multi-scale compression as a diagnostic framework, and builds toward closed-loop complexity control with joint T+L actuation.
 
 ## 2. Research Questions
 
@@ -25,11 +27,11 @@ This project systematically characterizes the dynamical landscape of autoregress
 
 **RQ3 — Multi-scale structure.** How do compressibility signals at different window sizes (W = L/4, L, 2L, 4L) relate to each other? Where do they decouple — i.e., where does local structure exist without global repetition? This decoupling zone is the regime of maximal complexity.
 
-**RQ4 — Context length as control parameter.** How does context length L modulate attractor basin depth, crossover location, and multi-scale structure? (Emerging finding: L dramatically deepens collapse attractors and may shift the crossover temperature.)
+**RQ4 — Context length as control parameter.** How does context length L modulate attractor basin depth, crossover location, and multi-scale structure? Is there a critical L above which collapse attractors become inescapable at a given T? (Emerging findings: L dramatically deepens collapse attractors; the escape-to-lock transition occurs between L=64 and L=256 at T=0.50; at T=1.00, L shifts the operating point without causing collapse.)
 
 **RQ5 — Path dependence.** Does the system's behavior at a given temperature depend on how that temperature was reached? Do temperature ramps in opposite directions reveal hysteresis, indicating multistability or genuine attractor structure?
 
-**RQ6 — Closed-loop complexity control.** Can temperature be dynamically adjusted using multi-scale compression as a feedback signal to maintain the system in a target complexity regime? Can this sustain coherent generation that neither collapses nor becomes noise?
+**RQ6 — Closed-loop complexity control.** Can temperature and context length be dynamically adjusted using multi-scale compression as a feedback signal to maintain the system in a target complexity regime? T for fast corrections (raise when short-range compression drops, lower when entropy spikes), L for structural regime selection (shorten to escape stuck attractors, lengthen to deepen coherence). Can this sustain coherent generation that neither collapses nor becomes noise?
 
 ## 3. Experimental Design
 
@@ -121,7 +123,7 @@ Checkpoints saved every 1k steps (context tensor, RNG state, accumulated records
 
 | Variable | Values | Notes |
 |---|---|---|
-| Context length $L$ | 64, 256, 1024 | Pilot grid; may be extended |
+| Context length $L$ | 64, 128, 192, 256 | Revised: densify 64–256 range where attractor depth transition occurs; 1024 deprioritized |
 | Temperature $T$ | 0.5, 1.0, 1.5 | Pilot grid; Phase 1 densifies crossover region (~0.6–0.9) |
 | PRNG seed | 42, 123, 7 | Three replicates per condition |
 
@@ -155,9 +157,11 @@ Build core generation loop. Run the pilot grid. Develop analysis and visualizati
 
 **Emerging findings (see observations.md):**
 - Three distinct regimes at L=64: collapse (T=0.5), rich dynamics (T=1.0), noise (T=1.5)
-- Context length L dramatically deepens collapse attractor (L=256 vs L=64 at T=0.5)
+- Context length L dramatically deepens collapse attractor (L=256 locks in, L=64 keeps escaping at T=0.5)
+- At T=1.0, L=256 shifts operating point (higher entropy, lower compressibility) without collapse — L and T are orthogonal
 - Crossover region likely T=0.6–0.9
 - W=L/4 and W=L compressibility decouple in the interesting regime
+- L-transition between 64–256 is where attractor escape/lock behavior changes — densify here, not at 1024
 
 ### Phase 1 — Fixed-Temperature Characterization + Multi-Scale Analysis
 
@@ -187,21 +191,23 @@ Controlled temperature ramps through the crossover region identified in Phase 1.
 
 ### Phase 3 — Closed-Loop Complexity Control
 
-Use multi-scale compression as a feedback signal to dynamically control temperature, maintaining the system in a target complexity regime.
+Use multi-scale compression as a feedback signal to dynamically control temperature and context length, maintaining the system in a target complexity regime.
 
 **Design (informed by Phase 1–2 results):**
 - Controller that monitors compressibility at multiple scales (W=L/4, L, and potentially longer)
-- Raises T when short-range compression drops too low (approaching loop collapse)
-- Lowers T when long-range compression gets too high (approaching noise)
+- **T actuator (fast):** Raises T when short-range compression drops too low (approaching loop collapse); lowers T when long-range compression gets too high (approaching noise)
+- **L actuator (structural):** Shortens L to escape stuck attractors (reducing memory depth makes attractor basins shallower); lengthens L to deepen coherence when the system is in a productive regime. L-reduction is an escape mechanism analogous to simulated annealing for memory depth
 - Target: sustain the system in the "decoupling zone" — local structure without global repetition
 - Explore different target points in (short-compression, long-compression) space
+- Explore the edge-of-chaos overlap zones visible in phase portraits where collapse and rich-dynamics regions share (entropy, compressibility) space
 
 **Deliverables:**
-- Working closed-loop controller
-- Demonstration that dynamic T control can maintain the system at criticality
+- Working closed-loop controller with joint T+L actuation
+- Demonstration that dynamic T+L control can maintain the system at criticality
 - Characterization of achievable operating points in multi-scale compression space
-- Comparison to fixed-T baselines: does controlled generation produce qualitatively different output?
+- Comparison to fixed-T/fixed-L baselines: does controlled generation produce qualitatively different output?
 - Analysis of whether structure can be maintained at scales beyond L (emergent long-range order from limited-memory system)
+- Characterization of L-escape dynamics: how quickly does shortening L allow escape from collapse attractors?
 
 ### Phase 4 — Targeted Extensions
 
@@ -251,7 +257,7 @@ Natural extensions beyond this study include:
 - **Alternative measurements:** Embedding-space analysis, n-gram statistics, alternative compressors
 - **Initial condition sensitivity:** Systematic variation of pre-fill temperature, alternative pre-fill strategies
 - **Alternative sampling strategies:** Top-k, top-p (nucleus) sampling as additional control variables (this study uses pure temperature scaling only)
-- **Multi-dimensional control:** Using multiple actuators (T, top-k, top-p) simultaneously, guided by multi-scale compression feedback, to navigate a higher-dimensional control space
+- **Multi-dimensional control:** Using multiple actuators (T, L, top-k, top-p) simultaneously, guided by multi-scale compression feedback, to navigate a higher-dimensional control space. Joint T+L control is the primary focus of Phase 3; additional actuators are future extensions
 - **Practical applications:** Compression-guided decoding strategies for production language model inference
 
 ## 9. Tools and Dependencies

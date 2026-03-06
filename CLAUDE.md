@@ -75,7 +75,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 ## Key Parameters (Phase 0 Pilot)
 
 - Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
-- Context lengths L: 64, 256, 1024
+- Context lengths L: 64, 128, 192, 256 (revised: densify 64–256 transition; 1024 deprioritized)
 - Temperatures T: 0.5, 1.0, 1.5
 - Seeds: 42, 123, 7 (3 per condition, 27 runs total)
 - Tokens per run: 100,000 (post-pre-fill)

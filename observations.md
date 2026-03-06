@@ -70,6 +70,40 @@ python plot.py --runs data/runs/L0064_T0.50_S42.parquet data/runs/L0256_T0.50_S4
 
 ---
 
+### 2026-03-07 — Full L=256 sweep and cross-L comparison
+
+**Data:** `L0256_T{0.50,1.00}_S42.parquet` (100k), `L0256_T1.50_S42.parquet` (75k, in progress)
+
+**L=256 T=0.50** (now complete at 100k): Entropy mean 0.069 nats (vs L=64's 0.683). Collapsed to near-zero by ~15k steps and never escaped. The attractor is 10x deeper by entropy measure.
+
+**L=256 T=1.00**: Entropy mean 4.917 nats (vs L=64's 3.721). Notably *higher* entropy than L=64 at the same temperature. Phase portrait shows the cloud shifted right and down — higher entropy but lower compressibility (~0.55-0.70 vs L=64's ~0.65-0.85). This is surprising: longer context at T=1.00 produces *less* compressible output despite higher entropy. The model may be sampling more diverse continuations when conditioning on more context, but the longer window dilutes any local repetitive structure.
+
+**L=256 T=1.50**: Entropy 8.351 nats (vs L=64's 7.989). Tight cluster, stationary. Slightly higher entropy than L=64 — marginal effect of L in the noise regime.
+
+**Cross-L temporal portraits at T=0.50** tell the key story: L=64 wanders broadly across phase space for the entire run (mixed time-colors everywhere — no temporal ordering). L=256 collapses to bottom-left corner early and stays. The attractor basin depth scales dramatically with L in the collapse regime.
+
+**Cross-L temporal at T=1.00**: L=256 shifts the whole cloud down-left compared to L=64. L is pulling toward order even at T=1.00, but the system resists collapse — it finds a different operating point rather than collapsing.
+
+**Key insight: L as a second control parameter.** T and L act on different axes:
+- T controls the *noise floor* — randomness of each individual sample
+- L controls the *memory horizon* — how much self-generated history the model conditions on, and therefore how deep/sticky attractor basins are
+
+These are orthogonal actuators. T is a local perturbation (per step). L is a structural parameter (how much past determines the present). This suggests a two-actuator controller:
+- T for fast corrections (raise when approaching collapse, lower when approaching noise)
+- L for regime selection (shorten to escape stuck attractors, lengthen to deepen coherence)
+
+Reducing L mid-run is an *escape mechanism* — if the system locks into a loop at L=256, shortening to L=64 makes that attractor shallower, allowing escape. Then L can be extended again. This is annealing for memory depth.
+
+**Implication for L-grid design:** The interesting L-transition is between 64 and 256 (one escapes, the other locks). L=1024 will likely just be "even more locked." Densifying L in the 64-256 range (e.g., L=64, 128, 192) maps the attractor depth curve — critical for designing an L-controller. This may be more informative than extending to L=1024.
+
+```bash
+python plot.py --runs data/runs/L*_T0.50_S42.parquet
+python plot.py --runs data/runs/L*_T1.00_S42.parquet
+python plot.py --runs data/runs/L*_T*_S42.parquet
+```
+
+---
+
 ### Reproduction
 
-All standard plots can be regenerated via `bash reproduce_plots.sh`.
+All standard plots can be regenerated via `python reproduce_plots.py`.
