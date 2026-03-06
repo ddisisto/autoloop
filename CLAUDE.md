@@ -8,8 +8,9 @@ Multi-scale complexity control in closed-loop autoregressive generation. See `pr
 
 ```
 generate.py          # Core generation loop, CLI entry point (with checkpoint/resume)
-analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries; cached to .pkl)
-plot.py              # Visualization (5 plot types, CLI with --runs and --plots)
+analyze.py           # Post-hoc analysis (arbitrary-W compressibility, stationarity, summaries; cached .pkl)
+plot.py              # Visualization (5 plot types + EOS markers, CLI with --runs and --plots)
+utils.py             # Shared primitives (compressibility, eos_ema)
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
 pilot_sweep.py       # Batch runner for pilot grid (idempotent, crash-resilient)
 share.md             # Draft post/article for sharing findings
@@ -18,7 +19,7 @@ observations.md      # Append-only findings log with reproduction commands
 project-brief.md     # Research design document
 data/                # Gitignored except figures
   model/SmolLM-135M/ # Local model weights (pre-downloaded)
-  runs/              # Parquet files + JSON sidecars + checkpoints + analysis cache
+  runs/              # Parquet files + JSON sidecars + checkpoints + analysis cache (.W*.analysis.pkl)
   figures/           # Plot outputs (tracked in git)
 ```
 
@@ -40,7 +41,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - All generated data goes under `data/` (gitignored except `data/figures/`)
 - One Parquet file per run, named `L{L:04d}_T{T:.2f}_S{seed}.parquet`
 - Each run includes a JSON sidecar with full metadata (parameters, model revision, torch version, timing)
-- Analysis cache: `.analysis.pkl` sidecars, invalidated by parquet mtime
+- Analysis cache: `.W{sizes}.analysis.pkl` sidecars, keyed by window sizes, invalidated by parquet mtime
 - Checkpoints: `L{L:04d}_T{T:.2f}_S{seed}.ckpt` — kept after run completion for extension
 - Model weights: `data/model/SmolLM-135M/` (local, not fetched at runtime)
 
@@ -58,10 +59,12 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 ## Current State (Phase 0 Pilot)
 
 ### What's Built
-- `generate.py`: generation loop with pre-fill, per-step logging, checkpoint/resume
-- `analyze.py`: sliding window gzip compressibility (W=L, W=L/4), 5-block stationarity, run summaries
-- `plot.py`: entropy time series, compressibility time series, phase portraits, temporal phase portraits (cividis colormap), split violin distribution plots
-- `reproduce_plots.py`: one-command regeneration of all standard plot slices (with mtime caching)
+- `generate.py`: generation loop with pre-fill, checkpoint/resume, per-1k-step logging (tok/s, trailing entropy, trailing compressibility)
+- `analyze.py`: sliding window gzip compressibility (arbitrary W list), 5-block stationarity, run summaries; results cached as `.analysis.pkl` sidecars keyed by window sizes
+- `plot.py`: entropy time series (with EOS rate EMA overlay), compressibility time series, phase portraits (with EOS diamond markers), temporal phase portraits (cividis colormap, hollow EOS diamonds), split violin (entropy upper / inverted compressibility lower)
+- `utils.py`: shared primitives — `compressibility()`, `eos_ema()`
+- `reproduce_plots.py`: one-command regeneration of all standard plot slices (analysis caching + figure mtime caching)
+- `pilot_sweep.py`: batch runner for overnight grid conditions (idempotent, crash-resilient, file logging)
 
 ### Data Collected (see pilot-runs.md for full status)
 - L=64 × T={0.5, 1.0, 1.5} × seed=42: done (100k each)
