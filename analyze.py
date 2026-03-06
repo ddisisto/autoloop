@@ -1,9 +1,11 @@
 """Post-hoc analysis for autoloop runs.
 
 Computes derived metrics from generation Parquet files:
-- Output compressibility over sliding windows
+- Output compressibility over sliding windows (arbitrary W values)
 - Stationarity assessment (5-block comparison)
 - Per-run summary statistics
+
+Results are cached as .analysis.pkl sidecars, keyed by window sizes.
 """
 
 import logging
@@ -91,9 +93,10 @@ def summarize_run(df: pd.DataFrame) -> dict:
     }
 
 
-def _cache_path(parquet_path: Path, context_length: int) -> Path:
+def _cache_path(parquet_path: Path, window_sizes: list[int]) -> Path:
     """Return the path for a cached analysis result."""
-    return parquet_path.with_suffix(f".L{context_length}.analysis.pkl")
+    w_tag = "_".join(f"W{w}" for w in sorted(window_sizes))
+    return parquet_path.with_suffix(f".{w_tag}.analysis.pkl")
 
 
 def _is_cache_valid(parquet_path: Path, cache_path: Path) -> bool:
@@ -103,13 +106,18 @@ def _is_cache_valid(parquet_path: Path, cache_path: Path) -> bool:
     return cache_path.stat().st_mtime > parquet_path.stat().st_mtime
 
 
-def analyze_run(parquet_path: Path, context_length: int) -> dict:
+def analyze_run(parquet_path: Path, window_sizes: list[int]) -> dict:
     """Full analysis pipeline for a single run.
 
+    Args:
+        parquet_path: Path to the run's parquet file.
+        window_sizes: List of window sizes for compressibility computation.
+
     Returns dict with summary stats, stationarity, and compressibility data.
-    Uses disk cache to avoid recomputing expensive compressibility.
+    Compressibility stored as {W: array} dict keyed by window size.
+    Uses disk cache to avoid recomputing.
     """
-    cache = _cache_path(parquet_path, context_length)
+    cache = _cache_path(parquet_path, window_sizes)
     if _is_cache_valid(parquet_path, cache):
         log.info("Loading cached analysis for %s", parquet_path.name)
         with open(cache, "rb") as f:
@@ -119,28 +127,24 @@ def analyze_run(parquet_path: Path, context_length: int) -> dict:
     exp = df[df.phase == "experiment"].reset_index(drop=True)
 
     summary = summarize_run(df)
-
-    # Stationarity on entropy
     entropy_stationarity = stationarity_blocks(exp.entropy.to_numpy())
 
-    # Compressibility: primary W=L, secondary W=L//4
-    log.info("Computing compressibility W=%d for %s", context_length, parquet_path.name)
-    comp_primary = sliding_compressibility(exp.decoded_text, context_length)
+    comp = {}
+    for w in window_sizes:
+        log.info("Computing compressibility W=%d for %s", w, parquet_path.name)
+        comp[w] = sliding_compressibility(exp.decoded_text, w)
 
-    w_secondary = max(context_length // 4, 16)
-    log.info("Computing compressibility W=%d for %s", w_secondary, parquet_path.name)
-    comp_secondary = sliding_compressibility(exp.decoded_text, w_secondary)
-
-    # Stationarity on primary compressibility (skip NaN prefix)
-    comp_valid = comp_primary[~np.isnan(comp_primary)]
+    # Stationarity on largest window compressibility
+    w_max = max(window_sizes)
+    comp_valid = comp[w_max][~np.isnan(comp[w_max])]
     comp_stationarity = stationarity_blocks(comp_valid)
 
     result = {
         "summary": summary,
         "entropy_stationarity": entropy_stationarity,
         "compressibility_stationarity": comp_stationarity,
-        "compressibility_primary": comp_primary,
-        "compressibility_secondary": comp_secondary,
+        "compressibility": comp,
+        "window_sizes": sorted(window_sizes),
     }
 
     with open(cache, "wb") as f:

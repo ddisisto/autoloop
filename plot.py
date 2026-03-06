@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from analyze import analyze_run
+from utils import eos_ema
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ FIGURES_DIR = Path("data/figures")
 PLOT_TYPES = ["entropy", "compressibility", "phase", "temporal", "violin"]
 
 NEEDS_ANALYSIS = {"compressibility", "phase", "temporal", "violin"}
+
+EOS_EMA_SPAN = 1000
 
 
 @dataclass
@@ -125,8 +128,9 @@ def plot_entropy_timeseries(
     output_name: str,
     downsample: int = 100,
 ) -> Path:
-    """Plot entropy over time for multiple runs, downsampled for readability."""
+    """Plot entropy over time with EOS rate EMA overlay on secondary axis."""
     fig, ax = plt.subplots(figsize=(12, 4))
+    ax_eos = ax.twinx()
 
     for run in runs:
         n = len(run.exp) // downsample * downsample
@@ -134,8 +138,15 @@ def plot_entropy_timeseries(
         steps = np.arange(downsample // 2, n, downsample)
         ax.plot(steps, entropy, label=run.label, linewidth=0.8)
 
+        # EOS rate EMA, downsampled to match
+        ema = eos_ema(run.exp.eos.to_numpy()[:n].astype(float), EOS_EMA_SPAN)
+        ema_ds = ema.reshape(-1, downsample).mean(axis=1)
+        ax_eos.plot(steps, ema_ds, linewidth=0.6, alpha=0.4, linestyle="--")
+
     ax.set_xlabel("Step (experiment phase)")
     ax.set_ylabel("Softmax entropy (nats)")
+    ax_eos.set_ylabel("EOS rate (EMA)", alpha=0.5)
+    ax_eos.tick_params(axis="y", colors=(0.5, 0.5, 0.5))
     ax.set_title(title)
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -148,6 +159,16 @@ def plot_entropy_timeseries(
     return out
 
 
+def default_window_sizes(L: int) -> list[int]:
+    """Default window sizes for a given context length."""
+    return [L, max(L // 4, 16)]
+
+
+def _comp(run: RunBundle, w: int) -> np.ndarray:
+    """Get compressibility array for window size w from a run's analysis."""
+    return run.analysis["compressibility"][w]
+
+
 def plot_compressibility_timeseries(
     runs: list[RunBundle],
     title: str,
@@ -158,7 +179,7 @@ def plot_compressibility_timeseries(
     fig, ax = plt.subplots(figsize=(12, 4))
 
     for run in runs:
-        comp = run.analysis["compressibility_primary"]
+        comp = _comp(run, run.params["L"])
         valid = comp[~np.isnan(comp)]
         n = len(valid) // downsample * downsample
         comp_ds = valid[:n].reshape(-1, downsample).mean(axis=1)
@@ -189,7 +210,7 @@ def plot_phase_portrait(
     fig, ax = plt.subplots(figsize=(8, 6))
 
     for run in runs:
-        comp = run.analysis["compressibility_primary"]
+        comp = _comp(run, run.params["L"])
         valid_mask = ~np.isnan(comp)
         entropy = run.exp.entropy.to_numpy()[valid_mask]
         comp_valid = comp[valid_mask]
@@ -232,7 +253,7 @@ def plot_temporal_phase(
     run_data = []
 
     for run in runs:
-        comp = run.analysis["compressibility_primary"]
+        comp = _comp(run, run.params["L"])
         valid_mask = ~np.isnan(comp)
         entropy = run.exp.entropy.to_numpy()[valid_mask]
         comp_valid = comp[valid_mask]
@@ -329,8 +350,9 @@ def plot_violin(
     for run_idx, run in enumerate(runs):
         ax = axes[0][run_idx]
 
-        comp_primary = run.analysis["compressibility_primary"]
-        comp_secondary = run.analysis["compressibility_secondary"]
+        L = run.params["L"]
+        comp_primary = _comp(run, L)
+        comp_secondary = _comp(run, max(L // 4, 16))
 
         block_size = len(run.exp) // n_blocks
 
@@ -437,8 +459,9 @@ def main() -> None:
 
         analysis = None
         if needs_analysis:
-            log.info("Analyzing %s (context_length=%d)", path.stem, params["L"])
-            analysis = analyze_run(path, params["L"])
+            ws = default_window_sizes(params["L"])
+            log.info("Analyzing %s (W=%s)", path.stem, ws)
+            analysis = analyze_run(path, ws)
 
         runs.append(RunBundle(
             path=path, params=params, label=label, exp=exp, analysis=analysis,

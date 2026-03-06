@@ -27,6 +27,7 @@ from analyze import analyze_run
 from plot import (
     PLOT_TYPES,
     RunBundle,
+    default_window_sizes,
     ensure_figures_dir,
     make_label,
     make_output_prefix,
@@ -119,7 +120,7 @@ def load_run_bundle(
     if needs_analysis:
         key = str(path)
         if key not in analysis_cache:
-            analysis_cache[key] = analyze_run(path, params["L"])
+            analysis_cache[key] = analyze_run(path, default_window_sizes(params["L"]))
         analysis = analysis_cache[key]
 
     return RunBundle(path=path, params=params, label=label, exp=exp, analysis=analysis)
