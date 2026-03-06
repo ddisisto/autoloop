@@ -9,5 +9,6 @@ wheels/
 # Virtual environments
 .venv
 
-# Generated data, model weights, figures
-data/
+# Generated data and model weights (figures tracked)
+data/*
+!data/figures/
