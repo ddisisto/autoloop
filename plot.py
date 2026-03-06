@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 FIGURES_DIR = Path("data/figures")
 
-PLOT_TYPES = ["entropy", "compressibility", "phase"]
+PLOT_TYPES = ["entropy", "compressibility", "phase", "temporal"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -213,6 +213,80 @@ def plot_phase_portrait(
     return out
 
 
+def plot_temporal_phase(
+    run_paths: list[Path],
+    context_lengths: list[int],
+    labels: list[str],
+    title: str,
+    output_name: str,
+    downsample: int = 100,
+) -> Path:
+    """Phase portrait with color = time, one subplot per run."""
+    n_runs = len(run_paths)
+    cols = min(n_runs, 3)
+    rows = (n_runs + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 5 * rows), squeeze=False)
+
+    # Collect global axis limits across all runs for consistent scales
+    all_entropy = []
+    all_comp = []
+    run_data = []
+
+    for path, context_length in zip(run_paths, context_lengths):
+        df = pd.read_parquet(path)
+        exp = df[df.phase == "experiment"].reset_index(drop=True)
+        result = analyze_run(path, context_length)
+        comp = result["compressibility_primary"]
+
+        valid_mask = ~np.isnan(comp)
+        entropy = exp.entropy.to_numpy()[valid_mask]
+        comp_valid = comp[valid_mask]
+
+        n = len(entropy) // downsample * downsample
+        entropy_ds = entropy[:n].reshape(-1, downsample).mean(axis=1)
+        comp_ds = comp_valid[:n].reshape(-1, downsample).mean(axis=1)
+        time_ds = np.arange(len(entropy_ds))
+
+        all_entropy.extend(entropy_ds)
+        all_comp.extend(comp_ds)
+        run_data.append((entropy_ds, comp_ds, time_ds))
+
+    e_min, e_max = min(all_entropy), max(all_entropy)
+    c_min, c_max = min(all_comp), max(all_comp)
+    e_pad = (e_max - e_min) * 0.05
+    c_pad = (c_max - c_min) * 0.05
+
+    for idx, (label, (entropy_ds, comp_ds, time_ds)) in enumerate(zip(labels, run_data)):
+        row, col = divmod(idx, cols)
+        ax = axes[row][col]
+        sc = ax.scatter(
+            entropy_ds, comp_ds, c=time_ds, cmap="viridis",
+            s=8, alpha=0.6, edgecolors="none",
+        )
+        ax.set_xlim(e_min - e_pad, e_max + e_pad)
+        ax.set_ylim(c_min - c_pad, c_max + c_pad)
+        ax.set_title(label)
+        ax.set_xlabel("Softmax entropy (nats)")
+        ax.set_ylabel("Compressibility (W=L)")
+        ax.grid(True, alpha=0.3)
+        cbar = fig.colorbar(sc, ax=ax)
+        cbar.set_label(f"Step (×{downsample})")
+
+    # Hide unused subplots
+    for idx in range(n_runs, rows * cols):
+        row, col = divmod(idx, cols)
+        axes[row][col].set_visible(False)
+
+    fig.suptitle(title, y=1.02)
+    fig.tight_layout()
+
+    out = ensure_figures_dir() / output_name
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("Saved %s", out)
+    return out
+
+
 def main() -> None:
     args = parse_args()
 
@@ -268,6 +342,14 @@ def main() -> None:
             paths, context_lengths, labels,
             title=f"Phase portrait ({title_ctx})",
             output_name=f"{prefix}_phase.png",
+            downsample=args.downsample,
+        )
+
+    if "temporal" in args.plots:
+        plot_temporal_phase(
+            paths, context_lengths, labels,
+            title=f"Temporal phase portrait ({title_ctx})",
+            output_name=f"{prefix}_temporal.png",
             downsample=args.downsample,
         )
 
