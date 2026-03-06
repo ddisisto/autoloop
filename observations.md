@@ -47,3 +47,29 @@ python plot.py --runs data/runs/L0064_T*_S42.parquet
 ```bash
 python plot.py --runs data/runs/L0064_T0.50_S42.parquet data/runs/L0256_T0.50_S42.parquet
 ```
+
+---
+
+### 2026-03-06 — Violin plots reveal temporal collapse structure
+
+**Data:** Same as above.
+
+**Violin plot** (entropy + compressibility distributions per 10k-token time block) shows the collapse dynamics much more clearly than time series alone:
+
+- **T=0.50 L=64**: Entropy distribution progressively narrows and shifts left, but non-monotonically — blocks 50-70k show re-broadening (escape episodes). Compressibility mirrors this.
+- **T=0.50 L=256**: Entropy collapses to a spike by 20-30k and stays. Compressibility reaches ~0.1-0.2 (vs L=64's 0.3-0.5). Longer context = more self-reinforcing repetitive signal = deeper attractor.
+- **T=1.00**: Broad, stable distributions throughout. Some compressibility bimodality in individual blocks.
+- **T=1.50**: Narrow, stable. Stationary noise.
+
+W=L/4 (lighter overlay) is consistently tighter than W=L, confirming local-scale repetition structure.
+
+```bash
+python plot.py --runs data/runs/L0064_T*_S42.parquet --plots violin
+python plot.py --runs data/runs/L0064_T0.50_S42.parquet data/runs/L0256_T0.50_S42.parquet --plots violin
+```
+
+---
+
+### Reproduction
+
+All standard plots can be regenerated via `bash reproduce_plots.sh`.

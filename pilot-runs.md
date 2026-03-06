@@ -12,10 +12,10 @@ Priority order: sweep temperatures first, then context lengths, then additional 
 
 | L    | T    | Seed | Status  | Notes |
 |------|------|------|---------|-------|
-| 64   | 0.5  | 42   | running |       |
-| 64   | 1.0  | 42   |         |       |
-| 64   | 1.5  | 42   |         |       |
-| 256  | 0.5  | 42   |         |       |
+| 64   | 0.5  | 42   | done    |       |
+| 64   | 1.0  | 42   | done    |       |
+| 64   | 1.5  | 42   | done    |       |
+| 256  | 0.5  | 42   | running |       |
 | 256  | 1.0  | 42   |         |       |
 | 256  | 1.5  | 42   |         |       |
 | 1024 | 0.5  | 42   |         |       |
