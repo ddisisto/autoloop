@@ -64,7 +64,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Presets record historical sweeps with rationale; new sweeps can use ad-hoc grids
 - Each condition runs as a subprocess of `generate.py` (crash isolation)
 
-## Current State (Phase 0 — Pilot + Crossover Mapping)
+## Current State (Phase 0 complete, Phase 1 in progress)
 
 ### What's Built
 - `generate.py`: generation loop with pre-fill, checkpoint/resume, per-1k-step logging
@@ -77,11 +77,13 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `explorer.py` + `static/index.html`: interactive web explorer (FastAPI + Plotly.js), context inspection
 - `sweep.py`: unified sweep runner with presets (pilot, crossover, seed, ldense, l256-crossover) and ad-hoc grids
 
-### Data Collected (see run-index.md for full grid)
-- 24 seed=42 runs: L={64,128,192} × T={0.50–1.50} + L=256 × T={0.50,1.00,1.50}
-- Seed replication at T=0.50: L={64,128,192} × S={42,123,7} complete
-- L-densification at T=0.50: L={160,176,208,224} × S={42,123,7} complete (ldense_sweep.py)
-- Total: ~46 runs across all conditions
+### Data Collected (run `sweep.py --status` for live grid)
+- Pilot: L={64,128,192,256} × T={0.50,1.00,1.50} × S=42 (12 runs)
+- Crossover: L={64,128,192} × T={0.60,0.70,0.80,0.90} × S=42 (12 runs)
+- Seed replication at T=0.50: L={64,128,192} × S={42,123,7} (9 runs)
+- L-densification at T=0.50: L={160,176,208,224} × S={42,123,7} (15 runs)
+- L=256 crossover fill: T={0.60,0.70,0.80,0.90} × S=42 (in progress)
+- Total: ~48 runs across all conditions
 
 ### Key Findings (see observations.md)
 - Three regimes: collapse (T≤0.60), rich dynamics (T~0.80–1.00), noise (T≥1.50)
@@ -105,6 +107,13 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 ## CLI Reference
 
 ```bash
+# Sweeps
+python sweep.py pilot                           # run a named preset
+python sweep.py --L 256 --T 0.60 0.70 --seed 42 # ad-hoc grid
+python sweep.py --status                         # grid table from disk
+python sweep.py --list                           # list presets
+python sweep.py crossover --dry-run              # preview without running
+
 # Single generation run
 python generate.py --context-length 64 --temperature 1.0 --seed 42 \
   --num-tokens 100000 --model-dir data/model/SmolLM-135M \

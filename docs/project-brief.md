@@ -2,8 +2,8 @@
 
 **Working paper title:** *Multi-Scale Complexity Control in Closed-Loop Autoregressive Generation*
 
-**Status:** Active — Phase 0 pilot in progress
-**Date:** March 2026
+**Status:** Active — Phase 0 complete, Phase 1 in progress
+**Date:** March 2026 (started), updated March 2026
 
 ---
 
@@ -13,25 +13,27 @@ When an autoregressive language model generates tokens indefinitely — with old
 
 Despite the simplicity of this setup, the resulting system has received almost no formal study. Basic questions remain open: What attractors does the system converge to? Is there a crossover between repetitive collapse and incoherent noise? How sharp is that crossover, and what structural modes persist near it?
 
-**Central insight (emerging from Phase 0 pilot):** Output compressibility measured at different window sizes probes structure at different scales. Short-range compression (W << L) detects local repetitive collapse. Long-range compression (W ≥ L) detects coherence across the model's full memory horizon. The ratio between these signals defines a multi-dimensional characterization of the output regime — and offers a natural sensor array for closed-loop control.
+**Central insight:** Output compressibility measured at different window sizes probes structure at different scales. Short-range compression (W << L) detects local repetitive collapse. Long-range compression (W ≥ L) detects coherence across the model's full memory horizon. The ratio between these signals defines a multi-dimensional characterization of the output regime — and offers a natural sensor array for closed-loop control.
 
-**Second insight (emerging from cross-L comparison):** Temperature and context length act as orthogonal actuators on fundamentally different axes. Temperature controls the *noise floor* — randomness of each individual sample. Context length controls the *memory horizon* — how much self-generated history the model conditions on, and therefore how deep and sticky attractor basins are. At T=0.50, L=64 shows persistent escape episodes from collapse attractors while L=256 locks in permanently. At T=1.00, L=256 shifts the system to a different operating point (higher entropy, lower compressibility) without causing collapse. This orthogonality suggests a two-actuator controller: T for fast corrections and L for structural regime selection — including using L-reduction as an escape mechanism from stuck attractors, analogous to simulated annealing but for memory depth.
+**Second insight:** Temperature and context length act as orthogonal actuators on fundamentally different axes. Temperature controls the *noise floor* — randomness of each individual sample. Context length controls the *memory horizon* — how much self-generated history the model conditions on, and therefore how deep and sticky attractor basins are. At T=0.50, L=64 shows persistent escape episodes from collapse attractors while L=256 locks in permanently. At T=1.00, L=256 shifts the system to a different operating point (higher entropy, lower compressibility) without causing collapse. This orthogonality suggests a two-actuator controller: T for fast corrections and L for structural regime selection — including using L-reduction as an escape mechanism from stuck attractors, analogous to simulated annealing but for memory depth ("memory-depth annealing").
+
+**Third insight:** Three independent sensors are needed to characterize the system: entropy (model uncertainty about the next token), compressibility (observer-assessed output structure), and EOS rate (model-assessed sequence coherence). Each probes a different aspect of the dynamics and they are not redundant — EOS rate peaks at the collapse-escape boundary, not at the entropy peak.
 
 This project systematically characterizes the dynamical landscape of autoregressive self-play, develops multi-scale compression as a diagnostic framework, and builds toward closed-loop complexity control with joint T+L actuation.
 
 ## 2. Research Questions
 
-**RQ1 — Phase structure.** Is there a crossover between an ordered regime (repetitive collapse) and a disordered regime (incoherent generation)? How sharp is this crossover, and where does it occur in temperature space?
+**RQ1 — Phase structure.** Is there a crossover between an ordered regime (repetitive collapse) and a disordered regime (incoherent generation)? How sharp is this crossover, and where does it occur in temperature space? *Status: answered. Three regimes identified (collapse, rich dynamics, noise). Crossover at T~0.70 is sharp — all L values jump above entropy 1.0. Collapse boundary is L-dependent: extends to higher T for longer contexts.*
 
-**RQ2 — Attractor characterization.** What structural modes does the system visit at and near the crossover? What are their dwell time distributions and transition dynamics?
+**RQ2 — Attractor characterization.** What structural modes does the system visit at and near the crossover? What are their dwell time distributions and transition dynamics? *Status: partially answered. Attractor structure at T=0.50 is a staircase (each L has a distinct entropy floor). L-densification showed jagged non-monotonic L-profile rather than clean phase transition. Dwell time distributions not yet formally analyzed.*
 
-**RQ3 — Multi-scale structure.** How do compressibility signals at different window sizes (W = L/4, L, 2L, 4L) relate to each other? Where do they decouple — i.e., where does local structure exist without global repetition? This decoupling zone is the regime of maximal complexity.
+**RQ3 — Multi-scale structure.** How do compressibility signals at different window sizes (W = L/4, L, 2L, 4L) relate to each other? Where do they decouple — i.e., where does local structure exist without global repetition? This decoupling zone is the regime of maximal complexity. *Status: partially answered. W is confirmed as a significant third dimension. Standard grid W ∈ {16,32,64,128,256} computed for all runs. Gzip overhead confound identified and characterized (20B header inflates small windows). Cross-W decoupling analysis ongoing.*
 
-**RQ4 — Context length as control parameter.** How does context length L modulate attractor basin depth, crossover location, and multi-scale structure? Is there a critical L above which collapse attractors become inescapable at a given T? (Emerging findings: L dramatically deepens collapse attractors; the escape-to-lock transition occurs between L=64 and L=256 at T=0.50; at T=1.00, L shifts the operating point without causing collapse.)
+**RQ4 — Context length as control parameter.** How does context length L modulate attractor basin depth, crossover location, and multi-scale structure? Is there a critical L above which collapse attractors become inescapable at a given T? *Status: substantially answered. L deepens collapse and extends the collapse regime to higher T. No single critical L — the L-profile is a jagged continuum, not a bifurcation. Slope-flip: compressibility decreases with L in collapse (T≤0.60) but increases with L in rich dynamics (T=1.00), sign flip at T~0.70-0.80. T=1.50 is a universal noise floor regardless of L.*
 
-**RQ5 — Path dependence.** Does the system's behavior at a given temperature depend on how that temperature was reached? Do temperature ramps in opposite directions reveal hysteresis, indicating multistability or genuine attractor structure?
+**RQ5 — Path dependence.** Does the system's behavior at a given temperature depend on how that temperature was reached? Do temperature ramps in opposite directions reveal hysteresis, indicating multistability or genuine attractor structure? *Status: not yet tested. Planned for Phase 2.*
 
-**RQ6 — Closed-loop complexity control.** Can temperature and context length be dynamically adjusted using multi-scale compression as a feedback signal to maintain the system in a target complexity regime? T for fast corrections (raise when short-range compression drops, lower when entropy spikes), L for structural regime selection (shorten to escape stuck attractors, lengthen to deepen coherence). Can this sustain coherent generation that neither collapses nor becomes noise?
+**RQ6 — Closed-loop complexity control.** Can temperature and context length be dynamically adjusted using multi-scale compression as a feedback signal to maintain the system in a target complexity regime? T for fast corrections (raise when short-range compression drops, lower when entropy spikes), L for structural regime selection (shorten to escape stuck attractors, lengthen to deepen coherence). Can this sustain coherent generation that neither collapses nor becomes noise? *Status: not yet tested. Planned for Phase 3. Three-sensor framework (entropy, compressibility, EOS rate) now established as the feedback signal design.*
 
 ## 3. Experimental Design
 
@@ -74,17 +76,16 @@ This produces a self-consistent initial state: the context consists entirely of 
 
 **Derived in post-hoc analysis (not computed during generation):**
 
-- Output compressibility over sliding windows at multiple scales:
-  - $W = L/4$ — local collapse diagnostic
-  - $W = L$ — primary signal (one context-length, the model's memory horizon)
-  - $W = 2L$, $W = 4L$ — emergent structure beyond the context window (Phase 1+)
+- Output compressibility over sliding windows at standard grid $W \in \{16, 32, 64, 128, 256\}$
+  - Gzip overhead (~20B header) inflates small windows; W≥64 for quantitative work, W≥32 qualitative
+  - Correction possible by normalizing against incompressible baseline at matched byte length
 - Multi-scale compression ratio: relationship between compressibility at different W values
 - Smoothed entropy (EMA or other filters at various timescales)
 - Autocorrelation and spectral density of entropy and compressibility time series
 - 2D phase portraits: softmax entropy vs. output compressibility
 - Distribution evolution: per-time-block violin plots of entropy and compressibility
 - Dwell time distributions in identified regimes
-- EOS rate statistics: trailing EOS rate over sliding window, mean inter-EOS interval, variability, trends. EOS is a model-internal coherence signal — the model's assessment of sequence completeness — distinct from entropy (local uncertainty) and compressibility (observer-assessed structure). Emerging finding: EOS rate peaks at T=1.0 (the rich-dynamics regime), not at collapse or noise; L dramatically suppresses EOS in the collapse regime.
+- EOS rate statistics: trailing EOS rate over sliding window, mean inter-EOS interval, variability, trends. EOS is a model-internal coherence signal — the model's assessment of sequence completeness — distinct from entropy (local uncertainty) and compressibility (observer-assessed structure). Finding: EOS peak shifts with L, tracking the escape-from-collapse boundary (T=0.90 for L=64/128, T=0.70 for L=192).
 - Transfer functions: $T \to C$ and $T \to H$ curves
 - Hysteresis plots: system state vs. instantaneous $T$ for opposing ramp directions (Phase 2)
 
@@ -123,9 +124,9 @@ Checkpoints saved every 1k steps (context tensor, RNG state, accumulated records
 
 | Variable | Values | Notes |
 |---|---|---|
-| Context length $L$ | 64, 128, 192, 256 | Revised: densify 64–256 range where attractor depth transition occurs; 1024 deprioritized |
-| Temperature $T$ | 0.5, 1.0, 1.5 | Pilot grid; Phase 1 densifies crossover region (~0.6–0.9) |
-| PRNG seed | 42, 123, 7 | Three replicates per condition |
+| Context length $L$ | 64, 128, 160, 176, 192, 208, 224, 256 | Core grid: 64–256. L-densification points (160–224) at T=0.50 only |
+| Temperature $T$ | 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50 | Dense coverage through crossover region (0.60–0.90) |
+| PRNG seed | 42, 123, 7 | 42 for all conditions; 123, 7 for T=0.50 and L-densification points |
 
 **Phase 2 (temperature ramps):** Design determined by Phase 1 results. Anticipated variables are ramp direction (increasing / decreasing), ramp rate, and temperature range (spanning the crossover region identified in Phase 1).
 
@@ -136,12 +137,12 @@ Checkpoints saved every 1k steps (context tensor, RNG state, accumulated records
 - **Tokens per run:** 100,000 post-pre-fill tokens (absolute, not scaled by $L$)
 - **Run length rationale:** Absolute token count gives approximately linear cost scaling with $L$. At $L = 1024$, this provides ~98 full context turnovers; at $L = 64$, ~1,562. If L=1024 runs show non-stationarity at 100k tokens, run length may be extended for that condition.
 - **Stationarity assessment:** Each run is split into 5 non-overlapping blocks of 20k tokens. Per-block means and variances of entropy and compressibility are compared. Classification: *stationary* (no trend in block statistics), *transient* (monotonic drift — system still equilibrating), or *structured non-stationarity* (block statistics fluctuate without trend — suggests mode-switching on timescales comparable to run length). Visual inspection plus simple linear regression for drift in Phase 0; may be formalized in Phase 1.
-- **Replicates:** 3 seeds per condition in the pilot grid (27 total conditions)
-- **Storage estimate:** ~25 MB total for the pilot grid (100k decoded tokens per run ≈ few hundred KB)
+- **Replicates:** 3 seeds at T=0.50 and L-densification conditions; seed=42 for all other conditions. ~45 runs complete as of March 2026
+- **Storage estimate:** ~25 MB total for the full grid (100k decoded tokens per run ≈ few hundred KB)
 
 ## 4. Implementation Plan
 
-### Phase 0 — Infrastructure and Pilot ← CURRENT
+### Phase 0 — Infrastructure and Pilot ✓ COMPLETE
 
 Build core generation loop. Run the pilot grid. Develop analysis and visualization tooling.
 
@@ -149,30 +150,43 @@ Build core generation loop. Run the pilot grid. Develop analysis and visualizati
 - Working generation loop with pre-fill procedure and checkpoint/resume ✓
 - Per-step logging to Parquet with JSON metadata sidecar ✓
 - End-to-end validation on SmolLM-135M ✓
-- Post-hoc analysis: compressibility (W=L, W=L/4), stationarity assessment ✓
+- Post-hoc analysis: compressibility (multi-W), stationarity assessment ✓
 - Visualization: entropy/compressibility time series, phase portraits, temporal phase portraits, violin distribution plots ✓
-- Plot reproduction script ✓
-- Pilot grid runs: 3 temperatures × 3 context lengths × 3 seeds = 27 runs (in progress)
-- Assessment: which axes (T, L) show the most interesting variation, and where to focus
+- Plot reproduction script with mtime caching ✓
+- Pilot grid runs (L={64,128,192,256} × T={0.50,1.00,1.50} × S=42): 12 runs complete ✓
+- Unified sweep runner with named presets and auto-status ✓
+- Assessment: T and L are both significant; crossover region at T=0.60–0.90; L=64–256 is the interesting range ✓
 
-**Emerging findings (see observations.md):**
-- Three distinct regimes at L=64: collapse (T=0.5), rich dynamics (T=1.0), noise (T=1.5)
-- Context length L dramatically deepens collapse attractor (L=256 locks in, L=64 keeps escaping at T=0.5)
-- At T=1.0, L=256 shifts operating point (higher entropy, lower compressibility) without collapse — L and T are orthogonal
-- Crossover region likely T=0.6–0.9
-- W=L/4 and W=L compressibility decouple in the interesting regime
-- L-transition between 64–256 is where attractor escape/lock behavior changes — densify here, not at 1024
+**Key findings:**
+- Three distinct regimes: collapse (T≤0.60), rich dynamics (T~0.80–1.00), noise (T≥1.50)
+- T and L are orthogonal actuators: T = noise floor, L = memory depth / attractor stickiness
+- L=256 locks into collapse at T=0.50; L=64 keeps escaping — attractor depth scales with L
+- At T=1.00, L=256 shifts operating point without collapse — different equilibrium, not deeper trap
 
-### Phase 1 — Fixed-Temperature Characterization + Multi-Scale Analysis
+### Phase 1 — Fixed-Temperature Characterization + Multi-Scale Analysis ← CURRENT
 
-Expand the pilot grid based on Phase 0 findings. Dense temperature spacing through crossover region. Introduce compressibility at W=2L and W=4L to probe emergent structure beyond the context window.
+Expand the pilot grid based on Phase 0 findings. Dense temperature spacing through crossover region. L-densification and seed replication at key conditions.
 
 **Deliverables:**
-- Transfer functions: $T \to C$ and $T \to H$ curves at each $L$
-- Multi-scale compression profiles: how compressibility at W=L/4, L, 2L, 4L varies with T
-- Identification of the "decoupling zone" where local structure exists without global repetition
-- Complete fixed-temperature phase map
-- Correlation length analysis: at what scale does structure disappear, and how does this depend on T and L?
+- Crossover T-densification: L={64,128,192} × T={0.60,0.70,0.80,0.90}: 12 runs complete ✓
+- L-densification at T=0.50: L={160,176,208,224} × S={42,123,7}: 15 runs complete ✓
+- Seed replication at T=0.50: L={64,128,192} × S={42,123,7}: 9 runs complete ✓
+- L=256 crossover fill: T={0.60,0.70,0.80,0.90}: 4 runs in progress
+- Multi-window analysis at standard W grid {16,32,64,128,256} ✓
+- Window scaling plots (comp vs L, comp vs W, heatmaps) ✓
+- Interactive web explorer (FastAPI + Plotly.js) with context inspection ✓
+- Transfer functions: $T \to C$ and $T \to H$ curves at each $L$ — partially available from existing data
+- Identification of the "decoupling zone" where local structure exists without global repetition — in progress
+- Complete fixed-temperature phase map — in progress (L=256 gap filling)
+
+**Key findings:**
+- Collapse boundary is L-dependent: L=192 collapsed at T=0.60 while L=64/128 escaped. Sharp universal escape at T=0.70
+- L-densification at T=0.50: jagged non-monotonic L-profile, not a clean phase transition. Seed variance comparable to inter-L differences. "Critical L" hypothesis falsified
+- Slope-flip: compressibility decreases with L at T≤0.60, increases at T=1.00; sign flip at T~0.70–0.80 — this is the phase boundary in the L dimension
+- EOS peak shifts with L, tracking the escape-from-collapse boundary
+- T=1.50 is a universal noise floor: comp ~0.705, entropy ~8.0 regardless of L
+- Three-sensor framework established: entropy, compressibility, EOS rate
+- Gzip overhead confound identified and characterized; useful range W≥64 quantitative, W≥32 qualitative
 
 ### Phase 2 — Temperature Ramp Experiments
 
@@ -194,7 +208,7 @@ Controlled temperature ramps through the crossover region identified in Phase 1.
 Use multi-scale compression as a feedback signal to dynamically control temperature and context length, maintaining the system in a target complexity regime.
 
 **Design (informed by Phase 1–2 results):**
-- Controller that monitors compressibility at multiple scales (W=L/4, L, and potentially longer) plus trailing EOS rate as a third sensor (model-internal coherence signal)
+- Controller using three-sensor framework: entropy (uncertainty), compressibility (structure), EOS rate (model-assessed coherence)
 - **T actuator (fast):** Raises T when short-range compression drops too low (approaching loop collapse); lowers T when long-range compression gets too high (approaching noise)
 - **L actuator (structural):** Shortens L to escape stuck attractors (reducing memory depth makes attractor basins shallower); lengthens L to deepen coherence when the system is in a productive regime. L-reduction is an escape mechanism analogous to simulated annealing for memory depth
 - Target: sustain the system in the "decoupling zone" — local structure without global repetition
@@ -240,13 +254,21 @@ Paper draft, figures, supplementary materials, code and data release.
 | Multi-scale compression signals are too correlated to decouple | Medium | Even high correlation with scale-dependent offsets is informative; the existence or absence of a decoupling zone is itself a finding |
 | Closed-loop controller is unstable or oscillates | Medium | Phase 1–2 provide the static characterization needed to design a stable controller; can start with conservative gain and simple proportional control |
 
-## 7. Open Questions for Resolution During Phase 0
+## 7. Open Questions
 
-- ~~Per-run timing across the pilot grid~~ → confirmed: ~24–38 tok/s at L=64, scales with L
-- Compressor choice: gzip vs. zlib (quick empirical comparison)
-- ~~Whether additional $L$ values or $T$ values are needed~~ → resolved: densify L=64–256, deprioritize L=1024; T crossover sweep in Phase 1
+**Resolved:**
+- ~~Per-run timing~~ → ~24–38 tok/s at L=64, scales with L
+- ~~Additional L/T values needed?~~ → densified L=64–256, T=0.50–1.50 with 0.10 spacing through crossover
+- ~~Is there a critical L?~~ → no clean bifurcation; L-profile is a jagged continuum
+- ~~EOS rate at intermediate L?~~ → EOS peak shifts with L, tracking escape-from-collapse boundary
+
+**Still open:**
+- Compressor choice: gzip vs. zlib (gzip overhead confound characterized but not compared to alternatives)
 - Appropriate smoothing timescales for entropy (EMA alpha or alternative filters)
-- How does EOS rate behave at intermediate L (128, 192)? Does the L-suppression curve match the attractor depth curve?
+- L=192 exact escape temperature — somewhere in T=0.60–0.70 (T-densification at T={0.62,0.65,0.68} planned)
+- Does L=256 extend collapse further into T? (In-progress: L=256 × T={0.60–0.90} sweep running)
+- Is the T=1.00 compressibility increase with L robust across seeds?
+- Dwell time distributions in identified regimes — not yet formally analyzed
 
 ## 8. Future Directions
 
@@ -268,6 +290,8 @@ Natural extensions beyond this study include:
 - **Inference / generation loop:** PyTorch (custom), CUDA 12.6
 - **Logging:** Parquet per run, JSON metadata sidecar
 - **Analysis:** NumPy, SciPy, scikit-learn, matplotlib, Python gzip module
+- **Interactive explorer:** FastAPI + Plotly.js (single-page app with context inspection)
+- **Sweep management:** Unified sweep runner (`sweep.py`) with named presets and auto-status
 - **Package management:** uv
 - **Compute:** Local GPU (GTX 1070, single consumer GPU sufficient for 135M model)
-- **Throughput:** ~24–38 tok/s at L=64, ~10.5 tok/s at L=1024
+- **Throughput:** ~24–38 tok/s at L=64, scaling inversely with L

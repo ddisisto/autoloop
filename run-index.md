@@ -1,92 +1,68 @@
 # Run Index
 
-## Grid Overview
+## Grid Status
+
+Run `python sweep.py --status` for the current grid table (auto-generated from parquet files on disk).
+
+Run `python sweep.py --list` to see named presets with completion counts.
 
 Model: SmolLM-135M | Tokens per run: 100,000 (post-pre-fill) | Sampling: pure temperature scaling
 
-### Completed Runs
+## Sweep History
 
-**Pilot grid** (Phase 0): L={64, 128, 192, 256} × T={0.50, 1.00, 1.50} × seed=42
+### Pilot (Phase 0)
 
-**Crossover densification**: L={64, 128, 192} × T={0.60, 0.70, 0.80, 0.90} × seed=42
+L={64,128,192,256} × T={0.50,1.00,1.50} × S=42 — 12 runs.
+Coarse grid to identify interesting axes. Established three-regime structure and T/L orthogonality.
 
-Total: 42 runs complete.
+### Crossover T-densification (Phase 1)
 
-| L \ T | 0.50 | 0.60 | 0.70 | 0.80 | 0.90 | 1.00 | 1.50 |
-|-------|------|------|------|------|------|------|------|
-| 64    | 42,123,7 | 42 | 42 | 42 | 42 | 42 | 42 |
-| 128   | 42,123,7 | 42 | 42 | 42 | 42 | 42 | 42 |
-| 160   | 42,123,7 |    |    |    |    |    |    |
-| 176   | 42,123,7 |    |    |    |    |    |    |
-| 192   | 42,123,7 | 42 | 42 | 42 | 42 | 42 | 42 |
-| 208   | 42,123,7 |    |    |    |    |    |    |
-| 224   | 42,123,7 |    |    |    |    |    |    |
-| 256   | 42   |      |      |      |      | 42   | 42   |
+L={64,128,192} × T={0.60,0.70,0.80,0.90} × S=42 — 12 runs.
+Dense coverage through the crossover region. Revealed L-dependent collapse boundary, sharp escape at T=0.70, slope-flip in compressibility.
 
-Cells show seed numbers for completed runs. Empty = not yet run.
+### Seed replication (Phase 1, partial)
 
-### Next: L=256 Crossover Fill
+L={64,128,192} × T=0.50 × S={42,123,7} — 9 runs complete.
+Full grid (56 runs) paused — cross-T analysis proved more informative than more seeds.
 
-L=256 × T={0.60, 0.70, 0.80, 0.90} × S=42 — 4 runs. Fills the biggest gap in the grid and answers whether L=256 extends collapse further into T than L=192.
+### L-densification (Phase 1)
 
-### Optional: L=192 Escape Temperature
+L={160,176,192,208,224} × T=0.50 × S={42,123,7} — 15 runs.
+Maps the non-monotonic compressibility profile between L=128 and L=256. Falsified "critical L" hypothesis: jagged continuum, not bifurcation.
 
-L=192 × T={0.62, 0.65, 0.68} × S=42 — 3 runs. Pins the exact escape temperature between T=0.60 (collapsed) and T=0.70 (escaped).
+### L=256 crossover fill (Phase 1, in progress)
 
-### Paused: Seed Replication
+L=256 × T={0.60,0.70,0.80,0.90} × S=42 — 4 runs.
+Fills the biggest gap in the T×L grid. Answers whether L=256 extends collapse further into T than L=192.
 
-Seeds 123 and 7 via `seed_sweep.py` (48 runs total, 11 complete at T=0.50). Remaining runs cover crossover T=0.60–0.90 and T=1.00/1.50. Lower priority — cross-T analysis is more informative than more seeds.
+## Gaps and Decisions
 
-### Planned: L=256 Crossover Fill
-
-L=256 × T={0.60, 0.70, 0.80, 0.90} — completes the rectangular grid. Lower priority since L=256 behavior at T=0.50 and T=1.00 already characterizes the extremes.
-
-### Gaps and Decisions
-
-- **L=1024**: Deprioritized. Interesting transition is in L=64–256 range. May revisit in Phase 1.
+- **L=1024**: Deprioritized. Interesting transition is in L=64–256 range. May revisit later.
 - **T > 1.0 densification**: Only T=1.50 above 1.0. Not planned — noise regime is less interesting than crossover.
+- **T-densification at L=192**: T={0.62, 0.65, 0.68} to pin exact escape temperature between T=0.60 (collapsed) and T=0.70 (escaped). Optional, low priority.
 - **Longer runs**: 100k tokens may be insufficient for slow-timescale dynamics at some conditions. Extension possible via checkpoint resume.
 
-## Phase Planning
-
-### Phase 0 — Pilot + Crossover Mapping ← CURRENT
-- Core grid complete (24 runs)
-- Next: seed replication, analysis of crossover data, updated observations
-- Interactive explorer for richer analysis (replacing static plot pipeline)
-
-### Phase 1 — Fixed-Temperature Characterization
-- Transfer functions: T→C and T→H curves at each L (now possible with dense T spacing)
-- Multi-scale compression analysis at standard W grid (already computed for existing data)
-- Identify the decoupling zone and its T/L boundaries
-- Complete the fixed-temperature phase map
-- Refactor analyze.py: modular metric computation, better integration with explorer
-
-### Phase 2 — Temperature Ramps
-- Controlled ramps through crossover region
-- Hysteresis / path dependence tests
-- Design informed by Phase 1 transfer functions
-
-### Phase 3 — Closed-Loop Control
-- Joint T+L controller using multi-scale compression feedback
-- Target: sustain system in decoupling zone
-- Interactive control UI (builds on Phase 0 explorer)
-
-## Command Templates
+## Command Reference
 
 ```bash
+# Sweep runner
+python sweep.py pilot                           # run a preset
+python sweep.py --L 192 --T 0.62 0.65 --seed 42 # ad-hoc grid
+python sweep.py --status                         # grid table from disk
+python sweep.py --status crossover               # status for one preset
+python sweep.py --list                           # list presets
+python sweep.py crossover --dry-run              # preview without running
+
 # Single run
-python generate.py --context-length {L} --temperature {T} --seed {seed} \
+python generate.py --context-length 64 --temperature 1.0 --seed 42 \
   --num-tokens 100000 --model-dir data/model/SmolLM-135M \
   --output-dir data/runs --device cuda
 
-# Sweep scripts
-python pilot_sweep.py          # Phase 0 pilot grid
-python crossover_sweep.py      # Crossover T-densification
-python seed_sweep.py           # Seed replication (123, 7)
-python ldense_sweep.py         # L-densification at T=0.50
+# Analysis
+python analyze_windows.py      # standard W grid [16,32,64,128,256]
+python reproduce_plots.py      # regen all standard plots (cached)
+python plot_window_scaling.py  # scaling plots
 
-# Multi-window analysis
-python analyze_windows.py      # Standard W grid [16,32,64,128,256]
-python plot_window_scaling.py  # Scaling plots
-python plot_window_scaling.py --temps 0.50 --ldense  # L-dense detail plot
+# Explorer
+uvicorn explorer:app --reload --port 8000
 ```
