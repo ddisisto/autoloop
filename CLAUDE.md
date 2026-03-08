@@ -80,27 +80,27 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `pilot_sweep.py`, `crossover_sweep.py`, `seed_sweep.py`, `ldense_sweep.py`: batch runners (idempotent, crash-resilient)
 
 ### Data Collected (see run-index.md for full grid)
-- 24 seed=42 runs complete: L={64,128,192} × T={0.50–1.50} + L=256 × T={0.50,1.00,1.50}
-- Seed replication (123, 7) in progress via seed_sweep.py
-- L-densification sweep running: L={160,176,192,208,224} × S={42,123,7} at T=0.50 via ldense_sweep.py
-- Dense crossover coverage: T={0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50} at L={64,128,192}
+- 24 seed=42 runs: L={64,128,192} × T={0.50–1.50} + L=256 × T={0.50,1.00,1.50}
+- Seed replication at T=0.50: L={64,128,192} × S={42,123,7} complete
+- L-densification at T=0.50: L={160,176,208,224} × S={42,123,7} complete (ldense_sweep.py)
+- Total: ~46 runs across all conditions
 
 ### Key Findings (see observations.md)
-- Three distinct regimes: collapse (T=0.5), rich dynamics (T=1.0), noise (T=1.5)
+- Three regimes: collapse (T≤0.60), rich dynamics (T~0.80–1.00), noise (T≥1.50)
 - T and L are orthogonal actuators: T = noise floor, L = memory depth / attractor stickiness
-- L=64 escapes collapse attractors; L=256 locks in permanently
-- At T=1.0, L=256 shifts operating point without collapse — different equilibrium
-- W=L/4 and W=L compressibility decouple in the interesting regime
-- EOS rate peaks at T=1.0; L suppresses EOS dramatically in collapse regime
+- Collapse boundary is L-dependent: L=192 collapsed at T=0.60 while L=64/128 have escaped
+- Sharp escape at T=0.70 regardless of L — all jump above entropy 1.0
+- EOS peak shifts with L: tracks escape-from-collapse boundary
+- L-densification at T=0.50: jagged non-monotonic profile, no clean phase transition
+- Slope-flip: comp decreases with L at T≤0.60, increases at T=1.00; sign flip at T~0.70–0.80
 - Three-sensor framework: entropy, compressibility, EOS rate
-- Crossover region T=0.6–0.9 now densely sampled
 - "Memory-depth annealing": L-reduction as escape mechanism from stuck attractors
 
 ### Key Parameters
 - Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
-- Context lengths L: 64, 128, 192, 256
+- Context lengths L: 64, 128, 160, 176, 192, 208, 224, 256
 - Temperatures T: 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50
-- Seeds: 42 (complete); 123, 7 (planned replication)
+- Seeds: 42 (all conditions); 123, 7 (T=0.50 + L-dense conditions)
 - Tokens per run: 100,000 (post-pre-fill)
 - Sampling: pure temperature scaling, no top-k/top-p
 

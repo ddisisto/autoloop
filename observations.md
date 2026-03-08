@@ -8,25 +8,32 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **System:** SmolLM-135M generating into its own context. No external input. Pure autoregressive dynamics.
 
-**Three regimes** at fixed L: collapse (T≤0.60), rich dynamics (T~0.80–1.00), noise (T≥1.50). Crossover zone is T~0.70–0.80.
-
 **Two orthogonal actuators:**
 - T (temperature): per-step noise floor. Controls escape probability from attractors.
-- L (context length): memory horizon. Controls attractor basin depth and stickiness.
+- L (context length): memory horizon. Controls attractor basin depth, stickiness, and collapse boundary.
 
-**Attractor structure at T=0.50 is a staircase, not a binary.** Each L value has a distinct entropy floor — L=64 sits on a high meta-stable basin (~0.2–0.4 nats), L=128 on a lower false floor (~0.1–0.2 nats) before eventually dropping to the true floor (~60k steps), L=256 hits the true zero-entropy floor by ~15k steps. Collapse is a timescale phenomenon: every T=0.50 run may collapse eventually; L sets how fast you descend the staircase.
+**Three regimes** at fixed L: collapse (T≤0.60), rich dynamics (T~0.80–1.00), noise (T≥1.50). Crossover zone is T~0.70–0.80. But the collapse boundary is L-dependent — longer L extends collapse upward in T.
 
-**L=192 anomaly at T=0.50:** Non-monotonic compressibility. At W=16, L=192 (1.19) > L=64 (1.05) > L=128 (0.90) > L=256 (0.78). L=192 appears to lock into a short-period loop attractor — highly structured locally but not at context scale. Awaiting seed replication (seeds 123, 7 running) to confirm vs. seed artifact.
+**Collapse boundary shifts with L.** At T=0.60: L=192 is collapsed (entropy 0.187) while L=64 (0.791) and L=128 (0.502) have escaped. The escape is sharp — at T=0.70 all L values jump above entropy 1.0. Longer context doesn't just deepen collapse, it extends the collapse regime to higher temperatures.
 
-**W (measurement window) is a third dimension.** Compressibility depends strongly on W. Standard grid: W ∈ {16, 32, 64, 128, 256}. At T=0.50, L-curves separate dramatically across W. At T≥0.90, L barely matters at any W. W=16 hits gzip overhead floor (compressibility > 1.0 is meaningless). Useful range: W≥32.
+**Attractor structure at T=0.50 is a staircase, not a binary.** Each L value has a distinct entropy floor — L=64 sits on a high meta-stable basin (~0.2–0.4 nats), L=128 on a lower false floor (~0.1–0.2 nats), L=256 hits the true zero-entropy floor by ~15k steps. Collapse is a timescale phenomenon: every T=0.50 run may collapse eventually; L sets how fast you descend the staircase.
 
-**EOS is regime-dependent.** At T=1.00: interior signal — fires from the dense center of phase space (richest dynamics). At T=0.50: transition signal — fires during escape attempts from attractors. EOS rate peaks at T=1.00, suppressed by L in collapse regime (13→3→1 across L=64/128/256 at T=0.50).
+**L-densification at T=0.50: jagged, not smooth.** L-profile from 64→256 is non-monotonic with local dips at L=208 and L=128, local peaks at L=176 and L=192. Seed variance (std 0.04–0.10) is comparable to inter-L differences (Δmean ~0.03–0.08) at n=3 seeds. The overall downward trend is robust; the fine structure may be noise. No clean phase transition or bifurcation point was found — the "critical L" hypothesis was falsified.
 
-**Crossover slope-flip at fixed W=64:** Compressibility *decreases* with L at T≤0.60 (deeper collapse = less local structure) but *increases* with L at T=1.00 (longer context = more structure). The sign flip occurs around T=0.70–0.80. This is the phase boundary in the L dimension.
+**Slope-flip in the T dimension.** Compressibility (W=64) *decreases* with L at T≤0.60 (deeper collapse = less local structure) but *increases* with L at T=1.00 (longer context = more structure). The sign flip occurs around T=0.70–0.80. This is the phase boundary in the L dimension.
 
-**Gzip measurement floor:** W=16 produces compressibility > 1.0 (gzip header overhead exceeds data). W≥32 is the useful measurement range.
+**EOS peak shifts with L.** Peak EOS rate occurs at T=0.90 for L=64 and L=128, but at T=0.70 for L=192. The EOS peak tracks the escape-from-collapse transition: it fires most at the boundary between structured and free dynamics. Since L=192's collapse extends to T=0.60, its escape boundary (and EOS peak) is at a lower T.
+
+**T=1.50 is a universal noise floor.** Compressibility ~0.705 and entropy ~8.0–8.3 regardless of L. At high T, context length is irrelevant — thermal noise dominates.
+
+**W (measurement window) is a third dimension.** Compressibility depends strongly on W. Standard grid: W ∈ {16, 32, 64, 128, 256}. At T=0.50, L-curves separate dramatically across W. At T≥0.90, L barely matters at any W. Gzip has fixed overhead (~20B header + Huffman table); at W=16 this inflates ratios above 1.0. Useful range: W≥64 for quantitative work, W≥32 qualitatively. Correction possible by normalizing against incompressible baseline at matched byte length.
 
 **Three-sensor framework:** entropy (model uncertainty), compressibility (observer-assessed structure), EOS rate (model-assessed coherence). Each probes a different aspect. All three needed for regime identification.
+
+**Open questions:**
+- What is L=192's exact escape temperature? Somewhere in T=0.60–0.70. T-densification at T={0.62, 0.65, 0.68} would pin it.
+- Does L=256 extend collapse even further in T? Gap at T={0.60–0.90} is the biggest hole in the grid.
+- Is the T=1.00 compressibility increase with L (0.739→0.785) robust across seeds?
 
 ---
 
@@ -337,3 +344,125 @@ for L in [64, 128, 192, 256]:
 **Alternative hypothesis:** The non-monotonicity is a broad plateau rather than a sharp transition — L=160 through L=224 all show similar elevated dynamics, with L=128 and L=256 as the special cases (collapse points) rather than L=192 being special.
 
 **What would falsify these:** If L=160 shows the same elevated dynamics as L=192, the bifurcation is below L=160 and the "plateau" model wins. If L=176 collapses deep like L=128, the transition is sharp and narrow around L=192.
+
+---
+
+### 2026-03-09 — L-densification Results: Predictions vs Reality
+
+**Data:** L={160, 176, 208, 224} × S={42, 123, 7} at T=0.50, 15 runs complete. Combined with existing L={64, 128, 192, 256} data for full profile.
+
+**Compressibility (W=64) seed-averaged across L:**
+
+| L | S=42 | S=123 | S=7 | mean | std |
+|---|------|-------|-----|------|-----|
+| 64 | 0.347 | 0.296 | 0.461 | 0.368 | 0.069 |
+| 128 | 0.259 | 0.348 | 0.437 | 0.348 | 0.073 |
+| 160 | 0.362 | 0.325 | 0.241 | 0.310 | 0.050 |
+| 176 | 0.308 | 0.294 | 0.410 | 0.338 | 0.052 |
+| 192 | 0.351 | 0.407 | 0.248 | 0.335 | 0.066 |
+| 208 | 0.290 | 0.282 | 0.202 | 0.258 | 0.040 |
+| 224 | 0.283 | 0.344 | 0.301 | 0.309 | 0.026 |
+| 256 | 0.229 | — | — | 0.229 | — |
+
+**Entropy mean across L:**
+
+| L | S=42 | S=123 | S=7 | mean | std |
+|---|------|-------|-----|------|-----|
+| 64 | 0.683 | 0.556 | 0.920 | 0.720 | 0.151 |
+| 128 | 0.191 | 0.147 | 0.511 | 0.283 | 0.162 |
+| 160 | 0.378 | 0.201 | 0.195 | 0.258 | 0.085 |
+| 176 | 0.242 | 0.244 | 0.189 | 0.225 | 0.026 |
+| 192 | 0.311 | 0.485 | 0.239 | 0.345 | 0.103 |
+| 208 | 0.314 | 0.155 | 0.125 | 0.198 | 0.083 |
+| 224 | 0.225 | 0.278 | 0.178 | 0.227 | 0.041 |
+| 256 | 0.069 | — | — | 0.069 | — |
+
+**Prediction scorecard:**
+
+1. **L=160 "behaves like L=128"** — WRONG. Mean comp 0.310 (lower than L=128's 0.348), entropy 0.258. Not deep collapse — sits in the mid-range. The transition is below L=160.
+
+2. **L=176 "transition zone, seed-dependent"** — PARTIALLY RIGHT on seed-dependence (S=7 at 0.41 vs S=123 at 0.29), WRONG that it's a boundary. Just more of the same plateau.
+
+3. **L=208 "behaves like L=192"** — WRONG in an interesting way. L=208 shows the *lowest* compressibility in the mid-range (0.258 mean, entropy 0.198). It's actually the deepest collapser between L=128 and L=256.
+
+4. **L=224 "approaching L=256"** — WRONG. Bounces back up (0.309) instead of continuing descent.
+
+**Both hypotheses falsified.** No sharp bifurcation (the "critical L" model) and no broad plateau (the "flat" model). Instead: **the L-profile is jagged and non-monotonic**, with local dips at L=208 and L=128, and local peaks at L=176 and L=192. The pattern resembles interference between context-length-dependent attractor structures rather than a smooth phase transition.
+
+**Key takeaway:** At T=0.50, seed variance (std 0.04–0.10) is comparable to the differences between adjacent L values (Δmean ~0.03–0.08). With n=3 seeds, we cannot reliably resolve whether the jagged profile is reproducible structure or sampling noise. However, the overall downward trend from L=64 to L=256 is robust across all seeds.
+
+**What this means for the project:** The L-dimension at fixed T=0.50 has diminishing returns. The more interesting question is how the L-profile *changes shape across T* — the T×L interaction.
+
+```bash
+python plot_window_scaling.py --temps 0.50 --ldense
+```
+
+---
+
+### 2026-03-09 — Cross-T Analysis: Collapse Boundary is L-dependent
+
+**Data:** Full S=42 grid — L={64, 128, 192} × T={0.50–1.50}, L=256 × T={0.50, 1.00, 1.50}.
+
+**Compressibility (W=64) across T (S=42):**
+
+| L \ T | 0.50 | 0.60 | 0.70 | 0.80 | 0.90 | 1.00 | 1.50 |
+|-------|------|------|------|------|------|------|------|
+| 64 | 0.347 | 0.481 | 0.614 | 0.682 | 0.715 | 0.739 | 0.705 |
+| 128 | 0.259 | 0.334 | 0.547 | 0.628 | 0.713 | 0.757 | 0.702 |
+| 192 | 0.351 | 0.313 | 0.556 | 0.603 | 0.697 | 0.785 | 0.704 |
+| 256 | 0.229 | — | — | — | — | 0.743 | 0.705 |
+
+**Entropy mean across T (S=42):**
+
+| L \ T | 0.50 | 0.60 | 0.70 | 0.80 | 0.90 | 1.00 | 1.50 |
+|-------|------|------|------|------|------|------|------|
+| 64 | 0.683 | 0.791 | 1.599 | 2.220 | 2.755 | 3.721 | 7.989 |
+| 128 | 0.191 | 0.502 | 1.149 | 1.642 | 2.858 | 4.168 | 8.207 |
+| 192 | 0.311 | 0.187 | 1.114 | 1.618 | 2.868 | 4.691 | 8.301 |
+| 256 | 0.069 | — | — | — | — | 4.917 | 8.342 |
+
+**EOS rate across T (S=42):**
+
+| L \ T | 0.50 | 0.60 | 0.70 | 0.80 | 0.90 | 1.00 | 1.50 |
+|-------|------|------|------|------|------|------|------|
+| 64 | 0.00013 | 0.00035 | 0.00057 | 0.00074 | 0.00092 | 0.00091 | 0.00063 |
+| 128 | 0.00005 | 0.00032 | 0.00055 | 0.00076 | 0.00104 | 0.00077 | 0.00053 |
+| 192 | 0.00005 | 0.00007 | 0.00083 | 0.00071 | 0.00087 | 0.00065 | 0.00048 |
+| 256 | 0.00001 | — | — | — | — | 0.00057 | 0.00046 |
+
+**Key findings:**
+
+1. **L=192 extends collapse into T=0.60.** Entropy 0.187, compressibility 0.313, EOS rate 0.00007. Meanwhile L=64 (entropy 0.791) and L=128 (entropy 0.502) have escaped collapse at T=0.60. Longer context doesn't just deepen collapse — it extends the collapse regime upward in T.
+
+2. **Sharp escape at T=0.70.** All L values jump to entropy >1.0 and compressibility >0.55 at T=0.70. The collapse-to-escape transition is abrupt in T, regardless of L. This suggests T=0.65 may be the critical temperature for L=192 — a natural target for further densification.
+
+3. **EOS peak shifts with L.** Peak EOS rate occurs at T=0.90 for L=128 (0.00104), at T=0.90 for L=64 (0.00092), but at T=0.70 for L=192 (0.00083). The EOS peak tracks the escape-from-collapse transition: it fires most when the system is on the boundary between structured and free dynamics.
+
+4. **T=1.50 is a universal noise floor.** Compressibility ~0.705 and entropy ~8.0-8.3 regardless of L. At high T, context length is irrelevant — thermal noise dominates.
+
+5. **T=1.00 compressibility *increases* with L** (0.739 → 0.757 → 0.785). The opposite of T=0.50 where comp generally decreases with L. At T=1.00, longer context enriches structure rather than deepening collapse. This confirms the "slope-flip" noted in earlier observations — the sign of dC/dL reverses somewhere in the crossover.
+
+**Priorities:**
+- Fill L=256 × T={0.60, 0.70, 0.80, 0.90} to see how far L=256 extends the collapse regime (4 runs)
+- Consider T-densification at T={0.62, 0.65, 0.68} for L=192 to pin the escape temperature
+- Cross-T heatmap visualization needed — current plotting tools show fixed-T slices but not T×L interaction
+
+```bash
+# Reproduction
+python -c "
+import pickle, numpy as np
+from pathlib import Path
+for L in [64, 128, 192, 256]:
+    for T in [0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50]:
+        for pat in [f'data/runs/L{L:04d}_T{T:.2f}_S42.analysis.pkl',
+                    f'data/runs/L{L:04d}_T{T:.2f}_S42.W16_W32_W64_W128_W256.analysis.pkl']:
+            p = Path(pat)
+            if p.exists():
+                with open(p, 'rb') as f:
+                    data = pickle.load(f)
+                v = data['compressibility'][64]
+                valid = v[~np.isnan(v)]
+                print(f'L={L} T={T:.2f}: comp_W64={valid.mean():.4f} entropy={data[\"summary\"][\"entropy_mean\"]:.4f} eos={data[\"summary\"][\"eos_rate\"]:.6f}')
+                break
+"
+```

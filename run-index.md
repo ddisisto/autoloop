@@ -10,28 +10,32 @@ Model: SmolLM-135M | Tokens per run: 100,000 (post-pre-fill) | Sampling: pure te
 
 **Crossover densification**: L={64, 128, 192} × T={0.60, 0.70, 0.80, 0.90} × seed=42
 
-Total: 31 runs complete.
+Total: 42 runs complete.
 
 | L \ T | 0.50 | 0.60 | 0.70 | 0.80 | 0.90 | 1.00 | 1.50 |
 |-------|------|------|------|------|------|------|------|
 | 64    | 42,123,7 | 42 | 42 | 42 | 42 | 42 | 42 |
 | 128   | 42,123,7 | 42 | 42 | 42 | 42 | 42 | 42 |
-| 160   | 42   |      |      |      |      |      |      |
-| 176   |      |      |      |      |      |      |      |
+| 160   | 42,123,7 |    |    |    |    |    |    |
+| 176   | 42,123,7 |    |    |    |    |    |    |
 | 192   | 42,123,7 | 42 | 42 | 42 | 42 | 42 | 42 |
-| 208   |      |      |      |      |      |      |      |
-| 224   |      |      |      |      |      |      |      |
+| 208   | 42,123,7 |    |    |    |    |    |    |
+| 224   | 42,123,7 |    |    |    |    |    |    |
 | 256   | 42   |      |      |      |      | 42   | 42   |
 
 Cells show seed numbers for completed runs. Empty = not yet run.
 
-### In Progress: L-densification
+### Next: L=256 Crossover Fill
 
-`ldense_sweep.py`: L={160, 176, 192, 208, 224} × S={42, 123, 7} at T=0.50. Maps the non-monotonic compressibility boundary between L=128 and L=256. ~11 hours overnight.
+L=256 × T={0.60, 0.70, 0.80, 0.90} × S=42 — 4 runs. Fills the biggest gap in the grid and answers whether L=256 extends collapse further into T than L=192.
+
+### Optional: L=192 Escape Temperature
+
+L=192 × T={0.62, 0.65, 0.68} × S=42 — 3 runs. Pins the exact escape temperature between T=0.60 (collapsed) and T=0.70 (escaped).
 
 ### Paused: Seed Replication
 
-Seeds 123 and 7 via `seed_sweep.py` (48 runs total, 5 complete). Paused in favor of L-densification. Remaining runs cover crossover T=0.60–0.90 and T=1.00/1.50.
+Seeds 123 and 7 via `seed_sweep.py` (48 runs total, 11 complete at T=0.50). Remaining runs cover crossover T=0.60–0.90 and T=1.00/1.50. Lower priority — cross-T analysis is more informative than more seeds.
 
 ### Planned: L=256 Crossover Fill
 
