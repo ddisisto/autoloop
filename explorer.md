@@ -194,35 +194,142 @@ Single HTML file. Dependencies loaded from CDN:
 - Debounce rapid changes (e.g. toggling multiple runs)
 - Loading indicator for data fetches
 
+## Interaction model
+
+The explorer evolves along a single trajectory from read-only instrument to interactive control surface. Each phase adds capability without replacing what came before.
+
+```
+read-only                                              read-write
+   |                                                       |
+   popover → drawer → scroll → flags → jump-in → generate → steer
+   |___________ explorer ____________|______ control ______|
+```
+
+### Click → popover → drawer flow
+
+One interaction, not three features:
+
+1. **Click any point on any chart** → small popover appears near the click. Shows ~20 tokens centered on that step, entropy-colored. Metadata line (run, step, metric values). Two actions: **[×] dismiss** or **[→ Open]**.
+2. **Open** → right drawer slides in, showing W tokens either side of the clicked step. Chart X-axis indicates the visible range. W defaults to L but is adjustable.
+3. **Now in continuous document mode.** Scroll text → chart position follows. Zoom chart → text viewport adjusts. Bidirectional sync.
+
+### Adjustable display window (W_display)
+
+The display window is decoupled from the model's context length L:
+- Default: W_display = L (shows what the model could see)
+- User can increase to see more surrounding context, or decrease for a tighter view
+- The L-token context window is visually indicated within the text (shaded band = "what the model saw at this step")
+- Slider or numeric input in drawer header
+
+### Flags (annotations)
+
+User-created markers on (run, step) pairs:
+- Click a flag icon on the popover or drawer to mark the current position
+- Each flag stores: run ID, step, label (optional), metric values at that point
+- Flags appear as markers on all charts (vertical lines or diamonds)
+- Listed in a sidebar section, clickable to navigate
+- Persisted in localStorage (like favorites)
+- Export as markdown table for observations.md
+
+### Events system
+
+A unified abstraction for navigation (now) and stop conditions (future):
+
+```
+Event = predicate on token stream state
+
+Built-in predicates:
+  eos                           # token is EOS
+  entropy_above(threshold)      # entropy > X
+  entropy_below(threshold)      # entropy < X
+  compressibility_crosses(val)  # comp crosses threshold (either direction)
+  flag                          # user-flagged step
+
+Navigation:  [< prev event] [> next event]  with event type selector
+Control:     "run forward until [event]"     same predicates, different backend
+```
+
+In read-only mode, events are evaluated against stored parquet data. In control mode, the same predicates become real-time stop conditions.
+
+### Jump in seat
+
+Reconstruct full model state at any step, cheaply:
+
+1. Read `token_id[N-L+1 ... N]` from the parquet (the L tokens ending at step N)
+2. One forward pass through the model → KV cache is rebuilt
+3. User is "in the seat" at step N — sees the context, the phase-space position, all metrics
+
+The parquet is the complete state record. The KV cache is a pure function of the last L tokens. No mid-run checkpoints needed — reconstruction is one forward pass (~milliseconds on GPU).
+
+Changing L at jump-in is free: just take fewer or more trailing tokens. Memory-depth annealing becomes a slider you drag while watching the phase portrait respond.
+
+### Live generation
+
+From the jumped-in state:
+- User adjusts parameters (T, L, W for measurement)
+- Hits "generate" → tokens stream to the chart in real time via websocket
+- Events system provides stop conditions
+- New tokens append to a branch parquet (forked from the original run at step N)
+- Phase portrait updates live — watch the trajectory evolve
+
+### Embedding-space projections (future)
+
+The phase portraits currently use derived metrics (entropy, compressibility) as axes. A natural extension:
+- Project token embeddings (or hidden states) into 2D/3D via UMAP/t-SNE/PCA
+- Plot trajectories through embedding space — the "true" phase portrait
+- Overlay metric-derived phase portraits for comparison
+- Steering in embedding space = directional perturbation of the generation process
+
+This connects back to interaction-topology.md: the phase space IS the interface.
+
 ## Implementation Plan
 
-### Phase 1: MVP
-- [ ] Add fastapi + uvicorn deps
-- [ ] `explorer.py`: run index, metric registry, data endpoint, static file serving
-- [ ] `static/index.html`: run selector, metric dropdowns, time series chart, URL hash sync
-- [ ] Basic phase portrait mode
-- [ ] Verify shareable URLs work end-to-end
+### Phase 1: MVP (done)
+- [x] `explorer.py`: run index, metric registry, data endpoint, static file serving
+- [x] `static/index.html`: run selector, metric dropdowns, time series chart, URL hash sync
+- [x] Phase portrait mode
+- [x] Shareable URL hash state
+- [x] Context inspection (click-to-read, scrubber, EOS navigation)
+- [x] Favorites (localStorage + markdown export)
+- [x] Run grouping (by L, T, seed)
+- [x] Glob patterns in run selector
 
-### Phase 2: Polish
-- [ ] Favorites (localStorage + export as markdown)
-- [ ] Run grouping (by L, T, seed)
-- [ ] Glob patterns in run selector
-- [ ] Secondary Y axis for dual-metric views
-- [ ] Color schemes: by run identity, by time, by parameter value
+### Phase 2: Context redesign
+- [ ] DOM restructure: `.workspace` wrapping `.chart-container` + `.context-drawer`
+- [ ] Popover on chart click (lightweight, positioned near click point)
+- [ ] Pin-to-drawer flow (popover → right drawer opens)
+- [ ] Adjustable W_display in drawer header (independent of L)
+- [ ] L-window highlight in continuous text (shaded band)
+- [ ] Bidirectional scroll/zoom sync (text ↔ chart X axis)
+- [ ] Resize handle between chart and drawer
+- [ ] Flags: create, display on charts, list in sidebar, persist, export
 
-### Phase 3: Extended charts
+### Phase 3: Events & extended views
+- [ ] Event predicates (eos, entropy threshold, compressibility threshold, flag)
+- [ ] Event navigation: [< prev] [> next] with type selector
+- [ ] Multi-chart stacking (2 charts sharing context drawer)
+- [ ] Secondary Y axis for dual-metric overlay
 - [ ] Heatmap: summary metric across (L, T) grid
-- [ ] Distribution views
-- [ ] Transfer function curves
+- [ ] Distribution views (violin/histogram per run or time block)
 
-### Phase 4: Live control (future)
-- [ ] WebSocket for streaming data from active generation
-- [ ] Control panel: T and L sliders that send commands to running generation
-- [ ] Real-time chart updates
+### Phase 4: Jump in seat
+- [ ] `/api/reconstruct` endpoint: load model, feed L tokens, return ready state
+- [ ] UI: "Jump in" button in drawer, shows model state indicator
+- [ ] Parameter adjustment panel (T slider, L slider)
+- [ ] Generate forward N steps (batch mode, results appended to chart)
+- [ ] Events as stop conditions for generation
+
+### Phase 5: Live control
+- [ ] WebSocket for streaming generation (token-by-token metrics to chart)
+- [ ] Real-time phase portrait updates
+- [ ] Branch management: fork runs at arbitrary points, compare branches
+- [ ] Multi-scale measurement during live generation (W as observer parameter)
+- [ ] Embedding-space projection views (UMAP/t-SNE of hidden states)
 
 ## Open Questions
 
-- **Alpine.js vs vanilla JS**: How complex does the UI state get before we need a reactive framework? Start vanilla, add Alpine if wiring gets painful.
-- **Downsampling strategy**: Stride (fast, may miss spikes) vs. LTTB (better visual fidelity, more complex). Start with stride.
-- **Multi-Y-axis**: Plotly supports it but it gets messy with many metrics. May want a "overlay" vs "subplot" toggle.
-- **Data size**: 24 runs × 100k steps × few columns = manageable in browser memory. At 100+ runs, may need server-side aggregation.
+- **Popover positioning**: anchor to click point (Plotly coordinates → screen coordinates) or to a fixed position near the chart edge? Click-anchored is more natural but needs Plotly coordinate mapping.
+- **Continuous scroll performance**: 10k+ tokens in DOM may need virtualization. Measure first — modern browsers handle large DOM well with `content-visibility: auto`.
+- **Branch divergence visualization**: when a user generates forward from step N, how to show the branch point and diverging trajectories on the same chart? Plotly trace grouping, or separate subplot?
+- **Embedding projections**: compute server-side (hidden states are large) or ship a reduced representation? PCA components could be pre-computed and cached like compressibility.
+- **Events UI**: dropdown selector for predicate type, or a mini query language? Start with dropdown, consider DSL if combinatorial predicates are needed (e.g., "entropy > 3 AND compressibility < 0.3").

@@ -79,3 +79,22 @@ This framing emerged directly from observing:
 - The "memory-depth annealing" concept: L-reduction as escape mechanism
 
 All of this was invisible until we built instruments to see it.
+
+## From instruments to controls
+
+The explorer trajectory (see explorer.md) makes the speculative concrete:
+
+| Concept | Instrument (read-only) | Control (read-write) |
+|---------|----------------------|---------------------|
+| Phase space | Chart axes (entropy × compressibility) | Live trajectory you steer |
+| Context window | Text panel showing L tokens | Slider that reshapes the attractor landscape |
+| Temperature | Color-coded regime indicator | Per-step noise floor you adjust in real time |
+| EOS | Marker on chart, navigation target | Stop condition in an events system |
+| Memory depth | L parameter in run metadata | Annealing lever — drag to escape/deepen attractors |
+| Measurement scale | W parameter for compressibility | Observer resolution, part of the feedback loop |
+
+The key transition: "jump in the seat" at any point in a recorded run, reconstruct full model state from the parquet (one forward pass of L tokens → KV cache), adjust parameters, generate forward. The parquet is a complete record; the model state is a pure function of the last L tokens.
+
+This means every recorded run is not just data to analyze — it's a waypoint you can return to and branch from. The phase space becomes navigable, not just observable.
+
+Future: embedding-space projections (UMAP/t-SNE of hidden states) as the "true" phase portrait. Trajectories through embedding space, with metric-derived views as interpretable projections. Steering in embedding space = directional perturbation of generation. The topology of the space becomes the interface itself.
