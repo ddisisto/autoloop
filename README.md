@@ -95,4 +95,4 @@ The longer-term question: what if the dynamical structure we're mapping here —
 
 ## License
 
-Not yet specified. Research code shared for transparency. Please reach out before any commercial use.
+[MIT](LICENSE)
