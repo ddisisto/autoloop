@@ -22,6 +22,10 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **EOS is regime-dependent.** At T=1.00: interior signal — fires from the dense center of phase space (richest dynamics). At T=0.50: transition signal — fires during escape attempts from attractors. EOS rate peaks at T=1.00, suppressed by L in collapse regime (13→3→1 across L=64/128/256 at T=0.50).
 
+**Crossover slope-flip at fixed W=64:** Compressibility *decreases* with L at T≤0.60 (deeper collapse = less local structure) but *increases* with L at T=1.00 (longer context = more structure). The sign flip occurs around T=0.70–0.80. This is the phase boundary in the L dimension.
+
+**Gzip measurement floor:** W=16 produces compressibility > 1.0 (gzip header overhead exceeds data). W≥32 is the useful measurement range.
+
 **Three-sensor framework:** entropy (model uncertainty), compressibility (observer-assessed structure), EOS rate (model-assessed coherence). Each probes a different aspect. All three needed for regime identification.
 
 ---

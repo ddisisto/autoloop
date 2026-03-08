@@ -21,9 +21,9 @@ Total: 24 runs complete.
 
 Cells show seed numbers for completed runs. Empty = not yet run.
 
-### Planned: Seed Replication
+### In Progress: Seed Replication
 
-Seeds 123 and 7 across the full grid. Priority order TBD — may target specific (L, T) conditions where seed-dependent behavior is most informative (e.g. T=0.50 collapse boundary, T=0.7–0.9 crossover).
+Seeds 123 and 7 via `seed_sweep.py` (48 runs). Priority order: T=0.50 all L first (L=192 anomaly verification), then crossover T=0.60–0.90, then T=1.00/1.50.
 
 ### Planned: L=256 Crossover Fill
 
@@ -44,9 +44,10 @@ L=256 × T={0.60, 0.70, 0.80, 0.90} — completes the rectangular grid. Lower pr
 
 ### Phase 1 — Fixed-Temperature Characterization
 - Transfer functions: T→C and T→H curves at each L (now possible with dense T spacing)
-- Multi-scale compression: W=2L, W=4L analysis on existing data
+- Multi-scale compression analysis at standard W grid (already computed for existing data)
 - Identify the decoupling zone and its T/L boundaries
 - Complete the fixed-temperature phase map
+- Refactor analyze.py: modular metric computation, better integration with explorer
 
 ### Phase 2 — Temperature Ramps
 - Controlled ramps through crossover region
@@ -69,4 +70,9 @@ python generate.py --context-length {L} --temperature {T} --seed {seed} \
 # Sweep scripts
 python pilot_sweep.py          # Phase 0 pilot grid
 python crossover_sweep.py      # Crossover T-densification
+python seed_sweep.py           # Seed replication (123, 7)
+
+# Multi-window analysis
+python analyze_windows.py      # Standard W grid [16,32,64,128,256]
+python plot_window_scaling.py  # Scaling plots
 ```
