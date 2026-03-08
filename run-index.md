@@ -10,24 +10,32 @@ Model: SmolLM-135M | Tokens per run: 100,000 (post-pre-fill) | Sampling: pure te
 
 **Crossover densification**: L={64, 128, 192} × T={0.60, 0.70, 0.80, 0.90} × seed=42
 
-Total: 24 runs complete.
+Total: 31 runs complete.
 
 | L \ T | 0.50 | 0.60 | 0.70 | 0.80 | 0.90 | 1.00 | 1.50 |
 |-------|------|------|------|------|------|------|------|
-| 64    | 42   | 42   | 42   | 42   | 42   | 42   | 42   |
-| 128   | 42   | 42   | 42   | 42   | 42   | 42   | 42   |
-| 192   | 42   | 42   | 42   | 42   | 42   | 42   | 42   |
+| 64    | 42,123,7 | 42 | 42 | 42 | 42 | 42 | 42 |
+| 128   | 42,123,7 | 42 | 42 | 42 | 42 | 42 | 42 |
+| 160   | 42   |      |      |      |      |      |      |
+| 176   |      |      |      |      |      |      |      |
+| 192   | 42,123,7 | 42 | 42 | 42 | 42 | 42 | 42 |
+| 208   |      |      |      |      |      |      |      |
+| 224   |      |      |      |      |      |      |      |
 | 256   | 42   |      |      |      |      | 42   | 42   |
 
 Cells show seed numbers for completed runs. Empty = not yet run.
 
-### In Progress: Seed Replication
+### In Progress: L-densification
 
-Seeds 123 and 7 via `seed_sweep.py` (48 runs). Priority order: T=0.50 all L first (L=192 anomaly verification), then crossover T=0.60–0.90, then T=1.00/1.50.
+`ldense_sweep.py`: L={160, 176, 192, 208, 224} × S={42, 123, 7} at T=0.50. Maps the non-monotonic compressibility boundary between L=128 and L=256. ~11 hours overnight.
+
+### Paused: Seed Replication
+
+Seeds 123 and 7 via `seed_sweep.py` (48 runs total, 5 complete). Paused in favor of L-densification. Remaining runs cover crossover T=0.60–0.90 and T=1.00/1.50.
 
 ### Planned: L=256 Crossover Fill
 
-L=256 × T={0.60, 0.70, 0.80, 0.90} — completes the rectangular grid. Lower priority than seed replication since L=256 behavior at T=0.50 and T=1.00 already characterizes the extremes.
+L=256 × T={0.60, 0.70, 0.80, 0.90} — completes the rectangular grid. Lower priority since L=256 behavior at T=0.50 and T=1.00 already characterizes the extremes.
 
 ### Gaps and Decisions
 
@@ -71,8 +79,10 @@ python generate.py --context-length {L} --temperature {T} --seed {seed} \
 python pilot_sweep.py          # Phase 0 pilot grid
 python crossover_sweep.py      # Crossover T-densification
 python seed_sweep.py           # Seed replication (123, 7)
+python ldense_sweep.py         # L-densification at T=0.50
 
 # Multi-window analysis
 python analyze_windows.py      # Standard W grid [16,32,64,128,256]
 python plot_window_scaling.py  # Scaling plots
+python plot_window_scaling.py --temps 0.50 --ldense  # L-dense detail plot
 ```

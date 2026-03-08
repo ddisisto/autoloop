@@ -315,3 +315,25 @@ for L in [64, 128, 192, 256]:
             pass
 "
 ```
+
+---
+
+### 2026-03-08 — Pre-registered Predictions: L-densification at T=0.50
+
+**Context:** L-dense sweep running overnight — L={160, 176, 208, 224} × S={42, 123, 7} at T=0.50, filling the gap between L=128 (deep collapse) and L=256 (deepest collapse) where L=192 showed anomalous non-monotonicity confirmed across three seeds.
+
+**Predictions (recorded before data arrives):**
+
+1. **L=160**: behaves like L=128 — deep collapse, low entropy, low compressibility. The extra 32 tokens of context aren't enough to change the attractor landscape.
+
+2. **L=176**: transition zone — expect seed-dependent behavior. Some seeds collapse (like L=128), others resist (like L=192). If the bifurcation is sharp, this is where it lives.
+
+3. **L=208**: behaves like L=192 — elevated entropy/compressibility, basin-hopping dynamics, regime-switching visible in time series.
+
+4. **L=224**: begins approaching L=256 — deeper collapse than L=192, but possibly slower to converge. The longer context starts to lock in again.
+
+**Core hypothesis:** There is a critical context length L_c somewhere in [160, 192] where the attractor landscape bifurcates. Below L_c, one dominant basin captures the dynamics. Above L_c (but below ~224), competing basins of similar depth coexist, producing the basin-hopping and elevated compressibility we see at L=192. At L=256, one basin wins again through sheer memory inertia.
+
+**Alternative hypothesis:** The non-monotonicity is a broad plateau rather than a sharp transition — L=160 through L=224 all show similar elevated dynamics, with L=128 and L=256 as the special cases (collapse points) rather than L=192 being special.
+
+**What would falsify these:** If L=160 shows the same elevated dynamics as L=192, the bifurcation is below L=160 and the "plateau" model wins. If L=176 collapses deep like L=128, the transition is sharp and narrow around L=192.

@@ -17,6 +17,7 @@ plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
 pilot_sweep.py       # Batch runner for pilot grid (idempotent, crash-resilient)
 crossover_sweep.py   # Batch runner for T-densification in crossover region
 seed_sweep.py        # Batch runner for seed replication (seeds 123, 7)
+ldense_sweep.py      # Batch runner for L-densification around anomaly (T=0.50)
 explorer.py          # Interactive web explorer backend (FastAPI)
 static/index.html    # Explorer frontend (Plotly.js, single-page app)
 explorer.md          # Explorer design doc
@@ -76,11 +77,12 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `utils.py`: shared primitives — `compressibility()`, `eos_ema()`
 - `reproduce_plots.py`: one-command regen of all standard plot slices (analysis + figure mtime caching)
 - `explorer.py` + `static/index.html`: interactive web explorer (FastAPI + Plotly.js), context inspection
-- `pilot_sweep.py`, `crossover_sweep.py`, `seed_sweep.py`: batch runners (idempotent, crash-resilient)
+- `pilot_sweep.py`, `crossover_sweep.py`, `seed_sweep.py`, `ldense_sweep.py`: batch runners (idempotent, crash-resilient)
 
 ### Data Collected (see run-index.md for full grid)
 - 24 seed=42 runs complete: L={64,128,192} × T={0.50–1.50} + L=256 × T={0.50,1.00,1.50}
 - Seed replication (123, 7) in progress via seed_sweep.py
+- L-densification sweep running: L={160,176,192,208,224} × S={42,123,7} at T=0.50 via ldense_sweep.py
 - Dense crossover coverage: T={0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50} at L={64,128,192}
 
 ### Key Findings (see observations.md)
