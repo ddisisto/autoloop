@@ -136,7 +136,14 @@ def plot_entropy_timeseries(
         n = len(run.exp) // downsample * downsample
         entropy = run.exp.entropy.to_numpy()[:n].reshape(-1, downsample).mean(axis=1)
         steps = np.arange(downsample // 2, n, downsample)
-        ax.plot(steps, entropy, label=run.label, linewidth=0.8)
+        line, = ax.plot(steps, entropy, label=run.label, linewidth=0.8)
+
+        # EOS tick marks along top edge
+        eos_steps = np.where(run.exp.eos.to_numpy()[:n])[0]
+        if len(eos_steps) > 0:
+            ax.vlines(eos_steps, ymin=0.97, ymax=1.0,
+                      transform=ax.get_xaxis_transform(),
+                      colors=line.get_color(), linewidths=0.5, alpha=0.6)
 
         # EOS rate EMA, downsampled to match
         ema = eos_ema(run.exp.eos.to_numpy()[:n].astype(float), EOS_EMA_SPAN)
