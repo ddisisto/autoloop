@@ -5,7 +5,9 @@ Computes derived metrics from generation Parquet files:
 - Stationarity assessment (5-block comparison)
 - Per-run summary statistics
 
-Results are cached as .analysis.pkl sidecars, keyed by window sizes.
+Results are cached in a single .analysis.pkl per parquet file.
+Cache is incrementally updatable: requesting new window sizes only
+computes the missing ones. Cache is invalidated when parquet changes.
 """
 
 import logging
@@ -18,6 +20,15 @@ import pandas as pd
 from utils import compressibility
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Metric computation functions
+# ---------------------------------------------------------------------------
+
+def default_window_sizes(L: int) -> list[int]:
+    """Default window sizes for a given context length."""
+    return [L, max(L // 4, 16)]
 
 
 def sliding_compressibility(decoded_texts: pd.Series, window_size: int) -> np.ndarray:
@@ -75,12 +86,9 @@ def stationarity_blocks(
     }
 
 
-def summarize_run(df: pd.DataFrame) -> dict:
-    """Compute summary statistics for a single run."""
-    exp = df[df.phase == "experiment"]
-
+def summarize_run(exp: pd.DataFrame) -> dict:
+    """Compute summary statistics from experiment-phase DataFrame."""
     return {
-        "n_prefill": int((df.phase == "prefill").sum()),
         "n_experiment": len(exp),
         "entropy_mean": float(exp.entropy.mean()),
         "entropy_std": float(exp.entropy.std()),
@@ -93,62 +101,104 @@ def summarize_run(df: pd.DataFrame) -> dict:
     }
 
 
-def _cache_path(parquet_path: Path, window_sizes: list[int]) -> Path:
-    """Return the path for a cached analysis result."""
-    w_tag = "_".join(f"W{w}" for w in sorted(window_sizes))
-    return parquet_path.with_suffix(f".{w_tag}.analysis.pkl")
+# ---------------------------------------------------------------------------
+# Cache management
+# ---------------------------------------------------------------------------
+
+def _cache_path(parquet_path: Path) -> Path:
+    """Single cache file per parquet."""
+    return parquet_path.with_suffix(".analysis.pkl")
 
 
-def _is_cache_valid(parquet_path: Path, cache_path: Path) -> bool:
-    """Check if cached analysis exists and is newer than the parquet."""
-    if not cache_path.exists():
-        return False
-    return cache_path.stat().st_mtime > parquet_path.stat().st_mtime
+def _load_cache(parquet_path: Path) -> dict | None:
+    """Load cache if valid (parquet hasn't changed since cache was written)."""
+    cp = _cache_path(parquet_path)
+    if not cp.exists():
+        return None
+    pq_mtime = parquet_path.stat().st_mtime
+    with open(cp, "rb") as f:
+        cache = pickle.load(f)
+    if cache.get("parquet_mtime") != pq_mtime:
+        log.info("Cache stale for %s (parquet changed)", parquet_path.name)
+        return None
+    return cache
 
 
-def analyze_run(parquet_path: Path, window_sizes: list[int]) -> dict:
-    """Full analysis pipeline for a single run.
+def _save_cache(parquet_path: Path, cache: dict) -> None:
+    """Save cache with current parquet mtime."""
+    cache["parquet_mtime"] = parquet_path.stat().st_mtime
+    cp = _cache_path(parquet_path)
+    with open(cp, "wb") as f:
+        pickle.dump(cache, f)
+    log.info("Cached analysis to %s", cp.name)
+
+
+def _load_experiment_df(parquet_path: Path) -> pd.DataFrame:
+    """Load experiment-phase rows from a parquet file."""
+    df = pd.read_parquet(parquet_path)
+    return df[df.phase == "experiment"].reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+def analyze_run(
+    parquet_path: Path,
+    window_sizes: list[int],
+    exp: pd.DataFrame | None = None,
+) -> dict:
+    """Analyze a single run, computing only what's missing from cache.
 
     Args:
         parquet_path: Path to the run's parquet file.
         window_sizes: List of window sizes for compressibility computation.
+        exp: Pre-loaded experiment-phase DataFrame. If None, loaded from parquet.
 
     Returns dict with summary stats, stationarity, and compressibility data.
     Compressibility stored as {W: array} dict keyed by window size.
-    Uses disk cache to avoid recomputing.
+
+    Cache is incremental: previously computed window sizes are reused,
+    only missing ones are computed. Cache invalidates when parquet changes.
     """
-    cache = _cache_path(parquet_path, window_sizes)
-    if _is_cache_valid(parquet_path, cache):
-        log.info("Loading cached analysis for %s", parquet_path.name)
-        with open(cache, "rb") as f:
-            return pickle.load(f)
+    requested = set(window_sizes)
+    cache = _load_cache(parquet_path)
 
-    df = pd.read_parquet(parquet_path)
-    exp = df[df.phase == "experiment"].reset_index(drop=True)
+    if cache is not None:
+        cached_windows = set(cache.get("compressibility", {}).keys())
+        missing = requested - cached_windows
+        if not missing:
+            log.info("Full cache hit for %s", parquet_path.name)
+            return cache
+        log.info("Partial cache hit for %s (have W=%s, need W=%s)",
+                 parquet_path.name, sorted(cached_windows), sorted(missing))
+    else:
+        missing = requested
+        cache = {}
 
-    summary = summarize_run(df)
-    entropy_stationarity = stationarity_blocks(exp.entropy.to_numpy())
+    # Load data if needed
+    if exp is None:
+        exp = _load_experiment_df(parquet_path)
 
-    comp = {}
-    for w in window_sizes:
+    # Summary and entropy stationarity (recompute on cache miss)
+    if "summary" not in cache:
+        cache["summary"] = summarize_run(exp)
+        cache["entropy_stationarity"] = stationarity_blocks(exp.entropy.to_numpy())
+
+    # Compute missing compressibility windows
+    comp = cache.get("compressibility", {})
+    for w in sorted(missing):
         log.info("Computing compressibility W=%d for %s", w, parquet_path.name)
         comp[w] = sliding_compressibility(exp.decoded_text, w)
+    cache["compressibility"] = comp
 
     # Stationarity on largest window compressibility
-    w_max = max(window_sizes)
+    w_max = max(comp.keys())
     comp_valid = comp[w_max][~np.isnan(comp[w_max])]
-    comp_stationarity = stationarity_blocks(comp_valid)
+    cache["compressibility_stationarity"] = stationarity_blocks(comp_valid)
 
-    result = {
-        "summary": summary,
-        "entropy_stationarity": entropy_stationarity,
-        "compressibility_stationarity": comp_stationarity,
-        "compressibility": comp,
-        "window_sizes": sorted(window_sizes),
-    }
+    # Track which windows are available
+    cache["window_sizes"] = sorted(comp.keys())
 
-    with open(cache, "wb") as f:
-        pickle.dump(result, f)
-    log.info("Cached analysis to %s", cache.name)
-
-    return result
+    _save_cache(parquet_path, cache)
+    return cache

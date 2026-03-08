@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from analyze import analyze_run
+from analyze import analyze_run, default_window_sizes
 from utils import eos_ema
 
 log = logging.getLogger(__name__)
@@ -164,11 +164,6 @@ def plot_entropy_timeseries(
     plt.close(fig)
     log.info("Saved %s", out)
     return out
-
-
-def default_window_sizes(L: int) -> list[int]:
-    """Default window sizes for a given context length."""
-    return [L, max(L // 4, 16)]
 
 
 def _comp(run: RunBundle, w: int) -> np.ndarray:

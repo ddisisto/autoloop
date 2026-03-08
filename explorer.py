@@ -18,8 +18,7 @@ from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from analyze import analyze_run
-from plot import default_window_sizes
+from analyze import analyze_run, default_window_sizes
 
 log = logging.getLogger(__name__)
 
@@ -108,11 +107,15 @@ class RunCache:
         return self._dataframes[info.id]
 
     def get_analysis(self, info: RunInfo) -> dict:
-        """Get analysis results, triggering computation if needed."""
+        """Get analysis results, triggering computation if needed.
+
+        Passes the already-loaded experiment DataFrame to avoid double-loading.
+        """
         if info.id not in self._analyses:
             ws = default_window_sizes(info.L)
+            exp = self.get_experiment_df(info)
             log.info("Analyzing %s (W=%s)", info.id, ws)
-            self._analyses[info.id] = analyze_run(info.path, ws)
+            self._analyses[info.id] = analyze_run(info.path, ws, exp=exp)
         return self._analyses[info.id]
 
 

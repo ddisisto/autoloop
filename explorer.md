@@ -156,7 +156,7 @@ Save button stores current URL hash + optional label to localStorage. Favorites 
 
 ### Analysis integration
 
-Backend imports `analyze_run()` from `analyze.py` to ensure analysis cache exists. If a run has no analysis cache, it triggers analysis on first data request (lazy, cached). This keeps the existing analysis pipeline as the single source of truth for derived metrics.
+Backend imports `analyze_run()` and `default_window_sizes()` from `analyze.py`. Analysis is triggered lazily on first data request and cached. The explorer passes its already-loaded experiment DataFrame to `analyze_run(path, ws, exp=exp)` to avoid double-loading parquets. Analysis results are cached in a single `.analysis.pkl` per run, with incremental window-size support (requesting new W values only computes the missing ones).
 
 ### Metric registry is data-driven
 

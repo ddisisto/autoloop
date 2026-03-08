@@ -8,7 +8,7 @@ Multi-scale complexity control in closed-loop autoregressive generation. See `do
 
 ```
 generate.py          # Core generation loop, CLI entry point (with checkpoint/resume)
-analyze.py           # Post-hoc analysis (arbitrary-W compressibility, stationarity, summaries; cached .pkl)
+analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries; incremental .analysis.pkl cache)
 plot.py              # Visualization (5 plot types + EOS markers, CLI with --runs and --plots)
 utils.py             # Shared primitives (compressibility, eos_ema)
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
@@ -28,7 +28,7 @@ docs/                # Longer-form documents
   interaction-topology.md  # Speculative framing: generative dynamics as interaction paradigm
 data/                # Gitignored except figures
   model/SmolLM-135M/ # Local model weights (pre-downloaded)
-  runs/              # Parquet files + JSON sidecars + checkpoints + analysis cache (.W*.analysis.pkl)
+  runs/              # Parquet files + JSON sidecars + checkpoints + analysis cache (.analysis.pkl)
   figures/           # Plot outputs (tracked in git)
 ```
 
@@ -50,7 +50,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - All generated data goes under `data/` (gitignored except `data/figures/`)
 - One Parquet file per run, named `L{L:04d}_T{T:.2f}_S{seed}.parquet`
 - Each run includes a JSON sidecar with full metadata (parameters, model revision, torch version, timing)
-- Analysis cache: `.W{sizes}.analysis.pkl` sidecars, keyed by window sizes, invalidated by parquet mtime
+- Analysis cache: single `.analysis.pkl` per parquet, incremental (new window sizes merged in), invalidated by parquet mtime
 - Checkpoints: `L{L:04d}_T{T:.2f}_S{seed}.ckpt` — kept after run completion for extension
 - Model weights: `data/model/SmolLM-135M/` (local, not fetched at runtime)
 
@@ -69,7 +69,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 
 ### What's Built
 - `generate.py`: generation loop with pre-fill, checkpoint/resume, per-1k-step logging
-- `analyze.py`: sliding window gzip compressibility (arbitrary W list), 5-block stationarity, run summaries; cached `.analysis.pkl` sidecars
+- `analyze.py`: modular metric computation (compressibility, stationarity, summaries); single incremental `.analysis.pkl` cache per run; accepts pre-loaded DataFrames; canonical home for `default_window_sizes()`
 - `analyze_windows.py`: recompute analysis at standard W grid [16,32,64,128,256]
 - `plot.py`: entropy time series (EOS rate EMA overlay), compressibility, phase portraits (EOS diamonds), temporal phase portraits (cividis), split violin
 - `plot_window_scaling.py`: window scaling plots (comp vs L, comp vs W, heatmaps)

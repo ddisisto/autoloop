@@ -23,11 +23,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from analyze import analyze_run
+from analyze import analyze_run, default_window_sizes
 from plot import (
     PLOT_TYPES,
     RunBundle,
-    default_window_sizes,
     ensure_figures_dir,
     make_label,
     make_output_prefix,
