@@ -13,8 +13,9 @@ plot.py              # Visualization (5 plot types + EOS markers, CLI with --run
 utils.py             # Shared primitives (compressibility, eos_ema)
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
 pilot_sweep.py       # Batch runner for pilot grid (idempotent, crash-resilient)
+crossover_sweep.py   # Batch runner for T-densification in crossover region
 share.md             # Draft post/article for sharing findings
-pilot-runs.md        # Run tracker: status of each pilot grid condition
+run-index.md         # Run tracker, grid overview, phase planning
 observations.md      # Append-only findings log with reproduction commands
 project-brief.md     # Research design document
 data/                # Gitignored except figures
@@ -56,38 +57,37 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Grid parameters hardcoded in each sweep script — no external config files
 - Each sweep script calls `generate.py` as a subprocess per condition (crash isolation, natural per-run independence)
 
-## Current State (Phase 0 Pilot)
+## Current State (Phase 0 — Pilot + Crossover Mapping)
 
 ### What's Built
-- `generate.py`: generation loop with pre-fill, checkpoint/resume, per-1k-step logging (tok/s, trailing entropy, trailing compressibility)
-- `analyze.py`: sliding window gzip compressibility (arbitrary W list), 5-block stationarity, run summaries; results cached as `.analysis.pkl` sidecars keyed by window sizes
-- `plot.py`: entropy time series (with EOS rate EMA overlay), compressibility time series, phase portraits (with EOS diamond markers), temporal phase portraits (cividis colormap, hollow EOS diamonds), split violin (entropy upper / inverted compressibility lower)
+- `generate.py`: generation loop with pre-fill, checkpoint/resume, per-1k-step logging
+- `analyze.py`: sliding window gzip compressibility (arbitrary W list), 5-block stationarity, run summaries; cached `.analysis.pkl` sidecars
+- `plot.py`: entropy time series (EOS rate EMA overlay), compressibility, phase portraits (EOS diamonds), temporal phase portraits (cividis), split violin
 - `utils.py`: shared primitives — `compressibility()`, `eos_ema()`
-- `reproduce_plots.py`: one-command regeneration of all standard plot slices (analysis caching + figure mtime caching)
-- `pilot_sweep.py`: batch runner for overnight grid conditions (idempotent, crash-resilient, file logging)
+- `reproduce_plots.py`: one-command regen of all standard plot slices (analysis + figure mtime caching)
+- `pilot_sweep.py`, `crossover_sweep.py`: batch runners (idempotent, crash-resilient)
 
-### Data Collected (see pilot-runs.md for full status)
-- L=64 × T={0.5, 1.0, 1.5} × seed=42: done (100k each)
-- L=256 × T={0.5, 1.0, 1.5} × seed=42: done (100k each)
-- L=128, L=192 sweeps: in progress (pilot_sweep.py running overnight)
+### Data Collected (see run-index.md for full grid)
+- 24 runs complete: L={64,128,192} × T={0.50–1.50} + L=256 × T={0.50,1.00,1.50}
+- Dense crossover coverage: T={0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50} at L={64,128,192}
+- Next: seed replication (123, 7), L=256 crossover fill
 
 ### Key Findings (see observations.md)
 - Three distinct regimes: collapse (T=0.5), rich dynamics (T=1.0), noise (T=1.5)
-- T and L are orthogonal actuators: T controls noise floor, L controls memory depth / attractor stickiness
-- L=64 escapes collapse attractors; L=256 locks in permanently — transition maps attractor depth curve
-- At T=1.0, L=256 shifts operating point without collapse — different equilibrium, not just deeper basin
+- T and L are orthogonal actuators: T = noise floor, L = memory depth / attractor stickiness
+- L=64 escapes collapse attractors; L=256 locks in permanently
+- At T=1.0, L=256 shifts operating point without collapse — different equilibrium
 - W=L/4 and W=L compressibility decouple in the interesting regime
-- EOS rate peaks at T=1.0 (not collapse, not noise); L suppresses EOS dramatically in collapse regime
-- Three-sensor framework: entropy (uncertainty), compressibility (structure), EOS rate (model-assessed coherence)
-- Crossover region likely T=0.6–0.9, target for Phase 1 densification
+- EOS rate peaks at T=1.0; L suppresses EOS dramatically in collapse regime
+- Three-sensor framework: entropy, compressibility, EOS rate
+- Crossover region T=0.6–0.9 now densely sampled
 - "Memory-depth annealing": L-reduction as escape mechanism from stuck attractors
 
-## Key Parameters (Phase 0 Pilot)
-
+### Key Parameters
 - Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
-- Context lengths L: 64, 128, 192, 256 (revised: densify 64–256 transition; 1024 deprioritized)
-- Temperatures T: 0.5, 1.0, 1.5
-- Seeds: 42, 123, 7 (3 per condition, 27 runs total)
+- Context lengths L: 64, 128, 192, 256
+- Temperatures T: 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50
+- Seeds: 42 (complete); 123, 7 (planned replication)
 - Tokens per run: 100,000 (post-pre-fill)
 - Sampling: pure temperature scaling, no top-k/top-p
 
