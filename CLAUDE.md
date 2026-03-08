@@ -17,7 +17,9 @@ plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
 pilot_sweep.py       # Batch runner for pilot grid (idempotent, crash-resilient)
 crossover_sweep.py   # Batch runner for T-densification in crossover region
 seed_sweep.py        # Batch runner for seed replication (seeds 123, 7)
-explorer.md          # Interactive explorer design doc (pre-build)
+explorer.py          # Interactive web explorer backend (FastAPI)
+static/index.html    # Explorer frontend (Plotly.js, single-page app)
+explorer.md          # Explorer design doc
 run-index.md         # Run tracker, grid overview, phase planning
 observations.md      # Append-only findings log with current model summary
 docs/                # Longer-form documents
@@ -68,15 +70,18 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 ### What's Built
 - `generate.py`: generation loop with pre-fill, checkpoint/resume, per-1k-step logging
 - `analyze.py`: sliding window gzip compressibility (arbitrary W list), 5-block stationarity, run summaries; cached `.analysis.pkl` sidecars
+- `analyze_windows.py`: recompute analysis at standard W grid [16,32,64,128,256]
 - `plot.py`: entropy time series (EOS rate EMA overlay), compressibility, phase portraits (EOS diamonds), temporal phase portraits (cividis), split violin
+- `plot_window_scaling.py`: window scaling plots (comp vs L, comp vs W, heatmaps)
 - `utils.py`: shared primitives — `compressibility()`, `eos_ema()`
 - `reproduce_plots.py`: one-command regen of all standard plot slices (analysis + figure mtime caching)
-- `pilot_sweep.py`, `crossover_sweep.py`: batch runners (idempotent, crash-resilient)
+- `explorer.py` + `static/index.html`: interactive web explorer (FastAPI + Plotly.js), context inspection
+- `pilot_sweep.py`, `crossover_sweep.py`, `seed_sweep.py`: batch runners (idempotent, crash-resilient)
 
 ### Data Collected (see run-index.md for full grid)
-- 24 runs complete: L={64,128,192} × T={0.50–1.50} + L=256 × T={0.50,1.00,1.50}
+- 24 seed=42 runs complete: L={64,128,192} × T={0.50–1.50} + L=256 × T={0.50,1.00,1.50}
+- Seed replication (123, 7) in progress via seed_sweep.py
 - Dense crossover coverage: T={0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50} at L={64,128,192}
-- Next: seed replication (123, 7), L=256 crossover fill
 
 ### Key Findings (see observations.md)
 - Three distinct regimes: collapse (T=0.5), rich dynamics (T=1.0), noise (T=1.5)
@@ -105,6 +110,9 @@ python generate.py --context-length 64 --temperature 1.0 --seed 42 \
   --num-tokens 100000 --model-dir data/model/SmolLM-135M \
   --output-dir data/runs --device cuda
 
+# Interactive explorer
+uvicorn explorer:app --reload --port 8000   # then open http://localhost:8000
+
 # Plots (all types by default, or select with --plots)
 python plot.py --runs data/runs/L0064_T*_S42.parquet
 python plot.py --runs data/runs/L*_T0.50_S42.parquet --plots violin temporal
@@ -118,4 +126,4 @@ python reproduce_plots.py --plots entropy  # only specific plot types
 
 ## Dependencies
 
-Managed with `uv`. Key packages: torch (CUDA 12.6), transformers, pandas, pyarrow, scipy, scikit-learn, matplotlib.
+Managed with `uv`. Key packages: torch (CUDA 12.6), transformers, pandas, pyarrow, scipy, scikit-learn, matplotlib, fastapi, uvicorn.

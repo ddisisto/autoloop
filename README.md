@@ -41,10 +41,12 @@ Scripts, not a package. Flat layout.
 | `plot_window_scaling.py` | Window scaling exploration plots |
 | `pilot_sweep.py` | Batch runner for pilot grid |
 | `seed_sweep.py` | Batch runner for seed replication |
+| `explorer.py` | Interactive web explorer (FastAPI backend) |
+| `static/index.html` | Explorer frontend (Plotly.js) |
 
 ## Data
 
-24 completed runs (seed=42): L={64, 128, 192, 256} x T={0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50}. Seed replication (seeds 123, 7) in progress — 48 additional runs.
+24 completed runs (seed=42): L={64, 128, 192, 256} x T={0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50}. Seed replication (seeds 123, 7) in progress.
 
 Each run: 100,000 tokens of pure autoregressive generation on a GTX 1070. Per-token entropy, log-probability, EOS flag, and decoded text stored in Parquet files. Gzip compressibility computed post-hoc at multiple window sizes.
 
@@ -64,6 +66,9 @@ python generate.py --context-length 64 --temperature 1.0 --seed 42 \
 # Analysis at standard window sizes
 python analyze_windows.py
 
+# Interactive explorer
+uvicorn explorer:app --reload --port 8000
+
 # Plots
 python plot.py --runs data/runs/L0064_T*_S42.parquet
 python plot_window_scaling.py
@@ -79,6 +84,7 @@ Requires a local copy of SmolLM-135M weights at `data/model/SmolLM-135M/`.
 - [observations.md](observations.md) — Findings log with current model summary
 - [run-index.md](run-index.md) — Grid status, phase planning
 - [docs/project-brief.md](docs/project-brief.md) — Full research design
+- [docs/explorer-wireframes.md](docs/explorer-wireframes.md) — Explorer layout design (right drawer recommendation)
 - [docs/interaction-topology.md](docs/interaction-topology.md) — Speculative framing: generative dynamics as interaction paradigm
 
 ## Where this is headed
