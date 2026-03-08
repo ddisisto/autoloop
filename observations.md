@@ -2,6 +2,28 @@
 
 Append-only record of findings. Each entry includes reproduction commands.
 
+## Current Model
+
+*Rewritten as understanding evolves. Entries below are the evidence trail.*
+
+**System:** SmolLM-135M generating into its own context. No external input. Pure autoregressive dynamics.
+
+**Three regimes** at fixed L: collapse (T≤0.60), rich dynamics (T~0.80–1.00), noise (T≥1.50). Crossover zone is T~0.70–0.80.
+
+**Two orthogonal actuators:**
+- T (temperature): per-step noise floor. Controls escape probability from attractors.
+- L (context length): memory horizon. Controls attractor basin depth and stickiness.
+
+**Attractor structure at T=0.50 is a staircase, not a binary.** Each L value has a distinct entropy floor — L=64 sits on a high meta-stable basin (~0.2–0.4 nats), L=128 on a lower false floor (~0.1–0.2 nats) before eventually dropping to the true floor (~60k steps), L=256 hits the true zero-entropy floor by ~15k steps. Collapse is a timescale phenomenon: every T=0.50 run may collapse eventually; L sets how fast you descend the staircase.
+
+**L=192 anomaly at T=0.50:** Non-monotonic compressibility. At W=16, L=192 (1.19) > L=64 (1.05) > L=128 (0.90) > L=256 (0.78). L=192 appears to lock into a short-period loop attractor — highly structured locally but not at context scale. Awaiting seed replication (seeds 123, 7 running) to confirm vs. seed artifact.
+
+**W (measurement window) is a third dimension.** Compressibility depends strongly on W. Standard grid: W ∈ {16, 32, 64, 128, 256}. At T=0.50, L-curves separate dramatically across W. At T≥0.90, L barely matters at any W. W=16 hits gzip overhead floor (compressibility > 1.0 is meaningless). Useful range: W≥32.
+
+**EOS is regime-dependent.** At T=1.00: interior signal — fires from the dense center of phase space (richest dynamics). At T=0.50: transition signal — fires during escape attempts from attractors. EOS rate peaks at T=1.00, suppressed by L in collapse regime (13→3→1 across L=64/128/256 at T=0.50).
+
+**Three-sensor framework:** entropy (model uncertainty), compressibility (observer-assessed structure), EOS rate (model-assessed coherence). Each probes a different aspect. All three needed for regime identification.
+
 ---
 
 ### 2026-03-06 — Initial L=64 temperature sweep (seed=42)
@@ -144,6 +166,75 @@ for p in sorted(Path('data/runs').glob('*.parquet')):
     blocks = [int(exp.eos[i*bs:(i+1)*bs].sum()) for i in range(5)]
     print(f'{p.stem}: {n} tokens, EOS={int(exp.eos.sum())} rate={exp.eos.mean():.6f} blocks={blocks}')
 "
+```
+
+---
+
+### 2026-03-08 — Staircase of attractor basins at T=0.50
+
+**Data:** `L{0064,0128,0256}_T0.50_S42.parquet` (100k each)
+
+**Visual inspection of `Lmulti_T0.50_S42_entropy.png` reveals three distinct entropy floors,** not just "collapsed vs active":
+
+1. **L=256 (green):** Hits true zero-entropy floor at ~15k steps. Permanent lock-in.
+2. **L=128 (orange):** Meta-stable false floor at ~0.1–0.2 nats for ~45k steps, with intermittent escape bursts. Falls to true floor just before 60k steps.
+3. **L=64 (blue):** Own floor at ~0.2–0.4 nats with frequent excursions above. Has not cascaded to the deeper basins within 100k steps.
+
+**Implication:** Collapse is a timescale phenomenon, not a binary regime boundary. There's a hierarchy of attractor basins at progressively lower entropy. L controls cascade rate through them. Testable prediction: extend L=64 T=0.50 significantly — does it eventually find L=128's false floor, then the true floor?
+
+```bash
+python plot.py --runs data/runs/L*_T0.50_S42.parquet --plots entropy
+```
+
+---
+
+### 2026-03-08 — EOS phase-space position is regime-dependent
+
+**Data:** Phase portraits across T={0.50, 1.00, 1.50}, all L values.
+
+**At T=1.00:** EOS diamonds (all L) sit squarely in the interior of their respective phase-portrait clouds. Not at edges, not at extremes. EOS is an interior/coherence signal — the model tries to end during richest dynamics.
+
+**At T=0.50:** L=64 EOS events scatter across escape bursts (high entropy, high compressibility). L=256 EOS events (just 1) near the collapsed origin. EOS fires during transitions, not from the interior.
+
+**At T=1.50:** EOS events sparse. Consistent with rate peaking at T=1.00.
+
+The meaning of EOS depends on the regime. "Model wants to stop" means different things in collapse vs rich dynamics.
+
+```bash
+python plot.py --runs data/runs/L*_T1.00_S42.parquet --plots phase
+python plot.py --runs data/runs/L*_T0.50_S42.parquet --plots phase
+```
+
+---
+
+### 2026-03-08 — Multi-window analysis: W as measurement dimension
+
+**Data:** All 24 runs analyzed at W ∈ {16, 32, 64, 128, 256}.
+
+**Previous approach used W=L and W=L/4** — both scale with L, making cross-L comparison ambiguous. Fixed W=64 across all L provides consistent measurement.
+
+**Compressibility at fixed W=64 vs L:**
+
+| L\T | 0.50 | 0.60 | 0.70 | 0.80 | 0.90 | 1.00 | 1.50 |
+|-----|------|------|------|------|------|------|------|
+| 64  | 0.35 | 0.48 | 0.61 | 0.68 | 0.72 | 0.74 | 0.71 |
+| 128 | 0.26 | 0.33 | 0.55 | 0.63 | 0.71 | 0.76 | 0.70 |
+| 192 | 0.35 | 0.31 | 0.56 | 0.60 | 0.70 | 0.79 | 0.70 |
+| 256 | 0.23 | --   | --   | --   | --   | 0.74 | 0.71 |
+
+**Key patterns:**
+- T=0.50–0.60: compressibility *decreases* with L (deeper collapse = less local structure visible at W=64)
+- T=1.00: compressibility *increases* with L (longer context creates more structure)
+- T≥0.90: L barely matters — flat across all context lengths
+- Crossover (slope flip) is between T=0.70 and T=0.80
+
+**L=192 anomaly at T=0.50:** At W=16, L=192 (1.19) is more compressible than L=64 (1.05). Non-monotonic in L. Suggests L=192 locks into a short-period loop — high local structure, low context-scale structure. Seed replication in progress to verify.
+
+**W=16 hits gzip overhead floor.** Compressibility > 1.0 means the gzip header costs more than the data. W=16 is below the useful measurement range.
+
+```bash
+python analyze_windows.py           # compute standard W grid
+python plot_window_scaling.py       # generate scaling plots
 ```
 
 ---

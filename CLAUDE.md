@@ -2,7 +2,7 @@
 
 ## Project
 
-Multi-scale complexity control in closed-loop autoregressive generation. See `project-brief.md` for full design, `observations.md` for findings log.
+Multi-scale complexity control in closed-loop autoregressive generation. See `docs/project-brief.md` for full design, `observations.md` for findings log.
 
 ## Repository Layout
 
@@ -12,12 +12,18 @@ analyze.py           # Post-hoc analysis (arbitrary-W compressibility, stationar
 plot.py              # Visualization (5 plot types + EOS markers, CLI with --runs and --plots)
 utils.py             # Shared primitives (compressibility, eos_ema)
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
+analyze_windows.py   # Recompute analysis at standard W grid [16,32,64,128,256]
+plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
 pilot_sweep.py       # Batch runner for pilot grid (idempotent, crash-resilient)
 crossover_sweep.py   # Batch runner for T-densification in crossover region
-share.md             # Draft post/article for sharing findings
+seed_sweep.py        # Batch runner for seed replication (seeds 123, 7)
+explorer.md          # Interactive explorer design doc (pre-build)
 run-index.md         # Run tracker, grid overview, phase planning
-observations.md      # Append-only findings log with reproduction commands
-project-brief.md     # Research design document
+observations.md      # Append-only findings log with current model summary
+docs/                # Longer-form documents
+  project-brief.md   # Research design document
+  share.md           # Draft post/article for sharing findings
+  interaction-topology.md  # Speculative framing: generative dynamics as interaction paradigm
 data/                # Gitignored except figures
   model/SmolLM-135M/ # Local model weights (pre-downloaded)
   runs/              # Parquet files + JSON sidecars + checkpoints + analysis cache (.W*.analysis.pkl)
