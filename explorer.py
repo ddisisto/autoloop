@@ -432,6 +432,105 @@ def get_data(
     return JSONResponse(content=result)
 
 
+@app.get("/api/step_range")
+def get_step_range(
+    run: str = Query(..., description="Run ID (e.g. L0064_T0.70_S42)"),
+) -> JSONResponse:
+    """Return step range and all EOS positions for a run."""
+    assert run_index is not None
+    assert run_cache is not None
+
+    if run not in run_index.runs:
+        return JSONResponse(
+            content={"error": f"Run not found: {run}"},
+            status_code=404,
+        )
+
+    info = run_index.runs[run]
+    exp = run_cache.get_experiment_df(info)
+
+    eos_steps = exp.index[exp.eos.astype(bool)].tolist()
+
+    return JSONResponse(content={
+        "run_id": info.id,
+        "L": info.L,
+        "min_step": int(exp.index[0]) if len(exp) > 0 else 0,
+        "max_step": int(exp.index[-1]) if len(exp) > 0 else 0,
+        "total_eos": len(eos_steps),
+        "eos_steps": eos_steps,
+    })
+
+
+@app.get("/api/context")
+def get_context(
+    run: str = Query(..., description="Run ID (e.g. L0064_T0.70_S42)"),
+    step: int = Query(..., description="Step number to center the context window on"),
+    window: int | None = Query(None, description="Number of tokens to return (default: run's L value)"),
+) -> JSONResponse:
+    """Return the tokens in the model's context window at a given step."""
+    assert run_index is not None
+    assert run_cache is not None
+
+    if run not in run_index.runs:
+        return JSONResponse(
+            content={"error": f"Run not found: {run}"},
+            status_code=404,
+        )
+
+    info = run_index.runs[run]
+    exp = run_cache.get_experiment_df(info)
+
+    w = window if window is not None else info.L
+
+    # Context window at step N: the w tokens ending at step N
+    window_end = step
+    window_start = step - w + 1
+
+    # Clamp to data range
+    window_start = max(window_start, 0)
+    window_end = min(window_end, len(exp) - 1)
+
+    # Slice the window from the experiment dataframe
+    window_df = exp.iloc[window_start:window_end + 1]
+
+    tokens = []
+    eos_positions = []
+    for idx, row in window_df.iterrows():
+        s = int(idx)
+        tok = {
+            "step": s,
+            "token_id": int(row["token_id"]),
+            "text": row["decoded_text"],
+            "entropy": float(row["entropy"]),
+            "log_prob": float(row["log_prob"]),
+            "eos": bool(row["eos"]),
+        }
+        tokens.append(tok)
+        if tok["eos"]:
+            eos_positions.append(s)
+
+    # Find prev_eos: nearest EOS before window_start
+    eos_mask = exp.eos.astype(bool)
+    eos_before = exp.index[eos_mask & (exp.index < window_start)]
+    prev_eos: int | None = int(eos_before[-1]) if len(eos_before) > 0 else None
+
+    # Find next_eos: nearest EOS after window_end
+    eos_after = exp.index[eos_mask & (exp.index > window_end)]
+    next_eos: int | None = int(eos_after[0]) if len(eos_after) > 0 else None
+
+    return JSONResponse(content={
+        "run_id": info.id,
+        "L": info.L,
+        "step": step,
+        "window_start": int(window_start),
+        "window_end": int(window_end),
+        "tokens": tokens,
+        "eos_positions": eos_positions,
+        "prev_eos": prev_eos,
+        "next_eos": next_eos,
+    })
+
+
 # Static file serving: mount at root, must be last
 STATIC_DIR = Path("static")
 if STATIC_DIR.exists():

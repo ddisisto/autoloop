@@ -387,6 +387,239 @@
 
   .toast.success { background: var(--success); color: var(--bg); }
   .toast.error { background: var(--danger); color: white; }
+
+  /* --- Context Inspection Panel --- */
+  .context-panel {
+    display: none;
+    flex-direction: column;
+    background: var(--bg-panel);
+    border-top: 2px solid var(--accent);
+    min-height: 180px;
+    max-height: 50vh;
+    overflow: hidden;
+  }
+
+  .context-panel.open { display: flex; }
+
+  .context-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .context-panel-header .context-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    font-family: var(--font-mono);
+  }
+
+  .context-panel-header .context-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+  }
+
+  .context-panel-header .context-close:hover { color: var(--danger); }
+
+  .context-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .context-nav .nav-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .context-nav .nav-btn {
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .context-nav .nav-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .context-nav .nav-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .context-nav .step-input {
+    width: 80px;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    text-align: center;
+  }
+
+  .context-nav .step-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .context-nav .step-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .context-scrubber-container {
+    padding: 4px 12px 6px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .context-scrubber-container input[type="range"] {
+    width: 100%;
+    height: 20px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    z-index: 2;
+  }
+
+  .context-scrubber-container input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    background: var(--bg-input);
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  .context-scrubber-container input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-panel);
+    margin-top: -5px;
+  }
+
+  .context-scrubber-container input[type="range"]::-moz-range-track {
+    height: 6px;
+    background: var(--bg-input);
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  .context-scrubber-container input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-panel);
+  }
+
+  .eos-ticks {
+    position: absolute;
+    top: 4px;
+    left: 12px;
+    right: 12px;
+    height: 20px;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .eos-tick {
+    position: absolute;
+    width: 1px;
+    height: 12px;
+    top: 4px;
+    background: var(--danger);
+    opacity: 0.5;
+  }
+
+  .context-text {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 16px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--text);
+  }
+
+  .context-text::-webkit-scrollbar { width: 6px; }
+  .context-text::-webkit-scrollbar-track { background: var(--bg); }
+  .context-text::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .context-text .ctx-token {
+    display: inline;
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+
+  .context-text .ctx-token.current {
+    background: rgba(83, 194, 201, 0.35);
+    outline: 1px solid var(--accent);
+    border-radius: 2px;
+  }
+
+  .context-text .ctx-eos {
+    display: inline-block;
+    background: var(--danger);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin: 0 2px;
+    vertical-align: baseline;
+    line-height: 1.4;
+  }
+
+  .context-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    color: var(--text-dim);
+    font-size: 13px;
+    gap: 8px;
+  }
+
+  .context-loading .spinner-small {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
 </style>
 </head>
 <body>
@@ -457,6 +690,32 @@
       <div class="spinner"></div>
     </div>
     <div id="chart"></div>
+    <div class="context-panel" id="contextPanel">
+      <div class="context-panel-header">
+        <span class="context-title" id="contextTitle">Context</span>
+        <button class="context-close" id="contextClose" title="Close">&times;</button>
+      </div>
+      <div class="context-nav">
+        <span class="step-label">Step</span>
+        <input type="number" class="step-input" id="contextStepInput" value="0" min="0">
+        <div class="nav-group">
+          <button class="nav-btn" id="ctxPrevEos" title="Previous EOS">&#9664; EOS</button>
+          <button class="nav-btn" id="ctxPrev" title="Previous step">&#9664;</button>
+          <button class="nav-btn" id="ctxNext" title="Next step">&#9654;</button>
+          <button class="nav-btn" id="ctxNextEos" title="Next EOS">EOS &#9654;</button>
+        </div>
+      </div>
+      <div class="context-scrubber-container">
+        <div class="eos-ticks" id="eosTicks"></div>
+        <input type="range" id="contextScrubber" min="0" max="99999" value="0">
+      </div>
+      <div class="context-text" id="contextText">
+        <div class="context-loading" id="contextLoading" style="display:none;">
+          <div class="spinner-small"></div>
+          <span>Loading context...</span>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -873,6 +1132,10 @@ async function updateChart() {
   try {
     const data = await fetchData(selectedIds, metricsToFetch, state.downsample);
     renderChart(data, selectedIds, metricsToFetch);
+    // Restore step indicator if context panel is open
+    if (ctxState.open && state.chartType === 'timeseries') {
+      updateStepIndicator(ctxState.step);
+    }
   } catch (err) {
     console.error('Failed to fetch data:', err);
     showToast('Failed to load data: ' + err.message, 'error');
@@ -931,7 +1194,7 @@ function renderChart(data, runIds, metricsToFetch) {
       ...darkLayout(),
       xaxis: { title: 'Step', gridcolor: '#333', zeroline: false },
       yaxis: { title: metricName, gridcolor: '#333', zeroline: false },
-    }, { responsive: true });
+    }, { responsive: true }).then(() => wireChartClickHandler());
 
   } else if (state.chartType === 'phase') {
     const xMetricId = state.xMetric;
@@ -977,7 +1240,7 @@ function renderChart(data, runIds, metricsToFetch) {
       ...darkLayout(),
       xaxis: { title: xName, gridcolor: '#333', zeroline: false },
       yaxis: { title: yName, gridcolor: '#333', zeroline: false },
-    }, { responsive: true });
+    }, { responsive: true }).then(() => wireChartClickHandler());
   }
 }
 
@@ -1109,6 +1372,9 @@ function wireEvents() {
   window.addEventListener('resize', () => {
     Plotly.Plots.resize('chart');
   });
+
+  // Context panel events
+  wireContextEvents();
 }
 
 function buildDefaultLabel() {
@@ -1126,6 +1392,362 @@ function buildDefaultLabel() {
     parts.push(state.yMetric);
   }
   return parts.join(' | ');
+}
+
+// ---------------------------------------------------------------------------
+// Context Inspection Panel
+// ---------------------------------------------------------------------------
+const ctxState = {
+  open: false,
+  runId: null,
+  runMeta: null,       // { L, T, seed, ... } from state.runs
+  step: 0,
+  stepRange: null,     // cached /api/step_range response
+  contextData: null,   // latest /api/context response
+  loading: false,
+  vertLineIndex: null, // Plotly shape index for step indicator
+};
+
+const stepRangeCache = {}; // runId -> step_range response
+let ctxFetchController = null; // AbortController for in-flight context fetches
+let scrubberDebounce = null;
+
+async function fetchStepRange(runId) {
+  if (stepRangeCache[runId]) return stepRangeCache[runId];
+  const data = await apiFetch(`/api/step_range?run=${encodeURIComponent(runId)}`);
+  stepRangeCache[runId] = data;
+  return data;
+}
+
+async function fetchContext(runId, step, windowSize) {
+  // Cancel any in-flight request
+  if (ctxFetchController) ctxFetchController.abort();
+  ctxFetchController = new AbortController();
+
+  const params = new URLSearchParams({ run: runId, step: String(step), window: String(windowSize) });
+  const resp = await fetch(`/api/context?${params}`, { signal: ctxFetchController.signal });
+  if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+  return resp.json();
+}
+
+function openContextPanel(runId, step) {
+  const run = state.runs.find(r => r.id === runId);
+  if (!run) return;
+
+  ctxState.open = true;
+  ctxState.runId = runId;
+  ctxState.runMeta = run;
+  ctxState.step = step;
+
+  document.getElementById('contextPanel').classList.add('open');
+  updateContextTitle();
+
+  // Fetch step_range then context
+  ctxSetLoading(true);
+  fetchStepRange(runId).then(sr => {
+    ctxState.stepRange = sr;
+    setupScrubber(sr);
+    renderEosTicks(sr);
+    return loadContextAtStep(step);
+  }).catch(err => {
+    if (err.name !== 'AbortError') {
+      console.error('Context fetch failed:', err);
+      showToast('Failed to load context: ' + err.message, 'error');
+      ctxSetLoading(false);
+    }
+  });
+}
+
+function closeContextPanel() {
+  ctxState.open = false;
+  document.getElementById('contextPanel').classList.remove('open');
+  removeStepIndicator();
+  // Resize chart to reclaim space
+  setTimeout(() => Plotly.Plots.resize('chart'), 50);
+}
+
+function updateContextTitle() {
+  const run = ctxState.runMeta;
+  if (!run) return;
+  const label = `Context: L=${run.L} T=${parseFloat(run.T).toFixed(2)} S=${run.seed}`;
+  document.getElementById('contextTitle').textContent = label;
+}
+
+function ctxSetLoading(on) {
+  ctxState.loading = on;
+  const el = document.getElementById('contextLoading');
+  el.style.display = on ? 'flex' : 'none';
+  if (on) {
+    // Clear text content but keep loading indicator
+    const textEl = document.getElementById('contextText');
+    // Remove all children except loading
+    Array.from(textEl.children).forEach(c => {
+      if (c.id !== 'contextLoading') textEl.removeChild(c);
+    });
+  }
+}
+
+async function loadContextAtStep(step) {
+  const sr = ctxState.stepRange;
+  if (!sr) return;
+
+  // Clamp step
+  step = Math.max(sr.min_step, Math.min(sr.max_step, step));
+  ctxState.step = step;
+
+  // Update UI controls
+  document.getElementById('contextStepInput').value = step;
+  document.getElementById('contextScrubber').value = step;
+  updateNavButtonState();
+  updateStepIndicator(step);
+
+  ctxSetLoading(true);
+  try {
+    const L = ctxState.runMeta.L;
+    const data = await fetchContext(ctxState.runId, step, L);
+    ctxState.contextData = data;
+    renderContextTokens(data);
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Context load failed:', err);
+      showToast('Failed to load context', 'error');
+    }
+  } finally {
+    ctxSetLoading(false);
+  }
+}
+
+function setupScrubber(stepRange) {
+  const scrubber = document.getElementById('contextScrubber');
+  scrubber.min = stepRange.min_step;
+  scrubber.max = stepRange.max_step;
+  scrubber.value = ctxState.step;
+
+  const stepInput = document.getElementById('contextStepInput');
+  stepInput.min = stepRange.min_step;
+  stepInput.max = stepRange.max_step;
+}
+
+function renderEosTicks(stepRange) {
+  const container = document.getElementById('eosTicks');
+  container.innerHTML = '';
+  if (!stepRange.eos_steps || stepRange.eos_steps.length === 0) return;
+
+  const min = stepRange.min_step;
+  const max = stepRange.max_step;
+  const range = max - min;
+  if (range <= 0) return;
+
+  for (const eosStep of stepRange.eos_steps) {
+    const pct = ((eosStep - min) / range) * 100;
+    const tick = document.createElement('div');
+    tick.className = 'eos-tick';
+    tick.style.left = pct + '%';
+    container.appendChild(tick);
+  }
+}
+
+function renderContextTokens(data) {
+  const textEl = document.getElementById('contextText');
+  // Keep loading indicator, clear everything else
+  const loadingEl = document.getElementById('contextLoading');
+
+  // Build token HTML
+  const frag = document.createDocumentFragment();
+
+  if (!data.tokens || data.tokens.length === 0) {
+    const msg = document.createElement('div');
+    msg.style.cssText = 'color: var(--text-dim); font-style: italic; padding: 12px 0;';
+    msg.textContent = 'No tokens available at this step.';
+    frag.appendChild(msg);
+  } else {
+    // Determine entropy range for coloring
+    const entropies = data.tokens.map(t => t.entropy).filter(e => e != null && !isNaN(e));
+    const minE = entropies.length > 0 ? Math.min(...entropies) : 0;
+    const maxE = entropies.length > 0 ? Math.max(...entropies) : 1;
+    const rangeE = maxE - minE || 1;
+
+    for (const tok of data.tokens) {
+      if (tok.eos) {
+        const eos = document.createElement('span');
+        eos.className = 'ctx-eos';
+        eos.textContent = 'EOS';
+        eos.title = `Step ${tok.step} | EOS token`;
+        frag.appendChild(eos);
+        continue;
+      }
+
+      const span = document.createElement('span');
+      span.className = 'ctx-token';
+      if (tok.step === ctxState.step) {
+        span.classList.add('current');
+      }
+
+      // Entropy-based coloring: subtle background opacity
+      if (tok.entropy != null && !isNaN(tok.entropy)) {
+        const norm = (tok.entropy - minE) / rangeE; // 0 = low entropy, 1 = high
+        // Low entropy: dimmer (less saturated), high entropy: warmer accent
+        const alpha = 0.05 + norm * 0.20; // subtle range: 0.05 to 0.25
+        span.style.backgroundColor = `rgba(239, 85, 59, ${alpha.toFixed(3)})`;
+      }
+
+      span.textContent = tok.text;
+      span.title = `Step ${tok.step} | H=${tok.entropy != null ? tok.entropy.toFixed(3) : '?'} | logp=${tok.log_prob != null ? tok.log_prob.toFixed(3) : '?'}`;
+      frag.appendChild(span);
+    }
+  }
+
+  // Replace content
+  textEl.innerHTML = '';
+  textEl.appendChild(frag);
+  textEl.appendChild(loadingEl);
+
+  // Scroll to make the current token visible
+  const currentEl = textEl.querySelector('.ctx-token.current');
+  if (currentEl) {
+    currentEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+}
+
+function updateNavButtonState() {
+  const sr = ctxState.stepRange;
+  if (!sr) return;
+
+  const step = ctxState.step;
+  document.getElementById('ctxPrev').disabled = (step <= sr.min_step);
+  document.getElementById('ctxNext').disabled = (step >= sr.max_step);
+
+  // EOS navigation
+  const eosSteps = sr.eos_steps || [];
+  const prevEos = eosSteps.filter(s => s < step);
+  const nextEos = eosSteps.filter(s => s > step);
+  document.getElementById('ctxPrevEos').disabled = (prevEos.length === 0);
+  document.getElementById('ctxNextEos').disabled = (nextEos.length === 0);
+}
+
+function navigateStep(delta) {
+  loadContextAtStep(ctxState.step + delta);
+}
+
+function navigateToEos(direction) {
+  const sr = ctxState.stepRange;
+  if (!sr || !sr.eos_steps) return;
+  const step = ctxState.step;
+
+  if (direction < 0) {
+    // Previous EOS
+    const prev = sr.eos_steps.filter(s => s < step);
+    if (prev.length > 0) loadContextAtStep(prev[prev.length - 1]);
+  } else {
+    // Next EOS
+    const next = sr.eos_steps.filter(s => s > step);
+    if (next.length > 0) loadContextAtStep(next[0]);
+  }
+}
+
+// Vertical step indicator on chart
+function updateStepIndicator(step) {
+  if (!ctxState.open) return;
+  if (state.chartType !== 'timeseries') {
+    removeStepIndicator();
+    return;
+  }
+
+  const chartEl = document.getElementById('chart');
+  if (!chartEl || !chartEl.layout) return;
+
+  const shapes = (chartEl.layout.shapes || []).filter(s => s._autoloop_step_indicator !== true);
+  shapes.push({
+    type: 'line',
+    x0: step, x1: step,
+    y0: 0, y1: 1,
+    yref: 'paper',
+    line: { color: 'rgba(83, 194, 201, 0.6)', width: 1.5, dash: 'dot' },
+    _autoloop_step_indicator: true,
+  });
+
+  Plotly.relayout('chart', { shapes: shapes });
+}
+
+function removeStepIndicator() {
+  const chartEl = document.getElementById('chart');
+  if (!chartEl || !chartEl.layout) return;
+  const shapes = (chartEl.layout.shapes || []).filter(s => s._autoloop_step_indicator !== true);
+  Plotly.relayout('chart', { shapes: shapes });
+}
+
+function wireContextEvents() {
+  // Close button
+  document.getElementById('contextClose').addEventListener('click', closeContextPanel);
+
+  // Nav buttons
+  document.getElementById('ctxPrev').addEventListener('click', () => navigateStep(-1));
+  document.getElementById('ctxNext').addEventListener('click', () => navigateStep(1));
+  document.getElementById('ctxPrevEos').addEventListener('click', () => navigateToEos(-1));
+  document.getElementById('ctxNextEos').addEventListener('click', () => navigateToEos(1));
+
+  // Step input (direct jump)
+  const stepInput = document.getElementById('contextStepInput');
+  stepInput.addEventListener('change', () => {
+    const val = parseInt(stepInput.value);
+    if (!isNaN(val)) loadContextAtStep(val);
+  });
+  stepInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.target.blur();
+      const val = parseInt(stepInput.value);
+      if (!isNaN(val)) loadContextAtStep(val);
+    }
+  });
+
+  // Scrubber (debounced)
+  const scrubber = document.getElementById('contextScrubber');
+  scrubber.addEventListener('input', () => {
+    // Update step display immediately for responsiveness
+    const val = parseInt(scrubber.value);
+    document.getElementById('contextStepInput').value = val;
+    ctxState.step = val;
+    updateStepIndicator(val);
+
+    // Debounce the actual fetch
+    clearTimeout(scrubberDebounce);
+    scrubberDebounce = setTimeout(() => {
+      loadContextAtStep(val);
+    }, 150);
+  });
+
+  // Plotly click event — wired after chart exists
+  // We use MutationObserver or re-wire after each chart render
+}
+
+function wireChartClickHandler() {
+  const chartEl = document.getElementById('chart');
+  // Remove previous handler if any, then add
+  chartEl.removeAllListeners && chartEl.removeAllListeners('plotly_click');
+  chartEl.on('plotly_click', (eventData) => {
+    if (!eventData || !eventData.points || eventData.points.length === 0) return;
+
+    const point = eventData.points[0];
+    const traceIndex = point.curveNumber;
+
+    // Get selected run IDs in order (matches trace order)
+    const selectedIds = Array.from(state.selectedRuns);
+    if (traceIndex >= selectedIds.length) return;
+
+    const runId = selectedIds[traceIndex];
+
+    // For time series, x is the step. For phase, we need the underlying step.
+    let step;
+    if (state.chartType === 'timeseries') {
+      step = Math.round(point.x);
+    } else {
+      // Phase portrait: use point index to estimate step
+      // The data is downsampled, so pointIndex * downsample gives approximate step
+      step = point.pointIndex * state.downsample;
+    }
+
+    openContextPanel(runId, step);
+  });
 }
 
 // ---------------------------------------------------------------------------
