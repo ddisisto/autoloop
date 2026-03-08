@@ -10,6 +10,7 @@ Checkpoints every 1k steps for resume and run extension.
 import argparse
 import json
 import logging
+import sys
 import time
 from pathlib import Path
 
@@ -85,7 +86,10 @@ def run_generation(
     checkpoint_path: Path,
     parquet_path: Path,
 ) -> list[dict]:
-    """Run the full generation loop (pre-fill + experiment) and return per-step records."""
+    """Run the full generation loop (pre-fill + experiment) and return per-step records.
+
+    Returns (records, interrupted) where interrupted is True if stopped by Ctrl-C.
+    """
     total_steps = context_length + num_tokens
     eos_token_id = tokenizer.eos_token_id
 
@@ -95,7 +99,9 @@ def run_generation(
         start_step = ckpt["step"] + 1
         context = ckpt["context"]
         records = ckpt["records"]
-        log.info("Resumed from checkpoint at step %d", ckpt["step"])
+        n_experiment = sum(1 for r in records if r["phase"] == "experiment")
+        log.info("Resumed from checkpoint at step %d (%d/%d experiment tokens, %.0f%% complete)",
+                 ckpt["step"], n_experiment, num_tokens, 100 * n_experiment / num_tokens)
     else:
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -106,67 +112,81 @@ def run_generation(
 
     interval_start = time.monotonic()
 
-    for t in range(start_step, total_steps + 1):
-        is_prefill = t <= context_length
-        phase = "prefill" if is_prefill else "experiment"
+    interrupted = False
+    last_step = start_step - 1
+    try:
+        for t in range(start_step, total_steps + 1):
+            is_prefill = t <= context_length
+            phase = "prefill" if is_prefill else "experiment"
 
-        with torch.no_grad():
-            outputs = model(input_ids=context)
-        logits = outputs.logits[0, -1, :]
+            with torch.no_grad():
+                outputs = model(input_ids=context)
+            logits = outputs.logits[0, -1, :]
 
-        entropy = compute_entropy(logits)
+            entropy = compute_entropy(logits)
 
-        scaled_logits = logits / temperature
-        probs = torch.softmax(scaled_logits, dim=-1)
-        token_id = torch.multinomial(probs, num_samples=1).item()
+            scaled_logits = logits / temperature
+            probs = torch.softmax(scaled_logits, dim=-1)
+            token_id = torch.multinomial(probs, num_samples=1).item()
 
-        log_prob = torch.log_softmax(scaled_logits, dim=-1)[token_id].item()
+            log_prob = torch.log_softmax(scaled_logits, dim=-1)[token_id].item()
 
-        decoded_text = tokenizer.decode([token_id])
-        is_eos = token_id == eos_token_id
+            decoded_text = tokenizer.decode([token_id])
+            is_eos = token_id == eos_token_id
 
-        records.append({
-            "step": t,
-            "phase": phase,
-            "token_id": token_id,
-            "decoded_text": decoded_text,
-            "entropy": entropy,
-            "log_prob": log_prob,
-            "temperature": temperature,
-            "eos": is_eos,
-        })
+            records.append({
+                "step": t,
+                "phase": phase,
+                "token_id": token_id,
+                "decoded_text": decoded_text,
+                "entropy": entropy,
+                "log_prob": log_prob,
+                "temperature": temperature,
+                "eos": is_eos,
+            })
 
-        new_token = torch.tensor([[token_id]], dtype=torch.long, device=device)
-        context = torch.cat([context, new_token], dim=1)
-        if context.shape[1] > context_length:
-            context = context[:, -context_length:]
+            new_token = torch.tensor([[token_id]], dtype=torch.long, device=device)
+            context = torch.cat([context, new_token], dim=1)
+            if context.shape[1] > context_length:
+                context = context[:, -context_length:]
 
-        if t % CHECKPOINT_INTERVAL == 0:
-            save_checkpoint(checkpoint_path, parquet_path, t, context, records)
-            now = time.monotonic()
-            tok_s = CHECKPOINT_INTERVAL / (now - interval_start)
-            # Recent stats over trailing context_length tokens
-            recent = records[-context_length:]
-            ent_vals = [r["entropy"] for r in recent]
-            ent_mean = sum(ent_vals) / len(ent_vals)
-            # Trailing-window compressibility (W=L)
-            trail_text = "".join(r["decoded_text"] for r in recent)
-            comp = compressibility(trail_text.encode("utf-8"))
-            log.info(
-                "step %d/%d (%.0f%%) | %.1f tok/s | ent=%.2f comp=%.3f",
-                t, total_steps, 100 * t / total_steps, tok_s, ent_mean, comp,
+            last_step = t
+
+            if t % CHECKPOINT_INTERVAL == 0:
+                save_checkpoint(checkpoint_path, parquet_path, t, context, records)
+                now = time.monotonic()
+                tok_s = CHECKPOINT_INTERVAL / (now - interval_start)
+                # Recent stats over trailing context_length tokens
+                recent = records[-context_length:]
+                ent_vals = [r["entropy"] for r in recent]
+                ent_mean = sum(ent_vals) / len(ent_vals)
+                # Trailing-window compressibility (W=L)
+                trail_text = "".join(r["decoded_text"] for r in recent)
+                comp = compressibility(trail_text.encode("utf-8"))
+                log.info(
+                    "step %d/%d (%.0f%%) | %.1f tok/s | ent=%.2f comp=%.3f",
+                    t, total_steps, 100 * t / total_steps, tok_s, ent_mean, comp,
+                )
+                interval_start = now
+
+            log.debug(
+                "step=%d phase=%s token=%d text=%r entropy=%.4f log_prob=%.4f eos=%s",
+                t, phase, token_id, decoded_text, entropy, log_prob, is_eos,
             )
-            interval_start = now
+    except KeyboardInterrupt:
+        interrupted = True
+        n_experiment = sum(1 for r in records if r["phase"] == "experiment")
+        log.info("Interrupted at step %d (%d/%d experiment tokens, %.0f%% complete)",
+                 last_step, n_experiment, num_tokens, 100 * n_experiment / num_tokens)
+        log.info("Saving checkpoint...")
+        save_checkpoint(checkpoint_path, parquet_path, last_step, context, records)
+        log.info("Checkpoint saved. Resume with the same command.")
 
-        log.debug(
-            "step=%d phase=%s token=%d text=%r entropy=%.4f log_prob=%.4f eos=%s",
-            t, phase, token_id, decoded_text, entropy, log_prob, is_eos,
-        )
+    if not interrupted:
+        # Final checkpoint
+        save_checkpoint(checkpoint_path, parquet_path, total_steps, context, records)
 
-    # Final checkpoint
-    save_checkpoint(checkpoint_path, parquet_path, total_steps, context, records)
-
-    return records
+    return records, interrupted
 
 
 def build_run_name(context_length: int, temperature: float, seed: int) -> str:
@@ -206,7 +226,7 @@ def main() -> None:
     log.info("Model loaded: %s parameters", f"{sum(p.numel() for p in model.parameters()):,}")
 
     t_start = time.monotonic()
-    records = run_generation(
+    records, interrupted = run_generation(
         model=model,
         tokenizer=tokenizer,
         context_length=args.context_length,
@@ -218,6 +238,9 @@ def main() -> None:
         parquet_path=parquet_path,
     )
     elapsed = time.monotonic() - t_start
+
+    if interrupted:
+        sys.exit(130)  # conventional exit code for SIGINT
 
     metadata = {
         "run_name": run_name,

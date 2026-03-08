@@ -14,10 +14,7 @@ utils.py             # Shared primitives (compressibility, eos_ema)
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
 analyze_windows.py   # Recompute analysis at standard W grid [16,32,64,128,256]
 plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
-pilot_sweep.py       # Batch runner for pilot grid (idempotent, crash-resilient)
-crossover_sweep.py   # Batch runner for T-densification in crossover region
-seed_sweep.py        # Batch runner for seed replication (seeds 123, 7)
-ldense_sweep.py      # Batch runner for L-densification around anomaly (T=0.50)
+sweep.py             # Unified sweep runner (presets, ad-hoc grids, --status)
 explorer.py          # Interactive web explorer backend (FastAPI)
 static/index.html    # Explorer frontend (Plotly.js, single-page app)
 explorer.md          # Explorer design doc
@@ -60,11 +57,12 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `uv.lock` stays committed
 - Small, logical commits
 
-### Sweep Scripts
-- `pilot_sweep.py`: batch runner for Phase 0 grid (idempotent, skips completed runs, crash-resilient)
-- One sweep script per phase if needed: `phase1_sweep.py`, etc.
-- Grid parameters hardcoded in each sweep script — no external config files
-- Each sweep script calls `generate.py` as a subprocess per condition (crash isolation, natural per-run independence)
+### Sweeps
+- `sweep.py`: unified runner with named presets and ad-hoc `--L`/`--T`/`--seed` grids
+- `sweep.py --status`: auto-generated grid table from parquet files on disk (replaces manual tracking)
+- `sweep.py --list`: show presets with completion counts
+- Presets record historical sweeps with rationale; new sweeps can use ad-hoc grids
+- Each condition runs as a subprocess of `generate.py` (crash isolation)
 
 ## Current State (Phase 0 — Pilot + Crossover Mapping)
 
@@ -77,7 +75,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `utils.py`: shared primitives — `compressibility()`, `eos_ema()`
 - `reproduce_plots.py`: one-command regen of all standard plot slices (analysis + figure mtime caching)
 - `explorer.py` + `static/index.html`: interactive web explorer (FastAPI + Plotly.js), context inspection
-- `pilot_sweep.py`, `crossover_sweep.py`, `seed_sweep.py`, `ldense_sweep.py`: batch runners (idempotent, crash-resilient)
+- `sweep.py`: unified sweep runner with presets (pilot, crossover, seed, ldense, l256-crossover) and ad-hoc grids
 
 ### Data Collected (see run-index.md for full grid)
 - 24 seed=42 runs: L={64,128,192} × T={0.50–1.50} + L=256 × T={0.50,1.00,1.50}
