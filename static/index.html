@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>autoloop explorer</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --bg-panel: #16213e;
+    --bg-input: #0f3460;
+    --border: #333;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --accent: #53c2c9;
+    --accent-hover: #7dd8de;
+    --danger: #e94560;
+    --success: #4ecca3;
+    --font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 1px;
+  }
+
+  header .status {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+  }
+
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* --- Sidebar --- */
+  .sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-section {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-section h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .group-toggle {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .group-toggle button {
+    padding: 3px 10px;
+    font-size: 12px;
+    background: var(--bg-input);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .group-toggle button.active {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+
+  .group-toggle button:hover:not(.active) {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
+  .run-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 12px 12px;
+  }
+
+  .run-list::-webkit-scrollbar { width: 6px; }
+  .run-list::-webkit-scrollbar-track { background: var(--bg); }
+  .run-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .run-group {
+    margin-bottom: 6px;
+  }
+
+  .run-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    user-select: none;
+  }
+
+  .run-group-header:hover { color: var(--accent-hover); }
+
+  .run-group-header input[type="checkbox"] {
+    accent-color: var(--accent);
+  }
+
+  .run-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0 2px 20px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+  }
+
+  .run-item:hover { color: var(--text); }
+
+  .run-item input[type="checkbox"] {
+    accent-color: var(--accent);
+  }
+
+  .run-item .color-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  /* --- Controls --- */
+  .controls {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .control-row:last-child { margin-bottom: 0; }
+
+  .control-row label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    min-width: 70px;
+  }
+
+  select, input[type="number"] {
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    flex: 1;
+  }
+
+  select:focus, input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  input[type="number"] { width: 70px; flex: none; }
+
+  .btn-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .btn {
+    padding: 5px 12px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--bg-input);
+    color: var(--text);
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .btn.primary {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+
+  .btn.primary:hover { background: var(--accent-hover); }
+
+  .btn .feedback {
+    display: none;
+  }
+
+  /* --- Favorites --- */
+  .favorites-section {
+    border-top: 1px solid var(--border);
+    max-height: 200px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .favorites-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .favorites-header h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin: 0;
+  }
+
+  .favorites-header .arrow {
+    font-size: 10px;
+    color: var(--text-dim);
+    transition: transform 0.2s;
+  }
+
+  .favorites-header .arrow.open { transform: rotate(90deg); }
+
+  .favorites-list {
+    overflow-y: auto;
+    padding: 0 12px 8px;
+  }
+
+  .favorites-list::-webkit-scrollbar { width: 6px; }
+  .favorites-list::-webkit-scrollbar-track { background: var(--bg); }
+  .favorites-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .fav-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 12px;
+    font-family: var(--font-mono);
+  }
+
+  .fav-item a {
+    color: var(--accent);
+    text-decoration: none;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fav-item a:hover { color: var(--accent-hover); }
+
+  .fav-item .fav-delete {
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .fav-item .fav-delete:hover { color: var(--danger); }
+
+  .fav-empty {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-style: italic;
+    padding: 4px 0;
+  }
+
+  .fav-actions {
+    padding: 4px 12px 8px;
+  }
+
+  /* --- Chart area --- */
+  .chart-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #chart {
+    flex: 1;
+    width: 100%;
+  }
+
+  .loading-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(26, 26, 46, 0.7);
+    z-index: 10;
+  }
+
+  .loading-overlay.active { display: flex; }
+
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* --- Toast --- */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    z-index: 100;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s;
+    pointer-events: none;
+  }
+
+  .toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .toast.success { background: var(--success); color: var(--bg); }
+  .toast.error { background: var(--danger); color: white; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>autoloop explorer</h1>
+  <span class="status" id="statusText">loading...</span>
+</header>
+
+<div class="main">
+  <div class="sidebar">
+    <!-- Grouping controls -->
+    <div class="sidebar-section">
+      <h3>Group by</h3>
+      <div class="group-toggle" id="groupToggle">
+        <button data-group="L" class="active">L</button>
+        <button data-group="T">T</button>
+        <button data-group="seed">seed</button>
+      </div>
+    </div>
+
+    <!-- Run list -->
+    <div class="run-list" id="runList"></div>
+
+    <!-- Chart controls -->
+    <div class="controls">
+      <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin-bottom:8px;">Chart</h3>
+      <div class="control-row">
+        <label>Type</label>
+        <select id="chartType">
+          <option value="timeseries">Time Series</option>
+          <option value="phase">Phase Portrait</option>
+        </select>
+      </div>
+      <div class="control-row" id="xMetricRow" style="display:none;">
+        <label>X axis</label>
+        <select id="xMetric"></select>
+      </div>
+      <div class="control-row">
+        <label>Y axis</label>
+        <select id="yMetric"></select>
+      </div>
+      <div class="control-row">
+        <label>Downsample</label>
+        <input type="number" id="downsample" value="500" min="50" max="100000" step="50">
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btnShare">Share</button>
+        <button class="btn primary" id="btnSave">Save</button>
+      </div>
+    </div>
+
+    <!-- Favorites -->
+    <div class="favorites-section" id="favoritesSection">
+      <div class="favorites-header" id="favoritesHeader">
+        <h3>Favorites</h3>
+        <span class="arrow open">&#9654;</span>
+      </div>
+      <div class="favorites-list" id="favoritesList"></div>
+      <div class="fav-actions">
+        <button class="btn" id="btnCopyMarkdown" style="font-size:11px;padding:3px 8px;">Copy as markdown</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-area">
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="spinner"></div>
+    </div>
+    <div id="chart"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+const state = {
+  runs: [],            // from /api/runs
+  metrics: [],         // from /api/metrics
+  selectedRuns: new Set(),
+  groupBy: 'L',
+  chartType: 'timeseries',
+  xMetric: '',
+  yMetric: '',
+  downsample: 500,
+};
+
+let debounceTimer = null;
+let favoritesOpen = true;
+
+// ---------------------------------------------------------------------------
+// Color scheme
+// ---------------------------------------------------------------------------
+// Color by T value (sequential), differentiate L by dash style
+const T_COLORS = {
+  '0.50': '#636EFA',
+  '0.60': '#5B8FF9',
+  '0.70': '#00CC96',
+  '0.80': '#19D3F3',
+  '0.90': '#FECB52',
+  '1.00': '#EF553B',
+  '1.10': '#FF6692',
+  '1.20': '#B6E880',
+  '1.50': '#AB63FA',
+};
+
+const L_DASHES = {
+  '64': 'solid',
+  '128': 'dash',
+  '192': 'dot',
+  '256': 'dashdot',
+  '512': 'longdash',
+  '1024': 'longdashdot',
+};
+
+// Fallback palette for unknown T values
+const PALETTE = [
+  '#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
+  '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52',
+];
+
+function getRunColor(run) {
+  const tKey = parseFloat(run.T).toFixed(2);
+  return T_COLORS[tKey] || PALETTE[state.runs.indexOf(run) % PALETTE.length];
+}
+
+function getRunDash(run) {
+  return L_DASHES[String(run.L)] || 'solid';
+}
+
+function getRunLabel(run) {
+  return `L=${run.L} T=${parseFloat(run.T).toFixed(2)} S=${run.seed}`;
+}
+
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+async function apiFetch(path) {
+  const resp = await fetch(path);
+  if (!resp.ok) throw new Error(`API error: ${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+async function fetchRuns() {
+  state.runs = await apiFetch('/api/runs');
+}
+
+async function fetchMetrics() {
+  state.metrics = await apiFetch('/api/metrics');
+}
+
+async function fetchData(runIds, metricIds, downsample) {
+  const params = new URLSearchParams();
+  params.set('runs', runIds.join(','));
+  params.set('metrics', metricIds.join(','));
+  params.set('downsample', String(downsample));
+  return apiFetch(`/api/data?${params}`);
+}
+
+// ---------------------------------------------------------------------------
+// UI: Run list
+// ---------------------------------------------------------------------------
+function renderRunList() {
+  const container = document.getElementById('runList');
+  container.innerHTML = '';
+
+  const groupKey = state.groupBy;
+  const groups = {};
+  for (const run of state.runs) {
+    const key = String(run[groupKey]);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(run);
+  }
+
+  // Sort group keys numerically
+  const sortedKeys = Object.keys(groups).sort((a, b) => parseFloat(a) - parseFloat(b));
+
+  for (const key of sortedKeys) {
+    const groupRuns = groups[key];
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'run-group';
+
+    // Group header with checkbox
+    const allSelected = groupRuns.every(r => state.selectedRuns.has(r.id));
+    const someSelected = groupRuns.some(r => state.selectedRuns.has(r.id));
+
+    const header = document.createElement('div');
+    header.className = 'run-group-header';
+
+    const groupCb = document.createElement('input');
+    groupCb.type = 'checkbox';
+    groupCb.checked = allSelected;
+    groupCb.indeterminate = someSelected && !allSelected;
+    groupCb.addEventListener('change', () => {
+      for (const r of groupRuns) {
+        if (groupCb.checked) state.selectedRuns.add(r.id);
+        else state.selectedRuns.delete(r.id);
+      }
+      renderRunList();
+      scheduleUpdate();
+    });
+
+    const label = document.createElement('span');
+    label.textContent = `${groupKey}=${key}`;
+    label.addEventListener('click', (e) => {
+      e.stopPropagation();
+      groupCb.checked = !groupCb.checked;
+      groupCb.dispatchEvent(new Event('change'));
+    });
+
+    header.appendChild(groupCb);
+    header.appendChild(label);
+    groupDiv.appendChild(header);
+
+    // Individual runs
+    for (const run of groupRuns) {
+      const item = document.createElement('div');
+      item.className = 'run-item';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = state.selectedRuns.has(run.id);
+      cb.addEventListener('change', () => {
+        if (cb.checked) state.selectedRuns.add(run.id);
+        else state.selectedRuns.delete(run.id);
+        renderRunList();
+        scheduleUpdate();
+      });
+
+      const swatch = document.createElement('span');
+      swatch.className = 'color-swatch';
+      swatch.style.background = getRunColor(run);
+
+      const text = document.createElement('span');
+      text.textContent = getRunLabel(run);
+
+      item.appendChild(cb);
+      item.appendChild(swatch);
+      item.appendChild(text);
+      groupDiv.appendChild(item);
+    }
+
+    container.appendChild(groupDiv);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UI: Metric dropdowns
+// ---------------------------------------------------------------------------
+function populateMetricDropdowns() {
+  const xSel = document.getElementById('xMetric');
+  const ySel = document.getElementById('yMetric');
+  xSel.innerHTML = '';
+  ySel.innerHTML = '';
+
+  for (const m of state.metrics) {
+    const opt1 = document.createElement('option');
+    opt1.value = m.id;
+    opt1.textContent = `${m.name} [${m.resolution}]`;
+    xSel.appendChild(opt1);
+
+    const opt2 = opt1.cloneNode(true);
+    ySel.appendChild(opt2);
+  }
+
+  // Restore from state or set defaults
+  if (state.yMetric && ySel.querySelector(`option[value="${state.yMetric}"]`)) {
+    ySel.value = state.yMetric;
+  } else if (state.metrics.length > 0) {
+    // Default: first metric that looks like entropy
+    const entropyMetric = state.metrics.find(m => m.id === 'entropy');
+    ySel.value = entropyMetric ? 'entropy' : state.metrics[0].id;
+    state.yMetric = ySel.value;
+  }
+
+  if (state.xMetric && xSel.querySelector(`option[value="${state.xMetric}"]`)) {
+    xSel.value = state.xMetric;
+  } else if (state.metrics.length > 1) {
+    // Default: second metric or compressibility
+    const compMetric = state.metrics.find(m => m.id.startsWith('compressibility'));
+    xSel.value = compMetric ? compMetric.id : state.metrics[1].id;
+    state.xMetric = xSel.value;
+  } else if (state.metrics.length > 0) {
+    xSel.value = state.metrics[0].id;
+    state.xMetric = xSel.value;
+  }
+}
+
+function updateChartControlsVisibility() {
+  const xRow = document.getElementById('xMetricRow');
+  const yLabel = document.querySelector('#yMetric').parentElement.querySelector('label');
+  if (state.chartType === 'phase') {
+    xRow.style.display = 'flex';
+    yLabel.textContent = 'Y axis';
+  } else {
+    xRow.style.display = 'none';
+    yLabel.textContent = 'Y axis';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UI: Favorites
+// ---------------------------------------------------------------------------
+function getFavorites() {
+  try {
+    return JSON.parse(localStorage.getItem('autoloop_favorites') || '[]');
+  } catch { return []; }
+}
+
+function saveFavorites(favs) {
+  localStorage.setItem('autoloop_favorites', JSON.stringify(favs));
+}
+
+function renderFavorites() {
+  const list = document.getElementById('favoritesList');
+  const favs = getFavorites();
+  list.innerHTML = '';
+
+  if (favs.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'fav-empty';
+    empty.textContent = 'No saved views yet.';
+    list.appendChild(empty);
+    return;
+  }
+
+  for (let i = 0; i < favs.length; i++) {
+    const fav = favs[i];
+    const item = document.createElement('div');
+    item.className = 'fav-item';
+
+    const link = document.createElement('a');
+    link.href = '#' + fav.hash;
+    link.textContent = fav.label || fav.hash.substring(0, 40);
+    link.title = fav.label || fav.hash;
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.location.hash = fav.hash;
+      loadFromHash();
+    });
+
+    const del = document.createElement('span');
+    del.className = 'fav-delete';
+    del.textContent = '\u00d7';
+    del.title = 'Delete';
+    del.addEventListener('click', () => {
+      const updated = getFavorites();
+      updated.splice(i, 1);
+      saveFavorites(updated);
+      renderFavorites();
+    });
+
+    item.appendChild(link);
+    item.appendChild(del);
+    list.appendChild(item);
+  }
+}
+
+function toggleFavorites() {
+  favoritesOpen = !favoritesOpen;
+  const list = document.getElementById('favoritesList');
+  const actions = document.querySelector('.fav-actions');
+  const arrow = document.querySelector('.favorites-header .arrow');
+  list.style.display = favoritesOpen ? '' : 'none';
+  actions.style.display = favoritesOpen ? '' : 'none';
+  arrow.classList.toggle('open', favoritesOpen);
+}
+
+// ---------------------------------------------------------------------------
+// URL hash state
+// ---------------------------------------------------------------------------
+function encodeHash() {
+  const parts = [];
+  if (state.selectedRuns.size > 0) {
+    parts.push('runs=' + Array.from(state.selectedRuns).join(','));
+  }
+  parts.push('chart=' + state.chartType);
+  if (state.chartType === 'phase' && state.xMetric) {
+    parts.push('x=' + state.xMetric);
+  }
+  if (state.yMetric) parts.push('y=' + state.yMetric);
+  parts.push('downsample=' + state.downsample);
+  parts.push('group=' + state.groupBy);
+  return parts.join('&');
+}
+
+function updateHash() {
+  const hash = encodeHash();
+  history.replaceState(null, '', '#' + hash);
+}
+
+function decodeHash(hash) {
+  const params = new URLSearchParams(hash);
+  return {
+    runs: params.get('runs') ? params.get('runs').split(',') : null,
+    chart: params.get('chart') || 'timeseries',
+    x: params.get('x') || '',
+    y: params.get('y') || '',
+    downsample: params.get('downsample') ? parseInt(params.get('downsample')) : 500,
+    group: params.get('group') || 'L',
+  };
+}
+
+function loadFromHash() {
+  const hash = window.location.hash.replace(/^#/, '');
+  if (!hash) return false;
+
+  const decoded = decodeHash(hash);
+
+  state.chartType = decoded.chart;
+  state.downsample = decoded.downsample;
+  state.groupBy = decoded.group;
+  if (decoded.x) state.xMetric = decoded.x;
+  if (decoded.y) state.yMetric = decoded.y;
+
+  if (decoded.runs) {
+    state.selectedRuns.clear();
+    for (const id of decoded.runs) {
+      // Only add if the run actually exists
+      if (state.runs.some(r => r.id === id)) {
+        state.selectedRuns.add(id);
+      }
+    }
+  }
+
+  // Update UI controls
+  document.getElementById('chartType').value = state.chartType;
+  document.getElementById('downsample').value = state.downsample;
+
+  // Update group toggle
+  for (const btn of document.querySelectorAll('#groupToggle button')) {
+    btn.classList.toggle('active', btn.dataset.group === state.groupBy);
+  }
+
+  updateChartControlsVisibility();
+  populateMetricDropdowns();
+  renderRunList();
+  scheduleUpdate(0);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Chart rendering
+// ---------------------------------------------------------------------------
+function showLoading(on) {
+  document.getElementById('loadingOverlay').classList.toggle('active', on);
+}
+
+async function updateChart() {
+  const selectedIds = Array.from(state.selectedRuns);
+  if (selectedIds.length === 0 || state.metrics.length === 0) {
+    Plotly.purge('chart');
+    Plotly.newPlot('chart', [], {
+      ...darkLayout(),
+      annotations: [{
+        text: selectedIds.length === 0
+          ? 'Select one or more runs to begin.'
+          : 'No metrics available.',
+        xref: 'paper', yref: 'paper',
+        x: 0.5, y: 0.5,
+        showarrow: false,
+        font: { size: 16, color: '#888' },
+      }],
+    }, { responsive: true });
+    updateStatus();
+    return;
+  }
+
+  // Determine which metrics to fetch
+  let metricsToFetch = [];
+  if (state.chartType === 'phase') {
+    metricsToFetch = [state.xMetric, state.yMetric].filter(Boolean);
+  } else {
+    metricsToFetch = [state.yMetric].filter(Boolean);
+  }
+
+  if (metricsToFetch.length === 0) return;
+
+  showLoading(true);
+
+  try {
+    const data = await fetchData(selectedIds, metricsToFetch, state.downsample);
+    renderChart(data, selectedIds, metricsToFetch);
+  } catch (err) {
+    console.error('Failed to fetch data:', err);
+    showToast('Failed to load data: ' + err.message, 'error');
+  } finally {
+    showLoading(false);
+    updateStatus();
+  }
+}
+
+function darkLayout() {
+  return {
+    template: 'plotly_dark',
+    paper_bgcolor: '#1a1a2e',
+    plot_bgcolor: '#16213e',
+    font: { family: 'Consolas, Monaco, Courier New, monospace', color: '#e0e0e0' },
+    margin: { t: 30, r: 30, b: 50, l: 60 },
+    legend: {
+      bgcolor: 'rgba(22, 33, 62, 0.8)',
+      bordercolor: '#333',
+      borderwidth: 1,
+      font: { size: 11 },
+    },
+  };
+}
+
+function renderChart(data, runIds, metricsToFetch) {
+  const traces = [];
+
+  if (state.chartType === 'timeseries') {
+    const metricId = state.yMetric;
+    const metricDef = state.metrics.find(m => m.id === metricId);
+    const metricName = metricDef ? metricDef.name : metricId;
+
+    for (const runId of runIds) {
+      const runData = data[runId];
+      if (!runData || !runData[metricId]) continue;
+      const run = state.runs.find(r => r.id === runId);
+      if (!run) continue;
+
+      traces.push({
+        x: runData[metricId].x,
+        y: runData[metricId].y,
+        type: 'scattergl',
+        mode: 'lines',
+        name: getRunLabel(run),
+        line: {
+          color: getRunColor(run),
+          dash: getRunDash(run),
+          width: 1.5,
+        },
+        hovertemplate: `${getRunLabel(run)}<br>step=%{x}<br>${metricName}=%{y:.4f}<extra></extra>`,
+      });
+    }
+
+    Plotly.react('chart', traces, {
+      ...darkLayout(),
+      xaxis: { title: 'Step', gridcolor: '#333', zeroline: false },
+      yaxis: { title: metricName, gridcolor: '#333', zeroline: false },
+    }, { responsive: true });
+
+  } else if (state.chartType === 'phase') {
+    const xMetricId = state.xMetric;
+    const yMetricId = state.yMetric;
+    const xDef = state.metrics.find(m => m.id === xMetricId);
+    const yDef = state.metrics.find(m => m.id === yMetricId);
+    const xName = xDef ? xDef.name : xMetricId;
+    const yName = yDef ? yDef.name : yMetricId;
+
+    for (const runId of runIds) {
+      const runData = data[runId];
+      if (!runData || !runData[xMetricId] || !runData[yMetricId]) continue;
+      const run = state.runs.find(r => r.id === runId);
+      if (!run) continue;
+
+      // For phase portrait, we need to align x and y data
+      // Use the shorter array length
+      const xd = runData[xMetricId];
+      const yd = runData[yMetricId];
+      const len = Math.min(xd.y.length, yd.y.length);
+
+      traces.push({
+        x: xd.y.slice(0, len),
+        y: yd.y.slice(0, len),
+        type: 'scattergl',
+        mode: 'lines+markers',
+        name: getRunLabel(run),
+        line: {
+          color: getRunColor(run),
+          dash: getRunDash(run),
+          width: 1,
+        },
+        marker: {
+          size: 3,
+          color: getRunColor(run),
+          opacity: 0.6,
+        },
+        hovertemplate: `${getRunLabel(run)}<br>${xName}=%{x:.4f}<br>${yName}=%{y:.4f}<extra></extra>`,
+      });
+    }
+
+    Plotly.react('chart', traces, {
+      ...darkLayout(),
+      xaxis: { title: xName, gridcolor: '#333', zeroline: false },
+      yaxis: { title: yName, gridcolor: '#333', zeroline: false },
+    }, { responsive: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Debounced update
+// ---------------------------------------------------------------------------
+function scheduleUpdate(delay = 300) {
+  clearTimeout(debounceTimer);
+  updateHash();
+  debounceTimer = setTimeout(() => updateChart(), delay);
+}
+
+// ---------------------------------------------------------------------------
+// Status bar
+// ---------------------------------------------------------------------------
+function updateStatus() {
+  const el = document.getElementById('statusText');
+  const n = state.selectedRuns.size;
+  const total = state.runs.length;
+  el.textContent = `${n}/${total} runs selected`;
+}
+
+// ---------------------------------------------------------------------------
+// Toast notifications
+// ---------------------------------------------------------------------------
+function showToast(message, type = 'success') {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = 'toast ' + type + ' show';
+  setTimeout(() => { toast.classList.remove('show'); }, 2000);
+}
+
+// ---------------------------------------------------------------------------
+// Event wiring
+// ---------------------------------------------------------------------------
+function wireEvents() {
+  // Group toggle
+  for (const btn of document.querySelectorAll('#groupToggle button')) {
+    btn.addEventListener('click', () => {
+      for (const b of document.querySelectorAll('#groupToggle button')) b.classList.remove('active');
+      btn.classList.add('active');
+      state.groupBy = btn.dataset.group;
+      renderRunList();
+      updateHash();
+    });
+  }
+
+  // Chart type
+  document.getElementById('chartType').addEventListener('change', (e) => {
+    state.chartType = e.target.value;
+    updateChartControlsVisibility();
+    scheduleUpdate();
+  });
+
+  // X metric
+  document.getElementById('xMetric').addEventListener('change', (e) => {
+    state.xMetric = e.target.value;
+    scheduleUpdate();
+  });
+
+  // Y metric
+  document.getElementById('yMetric').addEventListener('change', (e) => {
+    state.yMetric = e.target.value;
+    scheduleUpdate();
+  });
+
+  // Downsample
+  document.getElementById('downsample').addEventListener('change', (e) => {
+    state.downsample = parseInt(e.target.value) || 500;
+    scheduleUpdate();
+  });
+
+  // Share
+  document.getElementById('btnShare').addEventListener('click', () => {
+    const url = window.location.href;
+    navigator.clipboard.writeText(url).then(() => {
+      showToast('Copied!');
+    }).catch(() => {
+      // Fallback
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('Copied!');
+    });
+  });
+
+  // Save favorite
+  document.getElementById('btnSave').addEventListener('click', () => {
+    const hash = encodeHash();
+    const label = prompt('Label for this view:', buildDefaultLabel());
+    if (label === null) return; // cancelled
+    const favs = getFavorites();
+    favs.push({
+      hash: hash,
+      label: label || buildDefaultLabel(),
+      timestamp: new Date().toISOString(),
+    });
+    saveFavorites(favs);
+    renderFavorites();
+    showToast('View saved!');
+  });
+
+  // Favorites toggle
+  document.getElementById('favoritesHeader').addEventListener('click', toggleFavorites);
+
+  // Copy as markdown
+  document.getElementById('btnCopyMarkdown').addEventListener('click', () => {
+    const favs = getFavorites();
+    if (favs.length === 0) {
+      showToast('No favorites to copy.', 'error');
+      return;
+    }
+    const base = window.location.origin + window.location.pathname;
+    const md = favs.map(f => `- [${f.label}](${base}#${f.hash})`).join('\n');
+    navigator.clipboard.writeText(md).then(() => {
+      showToast('Markdown copied!');
+    });
+  });
+
+  // Hash change
+  window.addEventListener('hashchange', () => {
+    loadFromHash();
+  });
+
+  // Responsive chart resize
+  window.addEventListener('resize', () => {
+    Plotly.Plots.resize('chart');
+  });
+}
+
+function buildDefaultLabel() {
+  const parts = [];
+  const selected = Array.from(state.selectedRuns);
+  if (selected.length <= 3) {
+    parts.push(selected.join(', '));
+  } else {
+    parts.push(`${selected.length} runs`);
+  }
+  parts.push(state.chartType);
+  if (state.chartType === 'phase') {
+    parts.push(`${state.xMetric} vs ${state.yMetric}`);
+  } else {
+    parts.push(state.yMetric);
+  }
+  return parts.join(' | ');
+}
+
+// ---------------------------------------------------------------------------
+// Initialization
+// ---------------------------------------------------------------------------
+async function init() {
+  try {
+    // Fetch runs and metrics in parallel
+    await Promise.all([fetchRuns(), fetchMetrics()]);
+
+    // Populate controls
+    populateMetricDropdowns();
+    updateChartControlsVisibility();
+    renderFavorites();
+    wireEvents();
+
+    // Try to restore from URL hash
+    if (!loadFromHash()) {
+      // Default: select all runs with the smallest L value, show time series of entropy
+      if (state.runs.length > 0) {
+        const minL = Math.min(...state.runs.map(r => r.L));
+        for (const run of state.runs) {
+          if (run.L === minL) state.selectedRuns.add(run.id);
+        }
+      }
+      renderRunList();
+      scheduleUpdate(0);
+    }
+
+    updateStatus();
+  } catch (err) {
+    console.error('Init failed:', err);
+    document.getElementById('statusText').textContent = 'failed to connect';
+    showToast('Failed to connect to backend: ' + err.message, 'error');
+  }
+}
+
+init();
+</script>
+</body>
+</html>
