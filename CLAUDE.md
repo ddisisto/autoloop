@@ -18,7 +18,14 @@ analyze_windows.py   # Recompute analysis at standard W grid [16,32,64,128,256]
 plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
 sweep.py             # Unified sweep runner (presets, ad-hoc grids, --status)
 explorer.py          # Interactive web explorer backend (FastAPI)
-static/index.html    # Explorer frontend (Plotly.js, single-page app)
+static/              # Explorer frontend
+  index.html         # HTML shell
+  css/explorer.css   # Styles (right drawer layout, zoom-synced overview)
+  js/app.js          # Init, event wiring, hash state
+  js/chart.js        # Plotly rendering, click/zoom handlers
+  js/context.js      # Context drawer, overview bar, scrubber, zoom sync
+  js/sidebar.js      # Run list, metric dropdowns, favorites
+  js/state.js        # App state, color scheme, API helpers
 explorer.md          # Explorer design doc
 run-index.md         # Run tracker, grid overview, phase planning
 observations.md      # Append-only findings log with current model summary
