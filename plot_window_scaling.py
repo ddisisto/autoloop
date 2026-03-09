@@ -1,13 +1,14 @@
-"""Plot compressibility as a function of L and W.
+"""Cross-run analysis plots: window scaling, transfer functions, autocorrelation.
 
-Explores how measurement window size interacts with context length.
-Reads analysis caches (standard-W or incremental).
+Reads analysis caches and summary stats across the full run grid.
 Seed-aware: averages across seeds with error bars where multiple seeds exist.
 
 Usage:
     python plot_window_scaling.py
     python plot_window_scaling.py --temps 0.50 1.00
-    python plot_window_scaling.py --temps 0.50 --ldense   # L-dense detail plot
+    python plot_window_scaling.py --temps 0.50 --ldense     # L-dense detail plot
+    python plot_window_scaling.py --transfer                 # T→H and T→C curves
+    python plot_window_scaling.py --autocorr                 # entropy autocorrelation
 """
 
 import argparse
@@ -67,11 +68,145 @@ def seed_stats(values: list[float]) -> tuple[float, float]:
     return float(np.mean(clean)), float(np.std(clean))
 
 
+def _plot_transfer(
+    groups: dict[tuple[int, float], list[tuple[Path, dict]]],
+    ls: list[int],
+    temps: list[float],
+) -> None:
+    """Transfer function plots: T→entropy and T→compressibility at each L."""
+    # Filter to core L values (skip L-dense intermediates for clarity)
+    core_ls = [l for l in ls if l in (64, 128, 192, 256)]
+    if not core_ls:
+        core_ls = ls
+
+    fig, (ax_h, ax_c, ax_e) = plt.subplots(1, 3, figsize=(15, 5))
+
+    for l in core_ls:
+        t_vals, h_mean, h_std = [], [], []
+        c_mean, c_std = [], []
+        e_mean, e_std = [], []
+
+        for t in temps:
+            if (l, t) not in groups:
+                continue
+            seed_h, seed_c, seed_e = [], [], []
+            for p, pr in groups[(l, t)]:
+                summary = load_summary(p, STANDARD_WINDOWS)
+                mc = load_mean_compressibility(p, STANDARD_WINDOWS)
+                seed_h.append(summary["entropy_mean"])
+                seed_c.append(mc[64])
+                seed_e.append(summary["eos_rate"])
+
+            hm, hs = seed_stats(seed_h)
+            cm, cs = seed_stats(seed_c)
+            em, es = seed_stats(seed_e)
+            t_vals.append(t)
+            h_mean.append(hm)
+            h_std.append(hs)
+            c_mean.append(cm)
+            c_std.append(cs)
+            e_mean.append(em)
+            e_std.append(es)
+
+        h_arr, hs_arr = np.array(h_mean), np.array(h_std)
+        c_arr, cs_arr = np.array(c_mean), np.array(c_std)
+        e_arr, es_arr = np.array(e_mean), np.array(e_std)
+
+        ax_h.plot(t_vals, h_arr, marker="o", label=f"L={l}", linewidth=1.5)
+        if any(s > 0 for s in h_std):
+            ax_h.fill_between(t_vals, h_arr - hs_arr, h_arr + hs_arr, alpha=0.15)
+
+        ax_c.plot(t_vals, c_arr, marker="o", label=f"L={l}", linewidth=1.5)
+        if any(s > 0 for s in c_std):
+            ax_c.fill_between(t_vals, c_arr - cs_arr, c_arr + cs_arr, alpha=0.15)
+
+        ax_e.plot(t_vals, e_arr, marker="o", label=f"L={l}", linewidth=1.5)
+        if any(s > 0 for s in e_std):
+            ax_e.fill_between(t_vals, e_arr - es_arr, e_arr + es_arr, alpha=0.15)
+
+    ax_h.set_xlabel("Temperature T")
+    ax_h.set_ylabel("Mean entropy (nats)")
+    ax_h.set_title("T → Entropy")
+    ax_h.legend()
+    ax_h.grid(True, alpha=0.3)
+
+    ax_c.set_xlabel("Temperature T")
+    ax_c.set_ylabel("Mean compressibility (W=64)")
+    ax_c.set_title("T → Compressibility")
+    ax_c.legend()
+    ax_c.grid(True, alpha=0.3)
+
+    ax_e.set_xlabel("Temperature T")
+    ax_e.set_ylabel("EOS rate")
+    ax_e.set_title("T → EOS Rate")
+    ax_e.legend()
+    ax_e.grid(True, alpha=0.3)
+
+    fig.suptitle("Transfer functions: temperature to observables", fontsize=13)
+    fig.tight_layout()
+
+    out = FIGURES_DIR / "transfer_functions.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    log.info("Saved %s", out)
+
+
+def _plot_autocorr(
+    groups: dict[tuple[int, float], list[tuple[Path, dict]]],
+    ls: list[int],
+    temps: list[float],
+) -> None:
+    """Entropy autocorrelation plots: one subplot per T, one curve per L."""
+    core_ls = [l for l in ls if l in (64, 128, 192, 256)]
+    if not core_ls:
+        core_ls = ls
+
+    fig, axes = plt.subplots(1, len(temps), figsize=(5 * len(temps), 4), squeeze=False)
+
+    for t_idx, t in enumerate(temps):
+        ax = axes[0][t_idx]
+        for l in core_ls:
+            if (l, t) not in groups:
+                continue
+            # Average ACF across seeds
+            acfs = []
+            for p, pr in groups[(l, t)]:
+                analysis = _get_analysis(p, STANDARD_WINDOWS)
+                if "entropy_autocorrelation" in analysis:
+                    acfs.append(analysis["entropy_autocorrelation"])
+            if not acfs:
+                continue
+            min_len = min(len(a) for a in acfs)
+            acf_mean = np.mean([a[:min_len] for a in acfs], axis=0)
+            lags = np.arange(min_len)
+            ax.plot(lags, acf_mean, label=f"L={l}", linewidth=1.2, alpha=0.8)
+
+        ax.set_xlabel("Lag (steps)")
+        ax.set_ylabel("Autocorrelation")
+        ax.set_title(f"T={t:.2f}")
+        ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(0, 500)
+
+    fig.suptitle("Entropy autocorrelation", y=1.02, fontsize=13)
+    fig.tight_layout()
+
+    out = FIGURES_DIR / "entropy_autocorrelation.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("Saved %s", out)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--temps", type=float, nargs="*", help="Filter to specific temperatures")
     parser.add_argument("--ldense", action="store_true",
                         help="Generate L-densification detail plot (T=0.50 focused)")
+    parser.add_argument("--transfer", action="store_true",
+                        help="Generate transfer function plots (T→H, T→C, T→EOS)")
+    parser.add_argument("--autocorr", action="store_true",
+                        help="Generate entropy autocorrelation plots")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -205,9 +340,13 @@ def main() -> None:
         plt.close(fig)
         log.info("Saved %s", out)
 
-    # --- Plot 4 (optional): L-dense detail at T=0.50 ---
+    # --- Optional plots ---
     if args.ldense:
         _plot_ldense(runs, groups)
+    if args.transfer:
+        _plot_transfer(groups, ls, temps)
+    if args.autocorr:
+        _plot_autocorr(groups, ls, temps)
 
 
 def _plot_ldense(

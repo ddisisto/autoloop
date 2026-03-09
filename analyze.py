@@ -21,6 +21,8 @@ from utils import compressibility
 
 log = logging.getLogger(__name__)
 
+AUTOCORR_MAX_LAG = 2000
+
 
 # ---------------------------------------------------------------------------
 # Metric computation functions
@@ -84,6 +86,25 @@ def stationarity_blocks(
         "overall_std": float(overall_std),
         "classification": classification,
     }
+
+
+def entropy_autocorrelation(entropy: np.ndarray, max_lag: int = AUTOCORR_MAX_LAG) -> np.ndarray:
+    """Normalized autocorrelation of entropy series at lags 0..max_lag.
+
+    Returns array of length max_lag+1 where index i is the autocorrelation at lag i.
+    Uses the standard unbiased estimator (numpy correlate + normalization).
+    """
+    x = entropy - entropy.mean()
+    var = np.dot(x, x)
+    if var == 0:
+        return np.zeros(max_lag + 1)
+    n = len(x)
+    max_lag = min(max_lag, n - 1)
+    acf = np.correlate(x, x, mode="full")
+    # Take positive lags only, normalize
+    mid = len(acf) // 2
+    acf = acf[mid:mid + max_lag + 1] / var
+    return acf
 
 
 def summarize_run(exp: pd.DataFrame) -> dict:
@@ -167,7 +188,8 @@ def analyze_run(
     if cache is not None:
         cached_windows = set(cache.get("compressibility", {}).keys())
         missing = requested - cached_windows
-        if not missing:
+        needs_autocorr = "entropy_autocorrelation" not in cache
+        if not missing and not needs_autocorr:
             log.info("Full cache hit for %s", parquet_path.name)
             return cache
         log.info("Partial cache hit for %s (have W=%s, need W=%s)",
@@ -180,10 +202,12 @@ def analyze_run(
     if exp is None:
         exp = _load_experiment_df(parquet_path)
 
-    # Summary and entropy stationarity (recompute on cache miss)
+    # Summary, stationarity, and autocorrelation (recompute on cache miss)
     if "summary" not in cache:
         cache["summary"] = summarize_run(exp)
         cache["entropy_stationarity"] = stationarity_blocks(exp.entropy.to_numpy())
+    if "entropy_autocorrelation" not in cache:
+        cache["entropy_autocorrelation"] = entropy_autocorrelation(exp.entropy.to_numpy())
 
     # Compute missing compressibility windows
     comp = cache.get("compressibility", {})
