@@ -30,10 +30,16 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **Three-sensor framework:** entropy (model uncertainty), compressibility (observer-assessed structure), EOS rate (model-assessed coherence). Each probes a different aspect. All three needed for regime identification.
 
+**Transfer functions confirm the phase structure.** T→compressibility curves for different L cross at a single pivot point (T≈0.70). Below: longer L = less structure (deeper collapse). Above: longer L = more structure (richer dynamics). T→entropy curves change shape with L: L=64 is roughly linear, L=192 has a sharp elbow at T=0.70 (stuck below, released above). EOS peak is sharper and shifted to lower T for longer L.
+
+**Entropy autocorrelation reveals temporal structure.** ACF quantifies "attractor stickiness" as decorrelation timescale. T=0.50 L=64 shows oscillatory ACF (escape/recapture cycles with period ~L). T=0.50 L=256 never decorrelates (locked). T=0.60 L=256 has ~300+ step decorrelation (extended collapse). In rich dynamics (T=0.70–1.00), decorrelation time scales cleanly with L. At T=1.50, all L values decorrelate in ~20 steps (noise floor). Decorrelation timescale is a fourth lens complementary to the three-sensor framework — it measures *temporal* memory rather than instantaneous state.
+
 **Open questions:**
 - What is L=192's exact escape temperature? Somewhere in T=0.60–0.70. T-densification at T={0.62, 0.65, 0.68} would pin it.
-- Does L=256 extend collapse even further in T? Gap at T={0.60–0.90} is the biggest hole in the grid.
+- Does L=256 extend collapse even further in T? Partial data at T=0.60 (in progress) suggests yes.
 - Is the T=1.00 compressibility increase with L (0.739→0.785) robust across seeds?
+- Does decorrelation timescale scale linearly with L in the rich-dynamics regime?
+- Where does the decoupling index (comp_W256 − comp_W64) peak? Predicted: T~0.80.
 
 ---
 
@@ -465,4 +471,82 @@ for L in [64, 128, 192, 256]:
                 print(f'L={L} T={T:.2f}: comp_W64={valid.mean():.4f} entropy={data[\"summary\"][\"entropy_mean\"]:.4f} eos={data[\"summary\"][\"eos_rate\"]:.6f}')
                 break
 "
+```
+
+---
+
+### 2026-03-09 — Transfer Functions and Entropy Autocorrelation
+
+**Data:** Full S=42 grid (same as cross-T entry above), plus all seed-replicated runs for averaging.
+
+**Transfer functions** (T→entropy, T→compressibility, T→EOS rate at each L):
+
+The slope-flip in compressibility is now clearly visible as a curve crossing: L=192 has the *lowest* compressibility at T=0.50 but the *highest* at T=1.00. All L-curves cross in a narrow T band around T=0.70. This isn't a gradual inversion — it's a pivot point. Below the pivot, longer context deepens collapse (reducing local structure). Above it, longer context enriches structure (increasing compressibility).
+
+The T→entropy curves show a qualitative shape change between L=64 and L=192. L=64's curve is roughly linear from T=0.50 to T=1.00. L=192 has a sharp elbow at T=0.70 — flat (collapsed) below, steep above. This is the same escape transition seen in the data tables, but the curve shape makes it vivid: L=192 is "stuck" until T crosses ~0.65–0.70, then releases suddenly.
+
+EOS rate: L=192's peak is clearly shifted to T=0.70 (vs T=0.90 for L=64/128). The peak is also sharper — L=192 fires EOS intensely at the escape boundary and barely at all in collapse. L=64/128 have broader, gentler EOS peaks.
+
+**Entropy autocorrelation** (ACF at lags 0–500 steps, per L, per T):
+
+This is the first quantitative measure of attractor memory in the system.
+
+Key observations:
+
+1. **T=0.50, L=64: oscillatory ACF.** The autocorrelation doesn't just decay — it oscillates around ~0.15 with period ~50–100 steps. This is the escape/recapture cycle visible as periodic structure: the system escapes a loop attractor, wanders briefly, and recaptures into the same or another loop. The oscillation period is roughly L (64 steps), consistent with memory turnover.
+
+2. **T=0.50, L=256: persistent flat ACF at ~0.2.** Never decorrelates within 500 steps. The attractor is so deep that the system's entropy state at step N predicts its state at step N+500. This is a locked system.
+
+3. **T=0.60: L=256 stands alone.** ACF decays slowly from ~0.6, taking ~300+ steps to approach zero. All other L values decorrelate within ~100 steps. This is the clearest evidence yet that L=256 extends collapse into T=0.60 (the in-progress sweep will confirm).
+
+4. **T=0.70–1.00: clean L-scaling of decorrelation time.** At each T, the curves separate cleanly by L — longer L = slower decorrelation. The ordering is consistent and the spacing is roughly proportional to L. This is the "memory depth" interpretation made quantitative: decorrelation time ∝ L.
+
+5. **T=1.50: instant decorrelation.** All L values drop to ACF ≈ 0 within ~20 steps. No memory structure survives at this noise level. Consistent with "universal noise floor" from every other lens.
+
+6. **Decorrelation timescale as a phase diagram probe.** The lag at which ACF crosses a threshold (e.g. 1/e) could serve as a scalar "memory depth" metric. Plotting this on a T×L grid would produce a quantitative phase diagram — complementary to entropy and compressibility, measuring *temporal* structure rather than *spatial* structure.
+
+**Remaining analysis plan:**
+
+- **Surprisal (−log prob) analysis**: per-step surprisal time series and its relationship to entropy. In collapse, the gap should be near zero (peaked distribution, deterministic). In rich dynamics, the gap distribution reveals whether sampling is from the bulk or tails.
+- **EOS inter-arrival distribution**: histogram of steps between consecutive EOS tokens per condition. Could reveal periodicity or characteristic timescales.
+- **Decoupling index**: scalar ratio of compressibility at W=64 vs W=256, plotted on the T×L grid. Maps "where does local structure exist without global repetition" to a number.
+- **Decorrelation timescale extraction**: lag at ACF threshold, plotted as T×L heatmap. Quantitative phase diagram from a new angle.
+
+```bash
+# Reproduction
+python plot_window_scaling.py --transfer --autocorr
+```
+
+---
+
+### 2026-03-09 — Predictions for Upcoming Data and Analysis
+
+Pre-registered predictions, to be scored when data arrives. Format: prediction, confidence, reasoning.
+
+**L=256 crossover sweep (T={0.60, 0.70, 0.80, 0.90}, in progress):**
+
+1. **L=256 T=0.60 will be deeply collapsed** (entropy < 0.15, comp < 0.25). Confidence: HIGH. ACF at T=0.60 already shows L=256 with extremely long memory (~300+ step decorrelation), and the partial run (41k steps) shows entropy mean 0.187. This will likely drop further as the run extends past the initial transient.
+
+2. **L=256 T=0.70 will be escaped but barely.** Entropy 0.8–1.5 (below L=64/128/192 at T=0.70). Confidence: MEDIUM. The sharp escape at T=0.70 is universal across other L values, but L=256's deeper attractor basins might delay or dampen the escape. Possible it's still partially collapsed.
+
+3. **L=256 T=0.80–0.90 will follow the L-scaling pattern.** Entropy and compressibility between L=192 values and some higher floor, ACF decorrelation slower than L=192. Confidence: HIGH. Above the crossover, L-scaling is clean and predictable.
+
+4. **L=256 will push the slope-flip pivot rightward.** The T at which L=256's compressibility crosses L=64's will be at T≥0.80 (vs ~0.70 for L=192). Confidence: MEDIUM. Deeper collapse extends the regime where longer-L means less structure.
+
+5. **L=256 EOS peak will be at T=0.70 or T=0.60.** The peak tracks the escape boundary, which is at higher T for longer L. Confidence: MEDIUM-HIGH, contingent on prediction #2.
+
+**Remaining analysis predictions:**
+
+6. **Surprisal gap (H − (−log p)) will be near zero in collapse and positive in rich dynamics.** In collapse, the distribution is peaked and the model samples the mode — surprisal ≈ entropy. In noise (T=1.50), the gap will also be small because high entropy ≈ high surprisal. The gap should peak in the rich-dynamics regime where the model has moderate uncertainty but samples from a structured distribution. Confidence: MEDIUM.
+
+7. **EOS inter-arrival distribution will be exponential at T=1.50 and heavy-tailed in the crossover.** At T=1.50 (noise), EOS events should be memoryless (Poisson process → exponential inter-arrival). Near the crossover, EOS events cluster at regime transitions, producing heavy tails or multimodal distributions. Confidence: MEDIUM.
+
+8. **Decoupling index (comp_W256 − comp_W64) will peak in the crossover region (T~0.80).** This is where local structure exists (moderate W=64 compressibility) but long-range repetition hasn't set in (low W=256 compressibility). In collapse, both are low (decoupled by being empty). In noise, both are high (no structure at any scale). The decoupling should be maximal where the system has structure that doesn't repeat. Confidence: MEDIUM.
+
+9. **Decorrelation timescale (lag at ACF threshold) will scale approximately linearly with L in the rich-dynamics regime.** If L sets the memory horizon and the system mixes by "forgetting" old context, the mixing time should be proportional to the context turnover time, which is O(L). Confidence: MEDIUM-HIGH.
+
+```bash
+# These predictions will be scored when:
+# - L=256 sweep completes (predictions 1-5)
+# - Remaining analysis implemented (predictions 6-9)
 ```
