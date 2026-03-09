@@ -7,6 +7,8 @@ import numpy as np
 
 def compressibility(text: bytes) -> float:
     """Compression ratio: compressed_size / original_size. Lower = more compressible."""
+    if len(text) == 0:
+        return 1.0
     compressed = gzip.compress(text, compresslevel=6)
     return len(compressed) / len(text)
 

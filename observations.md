@@ -8,13 +8,13 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **System:** SmolLM-135M generating into its own context. No external input. Pure autoregressive dynamics.
 
-**Two orthogonal actuators:**
+**Two coupled actuators:**
 - T (temperature): per-step noise floor. Controls escape probability from attractors.
 - L (context length): memory horizon. Controls attractor basin depth, stickiness, and collapse boundary.
 
-**Three regimes** at fixed L: collapse (T≤T_escape), rich dynamics (T well above T_escape), noise (T≥1.50). But the collapse boundary T_escape is strongly L-dependent — longer L extends collapse dramatically upward in T.
+**Four regimes** at fixed L: collapse (T≤T_escape), suppressed dynamics (structure but slow mixing), rich dynamics (T well above T_escape), noise (T≥1.50). The collapse boundary T_escape is L-dependent, but the coupling saturates at large L.
 
-**Collapse boundary T_escape(L) is an increasing function of L.** Estimated escape temperatures: L=64/128 ≈ 0.55–0.60, L=192 ≈ 0.65–0.70, L=256 ≈ 0.85–0.90. This is not a gentle shift — doubling context length from 128 to 256 pushes the escape boundary up by ~0.3 in T. The "universal sharp escape at T=0.70" was only universal for L≤192.
+**Collapse boundary T_escape(L) increases then saturates.** Estimated escape temperatures: L=64/128 ≈ 0.55–0.60, L=192 ≈ 0.65–0.70, L=256 ≈ 0.85–0.90, L=512 ≈ 0.90. The steep rise from L=128→256 (~+0.3 in T) flattens out by L=512 (~+0.03). This suggests a characteristic scale: below L≈256, context amplifies collapse; above it, context is "sufficient" and temperature alone determines the regime.
 
 **A fourth regime: suppressed dynamics.** L=256 at T=0.70–0.80 is neither collapsed (entropy 0.4–0.6, not <0.1) nor escaped (entropy well below the L≤192 values of 1.1–1.6). Decorrelation lags of 253–356 steps reveal slow-mixing attractor dynamics. Surprisal kurtosis is intermediate (29–60, vs 500+ in collapse and <10 in rich dynamics). The system has local structure (comp_W64 ~0.6) but no large-scale repetition (comp_W256 ~0.25). This suppressed zone is where the multi-scale decoupling is strongest.
 
@@ -850,5 +850,64 @@ for f in sorted(glob.glob('data/runs/*.parquet')):
     pct = count / len(texts) * 100
     if count >= 100:
         print(f'{name:25s} {top:>18s} {count:6d} {pct:5.1f}%')
+"
+```
+
+---
+
+## L=512 escape boundary sweep — T_escape saturates (2026-03-09)
+
+**Data:** L=512 × T={0.90, 1.00, 1.10, 1.20} × S=42 (4 runs, 100k experiment tokens each).
+
+**Key finding: T_escape(512) ≈ 0.90 — barely shifted from L=256.** The superlinear trend (0.55→0.57→0.67→0.87) predicted T_escape(512) >> 1.0. Instead it plateaued. The L×T coupling that dominated the short-context regime weakens at long context.
+
+**Metrics summary:**
+
+| T    | ent_mean | comp_W64 | comp_W128 | comp_W256 | eos_rate | decor_lag | decoupling |
+|------|----------|----------|-----------|-----------|----------|-----------|------------|
+| 0.90 | 2.56     | 0.693    | 0.574     | 0.500     | 0.00093  | 2         | 0.193      |
+| 1.00 | 5.02     | 0.860    | 0.757     | 0.682     | 0.00042  | 11        | 0.178      |
+| 1.10 | 6.68     | 0.811    | 0.717     | 0.660     | 0.00036  | 70        | 0.152      |
+| 1.20 | 7.81     | 0.743    | 0.671     | 0.630     | 0.00055  | 1         | 0.112      |
+
+**Observations:**
+
+1. **T=0.90 is the escape boundary.** Entropy 2.56 (comparable to L=256/T=0.90 at 2.25), peak EOS rate (0.00093), fast decorrelation (lag=2). The system escapes but stays low-entropy — early escape signature.
+
+2. **No suppressed zone.** At L=256, T=0.70–0.80 showed slow-mixing dynamics (decorrelation 253–356). At L=512, nothing comparable appears. The longer context prevents attractor stickiness — or the suppressed zone has moved below T=0.90 (we lack data at lower T).
+
+3. **Anomalous decorrelation at T=1.10 (lag=70).** Surrounded by fast-decorrelating conditions (T=1.00 lag=11, T=1.20 lag=1). Possible single-seed artifact, or a pocket of slow dynamics in the rich-dynamics zone. Needs seed replication to confirm.
+
+4. **Multi-scale decoupling decreases monotonically with T** (0.193→0.112). Same trend as shorter L but lower absolute values — the multi-scale structure is weaker at L=512.
+
+5. **Comparison to L=256:** Nearly identical entropy and EOS profiles at T=0.90 and T=1.00. The two context lengths have converged — L no longer matters much once T > T_escape.
+
+**Implication for annealing:** T_escape saturation means L-reduction as an escape mechanism operates in a bounded regime (L roughly 64–512). Beyond some L, reducing context doesn't help because the system isn't trapped by context depth anymore. The "lever" is finite, which is actually good — it means annealing is a well-defined maneuver, not an unbounded parameter search.
+
+```bash
+# Reproduction
+python sweep.py --L 512 --T 0.90 1.00 1.10 1.20 --seed 42
+
+# Metrics extraction
+python -c "
+import pandas as pd, numpy as np
+from analyze import analyze_run
+from pathlib import Path
+
+for T in ['0.90', '1.00', '1.10', '1.20']:
+    p = Path(f'data/runs/L0512_T{T}_S42.parquet')
+    df = pd.read_parquet(p)
+    exp = df[df.phase == 'experiment']
+    a = analyze_run(p, [64, 128, 256])
+    c64 = np.nanmean(a['compressibility'][64])
+    c128 = np.nanmean(a['compressibility'][128])
+    c256 = np.nanmean(a['compressibility'][256])
+    ent = exp.entropy.mean()
+    eos = exp.eos.mean()
+    ent_z = (exp.entropy.values - ent) / (exp.entropy.std() + 1e-12)
+    n = len(ent_z)
+    acf = np.array([np.corrcoef(ent_z[:n-k], ent_z[k:])[0,1] for k in range(500)])
+    lag = next((i for i, v in enumerate(acf) if v < 1/np.e), 500)
+    print(f'T={T}: ent={ent:.2f} c64={c64:.3f} c128={c128:.3f} c256={c256:.3f} eos={eos:.5f} lag={lag} decoup={abs(c256-c64):.3f}')
 "
 ```
