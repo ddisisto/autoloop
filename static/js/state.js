@@ -69,12 +69,7 @@ export function autoDashBy() {
 }
 
 export function getRunDash(run) {
-  const dashKey = autoDashBy();
-  if (!dashKey) return 'solid';
-  // Build sorted unique values for the dash dimension
-  const vals = [...new Set(state.runs.map(r => r[dashKey]))].sort((a, b) => a - b);
-  const idx = vals.indexOf(run[dashKey]);
-  return DASH_STYLES[idx % DASH_STYLES.length];
+  return 'solid';
 }
 
 export function getRunLabel(run) {

@@ -11,6 +11,32 @@ def compressibility(text: bytes) -> float:
     return len(compressed) / len(text)
 
 
+def fix_decoded_texts(tokenizer: object, token_ids: list[int], texts: list[str]) -> list[str]:
+    """Fix U+FFFD replacement characters from single-token decoding.
+
+    Byte-level BPE tokens that are part of multi-byte UTF-8 sequences produce
+    U+FFFD when decoded individually.  This groups consecutive affected tokens
+    and batch-decodes them to recover the actual characters.  The result is
+    assigned to the first token of each group; the rest get empty strings.
+    """
+    result = list(texts)
+    i = 0
+    while i < len(result):
+        if "\ufffd" in result[i]:
+            j = i
+            while j < len(result) and "\ufffd" in result[j]:
+                j += 1
+            batch = tokenizer.decode(token_ids[i:j])
+            if "\ufffd" not in batch:
+                result[i] = batch
+                for k in range(i + 1, j):
+                    result[k] = ""
+            i = j
+        else:
+            i += 1
+    return result
+
+
 def eos_ema(eos: np.ndarray, span: int) -> np.ndarray:
     """Exponential moving average of a binary EOS signal.
 

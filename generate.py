@@ -20,7 +20,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.logging import disable_progress_bar
 
-from utils import compressibility
+from utils import compressibility, fix_decoded_texts
 
 log = logging.getLogger(__name__)
 
@@ -162,7 +162,8 @@ def run_generation(
                 ent_vals = [r["entropy"] for r in recent]
                 ent_mean = sum(ent_vals) / len(ent_vals)
                 # Trailing-window compressibility (W=L)
-                trail_text = "".join(r["decoded_text"] for r in recent)
+                trail_ids = [r["token_id"] for r in recent]
+                trail_text = tokenizer.decode(trail_ids)
                 comp = compressibility(trail_text.encode("utf-8"))
                 log.info(
                     "step %d/%d (%.0f%%) | %.1f tok/s | ent=%.2f comp=%.3f",
@@ -184,6 +185,12 @@ def run_generation(
         log.info("Checkpoint saved. Resume with the same command.")
 
     if not interrupted:
+        # Fix replacement characters from single-token decoding
+        all_ids = [r["token_id"] for r in records]
+        all_texts = [r["decoded_text"] for r in records]
+        fixed = fix_decoded_texts(tokenizer, all_ids, all_texts)
+        for r, t in zip(records, fixed):
+            r["decoded_text"] = t
         # Final checkpoint
         save_checkpoint(checkpoint_path, parquet_path, total_steps, context, records)
 
