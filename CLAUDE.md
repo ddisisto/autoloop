@@ -20,12 +20,13 @@ sweep.py             # Unified sweep runner (presets, ad-hoc grids, --status)
 explorer.py          # Interactive web explorer backend (FastAPI)
 static/              # Explorer frontend
   index.html         # HTML shell
-  css/explorer.css   # Styles (right drawer layout, zoom-synced overview)
-  js/app.js          # Init, event wiring, hash state
-  js/chart.js        # Plotly rendering, click/zoom handlers
-  js/context.js      # Context drawer, overview bar, scrubber, zoom sync
-  js/sidebar.js      # Run list, metric dropdowns, favorites
-  js/state.js        # App state, color scheme, API helpers
+  css/explorer.css   # Styles (panels, right drawer, zoom-synced overview)
+  js/app.js          # Init, event wiring, hash state, presets
+  js/panels.js       # Composable chart strips, Plotly rendering, zoom sync
+  js/presets.js      # Hardcoded + user-saved chart layouts
+  js/context.js      # Context drawer, overview bar, search, word cloud
+  js/sidebar.js      # Run list, favorites
+  js/state.js        # App state, color-by system, API helpers
 explorer.md          # Explorer design doc
 run-index.md         # Run tracker, grid overview, phase planning
 observations.md      # Append-only findings log with current model summary

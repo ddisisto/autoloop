@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // App: init, event wiring, hash state, toast, scheduling
 // ---------------------------------------------------------------------------
-import { state, fetchRuns, fetchMetrics } from './state.js';
-import { renderRunList, populateMetricDropdowns, updateChartControlsVisibility,
-         renderFavorites, toggleFavorites, getFavorites, saveFavorites } from './sidebar.js';
-import { updateChart } from './chart.js';
+import { state, fetchRuns, fetchMetrics, nextPanelId } from './state.js';
+import { renderRunList, renderFavorites, toggleFavorites, getFavorites, saveFavorites } from './sidebar.js';
+import { renderAllPanels, rebuildAllPanelDOM, addPanel, resizeAllPanels } from './panels.js';
 import { wireContextEvents } from './context.js';
+import { PRESETS, applyPreset } from './presets.js';
 
 let debounceTimer = null;
 
@@ -15,7 +15,7 @@ let debounceTimer = null;
 export function scheduleUpdate(delay = 300) {
   clearTimeout(debounceTimer);
   updateHash();
-  debounceTimer = setTimeout(() => updateChart(), delay);
+  debounceTimer = setTimeout(() => renderAllPanels(), delay);
 }
 
 // ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ export function updateStatus() {
   const el = document.getElementById('statusText');
   const n = state.selectedRuns.size;
   const total = state.runs.length;
-  el.textContent = `${n}/${total} runs selected`;
+  el.textContent = `${n}/${total} runs | ${state.panels.length} panels`;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,18 +41,49 @@ export function showToast(message, type = 'success') {
 // ---------------------------------------------------------------------------
 // URL hash state
 // ---------------------------------------------------------------------------
+function encodePanels() {
+  // ts:entropy+eos_ema|phase:entropy,compressibility_W64
+  return state.panels.map(p => {
+    let s = p.type === 'phase' ? 'phase:' : 'ts:';
+    if (p.type === 'phase') {
+      s += (p.metrics.x || '') + ',' + (p.metrics.y1 || '');
+    } else {
+      s += p.metrics.y1 || '';
+      if (p.metrics.y2) s += '+' + p.metrics.y2;
+    }
+    return s;
+  }).join('|');
+}
+
+function decodePanels(str) {
+  if (!str) return null;
+  return str.split('|').map(part => {
+    const [typeStr, rest] = part.split(':');
+    const type = typeStr === 'phase' ? 'phase' : 'timeseries';
+    const metrics = { y1: null, y2: null, x: null };
+
+    if (type === 'phase' && rest) {
+      const [x, y1] = rest.split(',');
+      metrics.x = x || null;
+      metrics.y1 = y1 || null;
+    } else if (rest) {
+      const [y1, y2] = rest.split('+');
+      metrics.y1 = y1 || null;
+      metrics.y2 = y2 || null;
+    }
+    return { type, metrics };
+  });
+}
+
 function encodeHash() {
   const parts = [];
   if (state.selectedRuns.size > 0) {
     parts.push('runs=' + Array.from(state.selectedRuns).join(','));
   }
-  parts.push('chart=' + state.chartType);
-  if (state.chartType === 'phase' && state.xMetric) {
-    parts.push('x=' + state.xMetric);
-  }
-  if (state.yMetric) parts.push('y=' + state.yMetric);
+  parts.push('colorBy=' + state.colorBy);
   parts.push('downsample=' + state.downsample);
   parts.push('group=' + state.groupBy);
+  parts.push('panels=' + encodePanels());
   return parts.join('&');
 }
 
@@ -65,11 +96,10 @@ function decodeHash(hash) {
   const params = new URLSearchParams(hash);
   return {
     runs: params.get('runs') ? params.get('runs').split(',') : null,
-    chart: params.get('chart') || 'timeseries',
-    x: params.get('x') || '',
-    y: params.get('y') || '',
+    colorBy: params.get('colorBy') || 'T',
     downsample: params.get('downsample') ? parseInt(params.get('downsample')) : 500,
     group: params.get('group') || 'L',
+    panels: params.get('panels') || null,
   };
 }
 
@@ -79,11 +109,9 @@ function loadFromHash() {
 
   const decoded = decodeHash(hash);
 
-  state.chartType = decoded.chart;
+  state.colorBy = decoded.colorBy;
   state.downsample = decoded.downsample;
   state.groupBy = decoded.group;
-  if (decoded.x) state.xMetric = decoded.x;
-  if (decoded.y) state.yMetric = decoded.y;
 
   if (decoded.runs) {
     state.selectedRuns.clear();
@@ -94,15 +122,29 @@ function loadFromHash() {
     }
   }
 
-  document.getElementById('chartType').value = state.chartType;
+  // Restore panels
+  const panelDefs = decodePanels(decoded.panels);
+  if (panelDefs && panelDefs.length > 0) {
+    state.panels = panelDefs.map(p => ({
+      id: nextPanelId(),
+      type: p.type,
+      metrics: { ...p.metrics },
+      height: 250,
+    }));
+  } else if (state.panels.length === 0) {
+    applyPreset('overview');
+  }
+
+  // Update UI controls
+  document.getElementById('colorBy').value = state.colorBy;
   document.getElementById('downsample').value = state.downsample;
+  document.getElementById('presetSelect').value = '';
 
   for (const btn of document.querySelectorAll('#groupToggle button')) {
     btn.classList.toggle('active', btn.dataset.group === state.groupBy);
   }
 
-  updateChartControlsVisibility();
-  populateMetricDropdowns();
+  rebuildAllPanelDOM();
   renderRunList();
   scheduleUpdate(0);
   return true;
@@ -114,17 +156,9 @@ function loadFromHash() {
 function buildDefaultLabel() {
   const parts = [];
   const selected = Array.from(state.selectedRuns);
-  if (selected.length <= 3) {
-    parts.push(selected.join(', '));
-  } else {
-    parts.push(`${selected.length} runs`);
-  }
-  parts.push(state.chartType);
-  if (state.chartType === 'phase') {
-    parts.push(`${state.xMetric} vs ${state.yMetric}`);
-  } else {
-    parts.push(state.yMetric);
-  }
+  if (selected.length <= 3) parts.push(selected.join(', '));
+  else parts.push(`${selected.length} runs`);
+  parts.push(state.panels.map(p => p.metrics.y1 || p.type).join('+'));
   return parts.join(' | ');
 }
 
@@ -140,23 +174,26 @@ function wireEvents() {
     });
   }
 
-  // Chart type
-  document.getElementById('chartType').addEventListener('change', (e) => {
-    state.chartType = e.target.value;
-    updateChartControlsVisibility();
+  // Color-by
+  document.getElementById('colorBy').addEventListener('change', (e) => {
+    state.colorBy = e.target.value;
+    renderRunList();
     scheduleUpdate();
   });
 
-  // X metric
-  document.getElementById('xMetric').addEventListener('change', (e) => {
-    state.xMetric = e.target.value;
-    scheduleUpdate();
+  // Preset
+  document.getElementById('presetSelect').addEventListener('change', (e) => {
+    const name = e.target.value;
+    if (!name) return;
+    applyPreset(name);
+    rebuildAllPanelDOM();
+    scheduleUpdate(0);
+    e.target.value = ''; // reset to "Custom" after applying
   });
 
-  // Y metric
-  document.getElementById('yMetric').addEventListener('change', (e) => {
-    state.yMetric = e.target.value;
-    scheduleUpdate();
+  // Add panel
+  document.getElementById('addPanelBtn').addEventListener('click', () => {
+    addPanel({ y1: 'entropy' });
   });
 
   // Downsample
@@ -168,17 +205,8 @@ function wireEvents() {
   // Share
   document.getElementById('btnShare').addEventListener('click', () => {
     const url = window.location.href;
-    navigator.clipboard.writeText(url).then(() => {
-      showToast('Copied!');
-    }).catch(() => {
-      const ta = document.createElement('textarea');
-      ta.value = url;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      showToast('Copied!');
-    });
+    navigator.clipboard.writeText(url).then(() => showToast('Copied!'))
+      .catch(() => showToast('Copy failed', 'error'));
   });
 
   // Save favorite
@@ -187,11 +215,7 @@ function wireEvents() {
     const label = prompt('Label for this view:', buildDefaultLabel());
     if (label === null) return;
     const favs = getFavorites();
-    favs.push({
-      hash: hash,
-      label: label || buildDefaultLabel(),
-      timestamp: new Date().toISOString(),
-    });
+    favs.push({ hash, label: label || buildDefaultLabel(), timestamp: new Date().toISOString() });
     saveFavorites(favs);
     renderFavorites();
     showToast('View saved!');
@@ -203,26 +227,17 @@ function wireEvents() {
   // Copy as markdown
   document.getElementById('btnCopyMarkdown').addEventListener('click', () => {
     const favs = getFavorites();
-    if (favs.length === 0) {
-      showToast('No favorites to copy.', 'error');
-      return;
-    }
+    if (favs.length === 0) { showToast('No favorites to copy.', 'error'); return; }
     const base = window.location.origin + window.location.pathname;
     const md = favs.map(f => `- [${f.label}](${base}#${f.hash})`).join('\n');
-    navigator.clipboard.writeText(md).then(() => {
-      showToast('Markdown copied!');
-    });
+    navigator.clipboard.writeText(md).then(() => showToast('Markdown copied!'));
   });
 
   // Hash change
-  window.addEventListener('hashchange', () => {
-    loadFromHash();
-  });
+  window.addEventListener('hashchange', () => loadFromHash());
 
-  // Responsive chart resize
-  window.addEventListener('resize', () => {
-    Plotly.Plots.resize('chart');
-  });
+  // Responsive resize
+  window.addEventListener('resize', () => resizeAllPanels());
 
   // Context panel events
   wireContextEvents();
@@ -235,18 +250,28 @@ async function init() {
   try {
     await Promise.all([fetchRuns(), fetchMetrics()]);
 
-    populateMetricDropdowns();
-    updateChartControlsVisibility();
+    // Populate preset dropdown
+    const presetSelect = document.getElementById('presetSelect');
+    for (const [key, preset] of Object.entries(PRESETS)) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = preset.label;
+      presetSelect.appendChild(opt);
+    }
+
     renderFavorites();
     wireEvents();
 
     if (!loadFromHash()) {
+      // Default: apply overview preset + select all runs with min L
+      applyPreset('overview');
       if (state.runs.length > 0) {
         const minL = Math.min(...state.runs.map(r => r.L));
         for (const run of state.runs) {
           if (run.L === minL) state.selectedRuns.add(run.id);
         }
       }
+      rebuildAllPanelDOM();
       renderRunList();
       scheduleUpdate(0);
     }

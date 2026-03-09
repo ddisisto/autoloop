@@ -655,3 +655,200 @@ python summary_table.py --out data/summary.csv  # persist
 # Scoring when L=512 sweep completes:
 python summary_table.py | grep "512,"
 ```
+
+### 2026-03-09 — Cross-Token Concept Persistence in L=512 T=0.90
+
+**Finding:** In L0512_T0.90_S42, the model generates a 791-token segment (steps 2727–3518) that includes six instances of `brom-` family words: "Bromo", "Bromine" (×4), and the invented word "bromula". None of these are single tokens — they are always split across subword boundaries:
+
+- `"Bromine"` → `'B'` + `'rom'` + `'ine'` (3 tokens, 3 sequential prediction steps)
+- `"bromula"` → `'b'` + `'rom'` + `'ula'` (3 tokens — a novel word the model invents)
+
+A token-level search for `brom` returns zero hits — no individual token contains the substring. The concept exists only in the cross-token activation geometry and the KV cache.
+
+**Context:** The segment is a coherent essay about "studying word meanings" that constructs a narrative scaffold justifying repeated use of the word. The model frames "Bromine" as a vocabulary study example, then generates "bromula" as a purported chess term — morphologically plausible but nonexistent. The model treats `brom-` as a productive root and attaches a novel suffix.
+
+**Token diversity in this segment:** 27.3% unique token IDs (216/792), vs 11.5% overall — the segment is more lexically diverse than the run average despite its topical repetition. The high-frequency tokens are function words (`you`, `the`, `that`) and topic-anchors (`term`, `meaning`).
+
+**Entropy:** Segment mean 2.247 (σ=1.273) vs run mean 2.528 (σ=1.780). Slightly below average — the model is moderately confident, not collapsed. The run overall shows 80 EOS events across 87k tokens (mean inter-EOS gap: 1074 tokens), placing this in the suppressed-dynamics regime.
+
+**Implications for dynamics:**
+
+1. **Multi-token concepts as attractors.** Subword tokenization means concepts like "bromine" require 3 sequential commitments to produce. Each subword is a decision point where the model could diverge — but the latent-space geometry is strong enough to sustain the sequence. Conversely, multi-token words create more KV cache entries, giving downstream attention more surface area to re-excite the concept.
+
+2. **Self-referential topic construction.** The model doesn't just repeat "bromine" — it builds a context where bromine is relevant ("studying word meanings"). This suggests attractors in the suppressed zone operate at the discourse level, not just the token level. The model generates its own justification for staying in an attractor basin.
+
+3. **Morphological generativity under suppression.** "bromula" shows the model can produce novel word forms within an attractor. The suppressed regime doesn't kill creativity at the morphological level — it constrains topic while permitting variation within it.
+
+**Open question:** Do multi-token concepts have different persistence signatures (compressibility, decorrelation) than single-token attractors? Could subword structure of generated vocabulary serve as a diagnostic for attractor depth?
+
+```bash
+# Reproduction
+python3 -c "
+import pandas as pd, re
+df = pd.read_parquet('data/runs/L0512_T0.90_S42.parquet')
+joined = ''.join(str(t) for t in df['decoded_text'].values)
+for m in re.finditer(r'(?i)brom\w*', joined):
+    print(f'{m.start()}: {m.group()}')
+"
+# Explorer: http://127.0.0.1:8000/#runs=L0512_T0.90_S42 → click near step 3400
+```
+
+### 2026-03-09 — Token Count, Attractor Depth, and Structural Resonance (L=512 T=0.90)
+
+Systematic search of L0512_T0.90_S42 for concentrated, repeated terms reveals a spectrum of attractor behaviors linked to subword token count.
+
+**Inventory of attractors found:**
+
+| Term | Tokens | Occurrences | Segment len | Entropy | Token diversity | Invented? |
+|------|--------|-------------|-------------|---------|----------------|-----------|
+| piston | 1 (`' piston'`) | 268 | 5000 | 0.81 | 6.8% | No |
+| precession | 2 (`' pre'`+`'cession'`) | 103 | ~3000 | — | — | No |
+| doozar | 3 (`' do'`+`'oz'`+`'ar'`) | 36 | 1229 | 3.76 | 46.6% | Yes |
+| heatbubbles | 4 (`' heat'`+`'b'`+`'ub'`+`'bles'`) | 22 | 663 | 2.53 | 34.8% | Yes |
+| bromula | 3 (`'b'`+`'rom'`+`'ula'`) | 1 | (in 792-tok segment) | 2.31 | 27.3% | Yes |
+| Bubezet | 4 (`' B'`+`'ube'`+`'z'`+`'et'`) | 3 | (in heatbubbles seg) | — | — | Yes |
+
+Detection method: extract all 5+ char alpha sequences, count per 1000-token chunk, filter to words appearing 5+ times but in ≤10 chunks (concentrated rather than diffuse).
+
+**Finding 1: Token count inversely predicts attractor strength.**
+
+Single-token "piston" dominates: 268 occurrences, 5000-step segment, entropy 0.81, only 6.8% unique tokens, zero EOS. This is full collapse — a ~15-word phrase ("blow a little farther away from the bottom of the piston") repeating for thousands of steps. Every `' piston'` in the KV cache has identical key geometry, creating perfect self-reinforcement.
+
+Multi-token invented words (doozar, heatbubbles) are attractors but *not* collapsed. They sustain topic coherence while maintaining lexical diversity (35–47%) and meaningful entropy (2.5–3.8). Each subword boundary is a perturbation point — the model must win the next-token lottery N times in sequence, and the subwords (`' do'`, `'oz'`, `'ar'`) individually attend to many unrelated contexts. This noise is *protective*: it prevents the perfect self-reinforcement that causes collapse.
+
+Exception: "heatbubbles" at 4 tokens sustains 22 occurrences because its components (`heat`, `bubbles`) are independently high-probability morphemes. Compound words built from strong subwords get a free ride through token boundaries.
+
+**Finding 2: Structural resonance — collapsed content mirrors collapse dynamics.**
+
+The piston segment (steps 80001–85000) describes a closed-loop physical system:
+
+> "it's a closed loop both the fluid that is flowing through it, the fluid that is in the pipe, it flows back and forth"
+> "re-heating up, re-heating up, re-heating up"
+> "blow a little farther away from the bottom of the piston" × 267
+
+The heatbubbles segment explicitly describes self-referential activation:
+
+> "In order to activate the heatbubbles, you need to activate the heatbubbles through the use of heatbubbles."
+
+The semantic content of collapsed/suppressed segments is structurally isomorphic to the generation dynamics: cycling, fixed-volume flow, self-reinforcement. This is not situational awareness — it's **resonance**. Content whose semantic structure matches the attractor geometry is the content most stable under self-reinforcement. A closed-loop token system preferentially collapses into descriptions of closed-loop physical systems.
+
+The doozar segment, by contrast, sustains a naturalist/scientific register — taxonomy, experiments, species descriptions — which has high internal diversity and resists collapse.
+
+**Finding 3: Single tokens have "undue weight" as attractor anchors.**
+
+A single-token word like `' piston'` (token ID fixed, embedding fixed) creates identical KV cache entries at every occurrence. All attention queries for "what's in my context?" get the same piston-shaped key repeated hundreds of times. This is qualitatively different from multi-token concepts, where each subword key also matches unrelated contexts, diluting the attractor's pull.
+
+This suggests single-token content words may be disproportionately responsible for collapse events. If so, the collapse vocabulary should be dominated by single-token words, testable across all collapsed segments in the corpus.
+
+**Open questions:**
+
+1. Do single-token words dominate collapse segments across all runs, not just this one?
+2. Does "heatbubbles" survive at T=1.00 while "bromula" doesn't? (Compound-morpheme resilience hypothesis — testable when L=512 T=1.00 completes.)
+3. Is structural resonance (closed-loop content in closed-loop dynamics) statistically overrepresented, or are these cherry-picked examples? Would need semantic classification across many segments.
+4. Could token-count of generated vocabulary serve as a cheap diagnostic for regime classification? (Low token-count vocabulary → collapse; high → rich dynamics.)
+
+```bash
+# Reproduction: concentrated word detection
+python3 -c "
+import pandas as pd, re
+from collections import Counter
+df = pd.read_parquet('data/runs/L0512_T0.90_S42.parquet')
+texts = [str(t) for t in df['decoded_text'].values]
+chunk_size = 1000
+n_chunks = len(texts) // chunk_size
+word_chunk_counts = {}
+for ci in range(n_chunks):
+    start = ci * chunk_size
+    chunk_text = ''.join(texts[start:start+chunk_size])
+    for w, c in Counter(re.findall(r'[A-Za-z]{5,}', chunk_text)).items():
+        wl = w.lower()
+        if wl not in word_chunk_counts:
+            word_chunk_counts[wl] = [0]*n_chunks
+        word_chunk_counts[wl][ci] = c
+for w, counts in sorted(word_chunk_counts.items(), key=lambda x: -sum(x[1])):
+    total = sum(counts)
+    n_present = sum(1 for c in counts if c > 0)
+    if total >= 5 and n_present <= 10:
+        print(f'{total:4d} in {n_present} chunks: {w}')
+"
+# Explorer: click through steps 81000-84000 (piston), 39000 (heatbubbles), 3400 (bromula)
+```
+
+### 2026-03-09 — Single-Token Attractor Dominance Across All Runs
+
+Cross-corpus analysis of dominant word attractors confirms that single-token words are the primary mechanism of collapse, scaling predictably with L and T.
+
+**Method:** For each run, extract all 5+ character alpha sequences, count occurrences, identify the most frequent ("dominant attractor"). Check subword token count for each dominant word.
+
+**Finding 1: 91% of dominant attractors are single tokens.**
+
+Across 44 runs with T ≤ 1.0 and dominant count ≥ 50: **40/44 (91%) of top attractor words are single tokens.** The four multi-token exceptions are all 2-token (`'vacc'+'ine'`, `'T'+'orch'`, `'Dh'+'aka'`) or high-probability compounds (`'g'+'amb'+'ling'`). No 3+ token word ever dominates.
+
+Single tokens create identical KV cache entries at every occurrence — the same embedding, same attention key. This enables perfect self-reinforcement. Multi-token concepts split their identity across subwords that individually attend to many unrelated contexts, diluting the attractor pull.
+
+**Finding 2: Attractor strength scales with L and inversely with T.**
+
+Max single-word count by L × T (averaged across seeds where available):
+
+| T | L=64 | L=128 | L=192 | L=256 | L=512 |
+|---|------|-------|-------|-------|-------|
+| 0.50 | 2,263 | 3,082 | 5,296 | 21,154 | — |
+| 0.60 | 1,001 | 6,492 | 9,650 | 457 | — |
+| 0.90 | 184 | 210 | 255 | 500 | 269 |
+| 1.00 | 204 | 183 | 183 | 223 | 50 |
+| 1.50 | 63 | 53 | 48 | 46 | — |
+
+At T=0.50, attractor strength grows superlinearly with L: from ~2k at L=64 to 21k at L=256. Longer context provides more KV cache slots for the attractor word to occupy, each reinforcing future predictions. At T=1.50 (noise floor), counts are flat (~50) regardless of L — noise overwhelms any self-reinforcement.
+
+The T=0.60 row shows the crossover regime: L=128 and L=192 have strong attractors (6.5k, 9.7k) while L=256 drops to 457. L=256 at T=0.60 is near its escape boundary — too much noise for deep collapse but not enough context-reinforcement to sustain a single dominant attractor.
+
+**Finding 3: Deep collapse is degenerate repetition of single-token phrases.**
+
+The most extreme cases:
+
+- L=208, T=0.50, S=7: **"disease" — 24,730 occurrences (24.7% of all tokens)**
+  Text: `"disease of the disease of the disease of the disease of the disease..."`
+- L=256, T=0.50, S=42: **"young" — 21,218 occurrences (21.2%)**
+  Text: `"a young man, a young woman, a young man, a young woman, a young man..."`
+- L=176, T=0.50, S=42: **"sleep" — 11,205 occurrences (11.2%)**
+- L=192, T=0.60, S=42: **"torch" — 9,650 occurrences (9.6%)**
+- L=128, T=0.60, S=42: **"temperature" — 6,518 occurrences (6.5%)**
+
+These runs are locked into 3–8 token cycles where the dominant word recurs every 4–5 tokens. The surrounding tokens are function words (`the`, `of`, `a`) that provide minimal grammatical scaffolding.
+
+**Finding 4: Function-word dominance marks the regime boundary.**
+
+At T ≥ 0.90 for most L values, the dominant "attractor" shifts from content words to function words (`which`, `their`, `about`) at ~200 occurrences — roughly the frequency expected from English base rates. These aren't true attractors; they're just the most common words in unremarkable text. The transition from content-word to function-word dominance is a clean signature of the escape boundary.
+
+**Finding 5: Attractor vocabulary is semantically specific, not random.**
+
+The dominant words are never nonsense. They're concrete, semantically rich content words: `disease`, `blood`, `sleep`, `generator`, `temperature`, `calculator`, `piston`, `vaccine`, `gambling`, `election`, `Weimar`, `Versailles`. These are words with strong semantic fields that pull in related vocabulary (e.g., "disease" pulls "the", "of"; "young" pulls "man", "woman"). The model doesn't collapse into random repetition — it collapses into the deepest available semantic basin, and those basins are anchored by single tokens with the highest self-reinforcement potential.
+
+Notable: L=128 T=0.60 collapses on "temperature" (the model, running at temperature 0.60, talks about temperature). L=176 T=0.50 collapses on "sleep." These may be coincidences, or they may reflect the structural-resonance pattern identified in the previous observation — content whose structure mirrors the dynamics is preferentially selected.
+
+**Regime summary — the attractor hierarchy:**
+
+1. **Collapse (T ≪ T_escape):** Single-token content words dominate, 5–25% of all tokens, degenerate cycling. Entropy < 1.0.
+2. **Suppressed dynamics (T near T_escape):** Single-token content words still concentrate (100–500×) but with lexical diversity 20–40%. Novel multi-token words can emerge (doozar, heatbubbles, bromula). Entropy 1.5–3.5.
+3. **Rich dynamics (T > T_escape):** No single word dominates beyond base rate. Content words appear at natural frequencies. Entropy > 4.0.
+4. **Noise (T=1.50):** No attractors. ~50× max for any word, flat across L.
+
+```bash
+# Reproduction: cross-corpus attractor analysis
+python3 -c "
+import pandas as pd, re, glob
+from collections import Counter
+for f in sorted(glob.glob('data/runs/*.parquet')):
+    name = f.split('/')[-1].replace('.parquet','')
+    T = float(name.split('_')[1][1:])
+    if T > 1.0: continue
+    df = pd.read_parquet(f)
+    texts = [str(t) for t in df['decoded_text'].values]
+    joined = ''.join(texts)
+    wc = Counter(w.lower() for w in re.findall(r'[A-Za-z]{5,}', joined))
+    top, count = wc.most_common(1)[0]
+    pct = count / len(texts) * 100
+    if count >= 100:
+        print(f'{name:25s} {top:>18s} {count:6d} {pct:5.1f}%')
+"
+```

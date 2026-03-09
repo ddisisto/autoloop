@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Sidebar: run list, metric dropdowns, favorites
+// Sidebar: run list, favorites
 // ---------------------------------------------------------------------------
 import { state, getRunColor, getRunLabel } from './state.js';
 import { scheduleUpdate, updateHash } from './app.js';
@@ -19,7 +19,6 @@ export function renderRunList() {
     groups[key].push(run);
   }
 
-  // Sort group keys numerically
   const sortedKeys = Object.keys(groups).sort((a, b) => parseFloat(a) - parseFloat(b));
 
   for (const key of sortedKeys) {
@@ -27,7 +26,6 @@ export function renderRunList() {
     const groupDiv = document.createElement('div');
     groupDiv.className = 'run-group';
 
-    // Group header with checkbox
     const allSelected = groupRuns.every(r => state.selectedRuns.has(r.id));
     const someSelected = groupRuns.some(r => state.selectedRuns.has(r.id));
 
@@ -59,7 +57,6 @@ export function renderRunList() {
     header.appendChild(label);
     groupDiv.appendChild(header);
 
-    // Individual runs
     for (const run of groupRuns) {
       const item = document.createElement('div');
       item.className = 'run-item';
@@ -92,66 +89,13 @@ export function renderRunList() {
 }
 
 // ---------------------------------------------------------------------------
-// Metric dropdowns
-// ---------------------------------------------------------------------------
-export function populateMetricDropdowns() {
-  const xSel = document.getElementById('xMetric');
-  const ySel = document.getElementById('yMetric');
-  xSel.innerHTML = '';
-  ySel.innerHTML = '';
-
-  for (const m of state.metrics) {
-    const opt1 = document.createElement('option');
-    opt1.value = m.id;
-    opt1.textContent = `${m.name} [${m.resolution}]`;
-    xSel.appendChild(opt1);
-
-    const opt2 = opt1.cloneNode(true);
-    ySel.appendChild(opt2);
-  }
-
-  // Restore from state or set defaults
-  if (state.yMetric && ySel.querySelector(`option[value="${state.yMetric}"]`)) {
-    ySel.value = state.yMetric;
-  } else if (state.metrics.length > 0) {
-    const entropyMetric = state.metrics.find(m => m.id === 'entropy');
-    ySel.value = entropyMetric ? 'entropy' : state.metrics[0].id;
-    state.yMetric = ySel.value;
-  }
-
-  if (state.xMetric && xSel.querySelector(`option[value="${state.xMetric}"]`)) {
-    xSel.value = state.xMetric;
-  } else if (state.metrics.length > 1) {
-    const compMetric = state.metrics.find(m => m.id.startsWith('compressibility'));
-    xSel.value = compMetric ? compMetric.id : state.metrics[1].id;
-    state.xMetric = xSel.value;
-  } else if (state.metrics.length > 0) {
-    xSel.value = state.metrics[0].id;
-    state.xMetric = xSel.value;
-  }
-}
-
-export function updateChartControlsVisibility() {
-  const xRow = document.getElementById('xMetricRow');
-  const yLabel = document.querySelector('#yMetric').parentElement.querySelector('label');
-  if (state.chartType === 'phase') {
-    xRow.style.display = 'flex';
-    yLabel.textContent = 'Y axis';
-  } else {
-    xRow.style.display = 'none';
-    yLabel.textContent = 'Y axis';
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Favorites
 // ---------------------------------------------------------------------------
 let favoritesOpen = true;
 
 export function getFavorites() {
-  try {
-    return JSON.parse(localStorage.getItem('autoloop_favorites') || '[]');
-  } catch { return []; }
+  try { return JSON.parse(localStorage.getItem('autoloop_favorites') || '[]'); }
+  catch { return []; }
 }
 
 export function saveFavorites(favs) {
@@ -183,7 +127,6 @@ export function renderFavorites() {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       window.location.hash = fav.hash;
-      // loadFromHash is called via hashchange event
     });
 
     const del = document.createElement('span');

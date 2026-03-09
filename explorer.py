@@ -202,13 +202,19 @@ def build_metric_registry(
             })
 
     # Check block-level metrics from analysis caches on disk
-    # Scan for .analysis.pkl files to discover window sizes without
-    # loading full parquets or triggering expensive analysis
+    # Load one .analysis.pkl to discover available window sizes
+    # (window sizes are keys inside the pickle's compressibility dict)
     window_sizes_found: set[int] = set()
     for p in index.runs_dir.glob("*.analysis.pkl"):
-        m = re.findall(r"W(\d+)", p.stem)
-        for w_str in m:
-            window_sizes_found.add(int(w_str))
+        try:
+            import pickle
+            with open(p, "rb") as f:
+                analysis = pickle.load(f)
+            comp = analysis.get("compressibility", {})
+            window_sizes_found.update(comp.keys())
+            break  # only need one file to discover the W values
+        except Exception:
+            continue
 
     for w in sorted(window_sizes_found):
         metrics.append({
@@ -461,6 +467,147 @@ def get_step_range(
         "max_step": int(exp.index[-1]) if len(exp) > 0 else 0,
         "total_eos": len(eos_steps),
         "eos_steps": eos_steps,
+    })
+
+
+STOPWORDS = frozenset(
+    "the a an and or but in on at to for of is it this that with from by as be "
+    "are was were been has have had do does did will would shall should can could "
+    "may might must not no nor so if then than too very just about also which who "
+    "whom whose when where how what why all each every both few more most other "
+    "some such only own same her his its our their your my me him them us we you "
+    "i he she they there here these those".split()
+)
+
+
+def _extract_ngrams(
+    texts: list[str],
+    top: int = 30,
+    max_n: int = 2,
+) -> list[dict]:
+    """Extract top unigrams and bigrams from decoded token texts.
+
+    Reconstructs words from subword tokens, filters stopwords and short words,
+    returns ranked list of {term, count, n} dicts.
+    """
+    import re as _re
+    from collections import Counter
+
+    full = "".join(texts).lower()
+    words = _re.findall(r"[a-z]{2,}", full)
+
+    counts: Counter = Counter()
+    for w in words:
+        if w not in STOPWORDS and len(w) > 2:
+            counts[w] += 1
+
+    if max_n >= 2:
+        for i in range(len(words) - 1):
+            a, b = words[i], words[i + 1]
+            if a not in STOPWORDS and b not in STOPWORDS and len(a) > 1 and len(b) > 1:
+                counts[f"{a} {b}"] += 1
+
+    result = []
+    for term, count in counts.most_common(top):
+        n = len(term.split())
+        result.append({"term": term, "count": count, "n": n})
+    return result
+
+
+@app.get("/api/ngrams")
+def get_ngrams(
+    run: str = Query(..., description="Run ID"),
+    top: int = Query(30, description="Number of top terms to return"),
+    min_step: int | None = Query(None, description="Start of step range (inclusive)"),
+    max_step: int | None = Query(None, description="End of step range (inclusive)"),
+) -> JSONResponse:
+    """Return top words/bigrams for a run, optionally scoped to a step range."""
+    assert run_index is not None
+    assert run_cache is not None
+
+    if run not in run_index.runs:
+        return JSONResponse(content={"error": f"Run not found: {run}"}, status_code=404)
+
+    info = run_index.runs[run]
+    exp = run_cache.get_experiment_df(info)
+
+    if min_step is not None or max_step is not None:
+        lo = min_step if min_step is not None else 0
+        hi = max_step if max_step is not None else len(exp) - 1
+        exp = exp.iloc[lo:hi + 1]
+
+    texts = exp["decoded_text"].tolist()
+    ngrams = _extract_ngrams(texts, top=top)
+
+    return JSONResponse(content={
+        "run_id": info.id,
+        "ngrams": ngrams,
+    })
+
+
+@app.get("/api/search")
+def search_tokens(
+    run: str = Query(..., description="Run ID"),
+    q: str = Query(..., description="Search string"),
+) -> JSONResponse:
+    """Search for a plain-text substring across all tokens in a run.
+
+    Concatenates decoded_text and finds all occurrences, mapping each back
+    to the step where the match starts. Returns matching step positions.
+    """
+    assert run_index is not None
+    assert run_cache is not None
+
+    if run not in run_index.runs:
+        return JSONResponse(content={"error": f"Run not found: {run}"}, status_code=404)
+    if not q:
+        return JSONResponse(content={"matches": []})
+
+    info = run_index.runs[run]
+    exp = run_cache.get_experiment_df(info)
+
+    # Build concatenated text with char-offset-to-step mapping
+    texts = exp["decoded_text"].tolist()
+    char_to_step: list[int] = []
+    for i, t in enumerate(texts):
+        char_to_step.extend([i] * len(t))
+
+    full_text = "".join(texts)
+    q_lower = q.lower()
+    text_lower = full_text.lower()
+
+    # Find all occurrences — for multi-word queries, allow non-alpha chars
+    # between words (matching how ngram extraction works)
+    match_steps: list[int] = []
+    seen_steps: set[int] = set()
+
+    if " " in q_lower:
+        # Multi-word: build regex with flexible gaps between words
+        words = q_lower.split()
+        pattern = r"[^a-z]+".join(re.escape(w) for w in words)
+        for m in re.finditer(pattern, text_lower):
+            pos = m.start()
+            step = char_to_step[pos] if pos < len(char_to_step) else len(texts) - 1
+            if step not in seen_steps:
+                match_steps.append(step)
+                seen_steps.add(step)
+    else:
+        pos = 0
+        while True:
+            pos = text_lower.find(q_lower, pos)
+            if pos == -1:
+                break
+            step = char_to_step[pos] if pos < len(char_to_step) else len(texts) - 1
+            if step not in seen_steps:
+                match_steps.append(step)
+                seen_steps.add(step)
+            pos += 1
+
+    return JSONResponse(content={
+        "query": q,
+        "run_id": info.id,
+        "matches": match_steps,
+        "total": len(match_steps),
     })
 
 

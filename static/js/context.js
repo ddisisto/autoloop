@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 import { state, apiFetch } from './state.js';
 import { showToast } from './app.js';
+import { resizeAllPanels, updateStepIndicatorAll, removeStepIndicatorAll,
+         syncXRangeFromContext, resetXRange } from './panels.js';
 
 // ---------------------------------------------------------------------------
 // Context state
@@ -21,6 +23,21 @@ export const ctxState = {
 const stepRangeCache = {}; // runId -> step_range response
 let ctxFetchController = null;
 let scrubberDebounce = null;
+let searchDebounce = null;
+
+// Search state
+const searchState = {
+  query: '',
+  matches: [],    // step positions
+  currentIdx: -1, // index into matches
+};
+
+// Word cloud state
+const wcState = {
+  fullNgrams: [],   // top ngrams for entire run
+  zoomTerms: null,   // Set of terms present in zoom range (null = not yet loaded)
+};
+let wcZoomDebounce = null;
 
 // ---------------------------------------------------------------------------
 // Drag handle for drawer resize
@@ -43,7 +60,7 @@ function initDragHandle() {
     if (!dragging) return;
     const mainRect = document.querySelector('.workspace').getBoundingClientRect();
     const newWidth = mainRect.right - e.clientX;
-    const clamped = Math.max(300, Math.min(600, newWidth));
+    const clamped = Math.max(300, Math.min(900, newWidth));
     drawer.style.width = clamped + 'px';
   });
 
@@ -52,7 +69,7 @@ function initDragHandle() {
     dragging = false;
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-    Plotly.Plots.resize('chart');
+    resizeAllPanels();
   });
 }
 
@@ -140,7 +157,7 @@ function initOverviewBar() {
   // Double-click overview to reset zoom
   bar.addEventListener('dblclick', () => {
     ctxState.viewRange = null;
-    Plotly.relayout('chart', { 'xaxis.autorange': true });
+    resetXRange();
     syncScrubberToView();
     renderOverviewViewport();
   });
@@ -158,9 +175,7 @@ function getViewRange() {
 
 function zoomChart(min, max) {
   ctxState.viewRange = { min, max };
-  // Suppress the relayout echo — we set a flag
-  ctxState._selfZoom = true;
-  Plotly.relayout('chart', { 'xaxis.range': [min, max] });
+  syncXRangeFromContext(min, max);
   syncScrubberToView();
   renderOverviewViewport();
 }
@@ -202,12 +217,6 @@ function renderOverviewViewport() {
 export function onChartZoom(relayoutData) {
   if (!ctxState.open || !ctxState.stepRange) return;
 
-  // Skip if we triggered this zoom ourselves
-  if (ctxState._selfZoom) {
-    ctxState._selfZoom = false;
-    return;
-  }
-
   if (relayoutData['xaxis.autorange']) {
     ctxState.viewRange = null;
   } else if (relayoutData['xaxis.range[0]'] != null) {
@@ -226,6 +235,10 @@ export function onChartZoom(relayoutData) {
 
   syncScrubberToView();
   renderOverviewViewport();
+
+  // Debounce word cloud zoom refresh
+  clearTimeout(wcZoomDebounce);
+  wcZoomDebounce = setTimeout(() => refreshWordCloudZoom(), 400);
 }
 
 // ---------------------------------------------------------------------------
@@ -260,12 +273,17 @@ export function openContextPanel(runId, step) {
   ctxState.runMeta = run;
   ctxState.step = step;
   ctxState.viewRange = null; // reset zoom on new panel open
+  searchState.query = '';
+  searchState.matches = [];
+  searchState.currentIdx = -1;
+  const searchInput = document.getElementById('ctxSearchInput');
+  if (searchInput) searchInput.value = '';
 
   document.getElementById('contextPanel').classList.add('open');
   document.getElementById('dragHandle').classList.add('active');
   updateContextTitle();
 
-  setTimeout(() => Plotly.Plots.resize('chart'), 220);
+  setTimeout(() => resizeAllPanels(), 220);
 
   ctxSetLoading(true);
   fetchStepRange(runId).then(sr => {
@@ -274,17 +292,14 @@ export function openContextPanel(runId, step) {
     renderEosTicks(sr);
     renderOverviewViewport();
 
-    // Sync viewport to current chart zoom if any
-    const chartEl = document.getElementById('chart');
-    if (chartEl && chartEl.layout && chartEl.layout.xaxis) {
-      const xr = chartEl.layout.xaxis.range;
-      if (xr && !chartEl.layout.xaxis.autorange) {
-        ctxState.viewRange = { min: Math.round(xr[0]), max: Math.round(xr[1]) };
-        syncScrubberToView();
-        renderOverviewViewport();
-      }
+    // Sync viewport to current shared X range if any
+    if (state.xRange) {
+      ctxState.viewRange = { ...state.xRange };
+      syncScrubberToView();
+      renderOverviewViewport();
     }
 
+    loadWordCloud();
     return loadContextAtStep(step);
   }).catch(err => {
     if (err.name !== 'AbortError') {
@@ -300,7 +315,10 @@ export function closeContextPanel() {
   document.getElementById('contextPanel').classList.remove('open');
   document.getElementById('dragHandle').classList.remove('active');
   removeStepIndicator();
-  setTimeout(() => Plotly.Plots.resize('chart'), 220);
+  document.title = 'autoloop explorer';
+  wcState.fullNgrams = [];
+  wcState.zoomTerms = null;
+  setTimeout(() => resizeAllPanels(), 220);
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +483,11 @@ function renderContextTokens(data) {
         span.style.backgroundColor = `rgba(239, 85, 59, ${alpha.toFixed(3)})`;
       }
 
+      // Highlight search matches within token text
+      if (searchState.query && tok.text.toLowerCase().includes(searchState.query.toLowerCase())) {
+        span.classList.add('search-match');
+      }
+
       span.textContent = tok.text;
       span.title = `Step ${tok.step} | H=${tok.entropy != null ? tok.entropy.toFixed(3) : '?'} | logp=${tok.log_prob != null ? tok.log_prob.toFixed(3) : '?'}`;
       frag.appendChild(span);
@@ -482,36 +505,200 @@ function renderContextTokens(data) {
 }
 
 // ---------------------------------------------------------------------------
-// Step indicator on chart
+// Step indicator on chart (delegated to panels.js)
 // ---------------------------------------------------------------------------
 export function updateStepIndicator(step) {
   if (!ctxState.open) return;
-  if (state.chartType !== 'timeseries') {
-    removeStepIndicator();
-    return;
-  }
-
-  const chartEl = document.getElementById('chart');
-  if (!chartEl || !chartEl.layout) return;
-
-  const shapes = (chartEl.layout.shapes || []).filter(s => s._autoloop_step_indicator !== true);
-  shapes.push({
-    type: 'line',
-    x0: step, x1: step,
-    y0: 0, y1: 1,
-    yref: 'paper',
-    line: { color: 'rgba(83, 194, 201, 0.6)', width: 1.5, dash: 'dot' },
-    _autoloop_step_indicator: true,
-  });
-
-  Plotly.relayout('chart', { shapes: shapes });
+  updateStepIndicatorAll(step);
 }
 
 function removeStepIndicator() {
-  const chartEl = document.getElementById('chart');
-  if (!chartEl || !chartEl.layout) return;
-  const shapes = (chartEl.layout.shapes || []).filter(s => s._autoloop_step_indicator !== true);
-  Plotly.relayout('chart', { shapes: shapes });
+  removeStepIndicatorAll();
+}
+
+// ---------------------------------------------------------------------------
+// Word cloud
+// ---------------------------------------------------------------------------
+async function loadWordCloud() {
+  if (!ctxState.runId) return;
+
+  try {
+    const data = await apiFetch(`/api/ngrams?run=${encodeURIComponent(ctxState.runId)}&top=30`);
+    wcState.fullNgrams = data.ngrams || [];
+    wcState.zoomTerms = null; // full run = all active
+    renderWordCloud();
+    updateTabTitle();
+  } catch (err) {
+    console.error('Word cloud fetch failed:', err);
+  }
+}
+
+async function refreshWordCloudZoom() {
+  if (!ctxState.runId || wcState.fullNgrams.length === 0) return;
+
+  const vr = getViewRange();
+  const sr = ctxState.stepRange;
+  if (!sr) return;
+
+  // If viewing full range, all terms active
+  if (!ctxState.viewRange) {
+    wcState.zoomTerms = null;
+    applyZoomState();
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({
+      run: ctxState.runId,
+      top: '100',
+      min_step: String(Math.round(vr.min)),
+      max_step: String(Math.round(vr.max)),
+    });
+    const data = await apiFetch(`/api/ngrams?${params}`);
+    wcState.zoomTerms = new Set((data.ngrams || []).map(n => n.term));
+    applyZoomState();
+  } catch (err) {
+    console.error('Word cloud zoom refresh failed:', err);
+  }
+}
+
+function renderWordCloud() {
+  const container = document.getElementById('wordcloud');
+  container.innerHTML = '';
+  if (wcState.fullNgrams.length === 0) return;
+
+  const maxCount = wcState.fullNgrams[0].count;
+
+  for (const ng of wcState.fullNgrams) {
+    const el = document.createElement('span');
+    el.className = 'wc-term';
+    el.textContent = ng.term;
+
+    // Size by rank: top terms bigger
+    const ratio = ng.count / maxCount;
+    const size = 10 + ratio * 4; // 10px to 14px
+    el.style.fontSize = size.toFixed(1) + 'px';
+    el.style.color = `rgba(224, 224, 224, ${0.5 + ratio * 0.5})`;
+
+    el.addEventListener('click', () => {
+      const searchInput = document.getElementById('ctxSearchInput');
+      searchInput.value = ng.term;
+      runSearch(ng.term);
+      // Highlight active term
+      container.querySelectorAll('.wc-term').forEach(t => t.classList.remove('active-search'));
+      el.classList.add('active-search');
+    });
+
+    container.appendChild(el);
+  }
+}
+
+function applyZoomState() {
+  const container = document.getElementById('wordcloud');
+  const terms = container.querySelectorAll('.wc-term');
+  terms.forEach(el => {
+    if (wcState.zoomTerms === null) {
+      el.classList.remove('inactive');
+    } else {
+      el.classList.toggle('inactive', !wcState.zoomTerms.has(el.textContent));
+    }
+  });
+}
+
+function updateTabTitle() {
+  if (wcState.fullNgrams.length === 0) return;
+  // Top 3 unigrams for tab title
+  const topTerms = wcState.fullNgrams
+    .filter(n => n.n === 1)
+    .slice(0, 3)
+    .map(n => n.term);
+  if (topTerms.length > 0) {
+    document.title = `${topTerms.join(' / ')} — autoloop`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Token search
+// ---------------------------------------------------------------------------
+async function runSearch(query) {
+  searchState.query = query;
+  searchState.matches = [];
+  searchState.currentIdx = -1;
+
+  if (!query || !ctxState.runId) {
+    updateSearchUI();
+    renderSearchTicks();
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({ run: ctxState.runId, q: query });
+    const data = await apiFetch(`/api/search?${params}`);
+    searchState.matches = data.matches || [];
+    // Find nearest match to current step
+    if (searchState.matches.length > 0) {
+      const step = ctxState.step;
+      let bestIdx = 0;
+      let bestDist = Math.abs(searchState.matches[0] - step);
+      for (let i = 1; i < searchState.matches.length; i++) {
+        const dist = Math.abs(searchState.matches[i] - step);
+        if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+      }
+      searchState.currentIdx = bestIdx;
+    }
+  } catch (err) {
+    console.error('Search failed:', err);
+  }
+
+  updateSearchUI();
+  renderSearchTicks();
+}
+
+function searchNavigate(delta) {
+  if (searchState.matches.length === 0) return;
+  searchState.currentIdx = (searchState.currentIdx + delta + searchState.matches.length) % searchState.matches.length;
+  updateSearchUI();
+  loadContextAtStep(searchState.matches[searchState.currentIdx]);
+}
+
+function updateSearchUI() {
+  const status = document.getElementById('ctxSearchStatus');
+  const prevBtn = document.getElementById('ctxSearchPrev');
+  const nextBtn = document.getElementById('ctxSearchNext');
+
+  if (!searchState.query) {
+    status.textContent = '';
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+  } else if (searchState.matches.length === 0) {
+    status.textContent = '0/0';
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+  } else {
+    status.textContent = `${searchState.currentIdx + 1}/${searchState.matches.length}`;
+    prevBtn.disabled = false;
+    nextBtn.disabled = false;
+  }
+}
+
+function renderSearchTicks() {
+  const container = document.getElementById('searchTicks');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const sr = ctxState.stepRange;
+  if (!sr || searchState.matches.length === 0) return;
+
+  const range = sr.max_step - sr.min_step;
+  if (range <= 0) return;
+
+  for (const step of searchState.matches) {
+    const pct = ((step - sr.min_step) / range) * 100;
+    const tick = document.createElement('div');
+    tick.className = 'search-tick';
+    tick.style.left = pct + '%';
+    container.appendChild(tick);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -519,6 +706,16 @@ function removeStepIndicator() {
 // ---------------------------------------------------------------------------
 export function wireContextEvents() {
   document.getElementById('contextClose').addEventListener('click', closeContextPanel);
+
+  document.getElementById('ctxCopy').addEventListener('click', () => {
+    const textEl = document.getElementById('contextText');
+    const text = textEl.innerText.replace(/Loading context\.\.\.\s*$/, '').trim();
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Copied to clipboard', 'success');
+    }).catch(() => {
+      showToast('Copy failed', 'error');
+    });
+  });
 
   document.getElementById('ctxPrev').addEventListener('click', () => navigateStep(-1));
   document.getElementById('ctxNext').addEventListener('click', () => navigateStep(1));
@@ -551,6 +748,27 @@ export function wireContextEvents() {
       loadContextAtStep(val);
     }, 150);
   });
+
+  // Search
+  const searchInput = document.getElementById('ctxSearchInput');
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => runSearch(searchInput.value.trim()), 300);
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) searchNavigate(-1);
+      else searchNavigate(1);
+    }
+    if (e.key === 'Escape') {
+      searchInput.value = '';
+      runSearch('');
+      searchInput.blur();
+    }
+  });
+  document.getElementById('ctxSearchPrev').addEventListener('click', () => searchNavigate(-1));
+  document.getElementById('ctxSearchNext').addEventListener('click', () => searchNavigate(1));
 
   initDragHandle();
   initOverviewBar();
