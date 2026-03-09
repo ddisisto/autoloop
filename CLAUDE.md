@@ -10,7 +10,7 @@ Multi-scale complexity control in closed-loop autoregressive generation. See `do
 generate.py          # Core generation loop, CLI entry point (with checkpoint/resume)
 analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries; incremental .analysis.pkl cache)
 plot.py              # Visualization (5 plot types + EOS markers, CLI with --runs and --plots)
-utils.py             # Shared primitives (compressibility, eos_ema)
+utils.py             # Shared primitives (compressibility, eos_ema, fix_decoded_texts)
 metrics.py           # Scalar metric extraction (surprisal stats, EOS interarrival, decorrelation lag)
 summary_table.py     # Cross-condition summary CSV from all runs
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
@@ -29,8 +29,9 @@ static/              # Explorer frontend
   js/state.js        # App state, color-by system, API helpers
 explorer.md          # Explorer design doc
 run-index.md         # Run tracker, grid overview, phase planning
-observations.md      # Append-only findings log with current model summary
-docs/                # Longer-form documents
+observations.md      # Current model summary + evidence log index
+docs/                # Longer-form documents + observation archives
+  observations-2026-03-*.md  # Dated observation archives (from observations.md)
   project-brief.md   # Research design document
   share.md           # Draft post/article for sharing findings
   interaction-topology.md  # Speculative framing: generative dynamics as interaction paradigm
@@ -77,7 +78,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 ## Current State (Phase 0 complete, Phase 1 in progress)
 
 ### What's Built
-- `generate.py`: generation loop with pre-fill, checkpoint/resume, per-1k-step logging
+- `generate.py`: generation loop with pre-fill, checkpoint/resume, per-1k-step logging, decoded_text fix for multi-byte UTF-8
 - `analyze.py`: modular metric computation (compressibility, stationarity, summaries); single incremental `.analysis.pkl` cache per run; accepts pre-loaded DataFrames; canonical home for `default_window_sizes()`
 - `analyze_windows.py`: recompute analysis at standard W grid [16,32,64,128,256]
 - `plot.py`: entropy time series (EOS rate EMA overlay), compressibility, phase portraits (EOS diamonds), temporal phase portraits (cividis), split violin
@@ -93,19 +94,19 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Seed replication at T=0.50: L={64,128,192} × S={42,123,7} (9 runs)
 - L-densification at T=0.50: L={160,176,208,224} × S={42,123,7} (15 runs)
 - L=256 crossover: T={0.60,0.70,0.80,0.90} × S=42 (4 runs, complete)
-- L=512 escape boundary: T={0.90,1.00,1.10,1.20} × S=42 (in progress)
-- Total: ~52 runs across all conditions
+- L=512 escape boundary: T={0.90,1.00,1.10,1.20} × S=42 (4 runs, complete)
+- Total: ~53 runs across all conditions
 
 ### Key Findings (see observations.md)
 - Four regimes: collapse, suppressed dynamics, rich dynamics, noise
-- T_escape(L) is superlinear: L=64→T≈0.55, L=128→T≈0.57, L=192→T≈0.67, L=256→T≈0.87
-- Suppressed zone (new): L=256 at T=0.70–0.80 has structure but slow mixing (decorrelation lag 253–356)
-- T and L are NOT orthogonal: longer L shifts collapse boundary upward in T
+- T_escape(L) increases then saturates: L=64→0.55, L=128→0.57, L=192→0.67, L=256→0.87, L=512→~0.90
+- T and L are coupled but coupling weakens at large L (saturation above L≈256)
+- Suppressed zone: L=256 at T=0.70–0.80 has structure but slow mixing (decorrelation lag 253–356)
 - Slope-flip pivot shifts with L: comp crossover at T≈0.75 for L=192, T≈0.95 for L=256
 - Multi-scale decoupling peaks in suppressed zone (|comp_W256−comp_W64| up to 0.35)
-- Three-sensor framework: entropy, compressibility, EOS rate + decorrelation as fourth lens
+- Concept fragmentation: temperature controls expression fidelity, not concept activation
 - L-densification at T=0.50: jagged non-monotonic profile, no clean phase transition
-- "Memory-depth annealing": L-reduction as escape mechanism from stuck attractors
+- "Memory-depth annealing": L-reduction as escape mechanism — bounded by T_escape saturation
 
 ### Key Parameters
 - Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
