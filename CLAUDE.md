@@ -11,6 +11,8 @@ generate.py          # Core generation loop, CLI entry point (with checkpoint/re
 analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries; incremental .analysis.pkl cache)
 plot.py              # Visualization (5 plot types + EOS markers, CLI with --runs and --plots)
 utils.py             # Shared primitives (compressibility, eos_ema)
+metrics.py           # Scalar metric extraction (surprisal stats, EOS interarrival, decorrelation lag)
+summary_table.py     # Cross-condition summary CSV from all runs
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
 analyze_windows.py   # Recompute analysis at standard W grid [16,32,64,128,256]
 plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
@@ -131,6 +133,10 @@ python plot.py --runs data/runs/L0064_T*_S42.parquet --downsample 50
 python reproduce_plots.py
 python reproduce_plots.py --force          # bypass cache
 python reproduce_plots.py --plots entropy  # only specific plot types
+
+# Cross-condition summary table
+python summary_table.py                         # print to stdout
+python summary_table.py --out data/summary.csv  # write to file
 ```
 
 ## Dependencies

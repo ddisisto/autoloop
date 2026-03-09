@@ -142,6 +142,7 @@ def run_generation(
                 "entropy": entropy,
                 "log_prob": log_prob,
                 "temperature": temperature,
+                "context_length": context_length,
                 "eos": is_eos,
             })
 
