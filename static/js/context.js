@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Context inspection panel (right drawer)
+// Context inspection panel (right drawer) with zoom-synced overview
 // ---------------------------------------------------------------------------
 import { state, apiFetch } from './state.js';
 import { showToast } from './app.js';
@@ -15,11 +15,11 @@ export const ctxState = {
   stepRange: null,     // cached /api/step_range response
   contextData: null,   // latest /api/context response
   loading: false,
-  vertLineIndex: null, // Plotly shape index for step indicator
+  viewRange: null,     // {min, max} = chart zoom; null = full range
 };
 
 const stepRangeCache = {}; // runId -> step_range response
-let ctxFetchController = null; // AbortController for in-flight context fetches
+let ctxFetchController = null;
 let scrubberDebounce = null;
 
 // ---------------------------------------------------------------------------
@@ -57,6 +57,178 @@ function initDragHandle() {
 }
 
 // ---------------------------------------------------------------------------
+// Overview bar: viewport drag, resize, click-to-pan
+// ---------------------------------------------------------------------------
+let ovDrag = null; // {type: 'pan'|'resize-left'|'resize-right', startX, startRange}
+
+function initOverviewBar() {
+  const bar = document.getElementById('overviewBar');
+  const vp = document.getElementById('overviewViewport');
+
+  // Click on bar background → center viewport on that position
+  bar.addEventListener('mousedown', (e) => {
+    if (e.target !== bar) return;
+    const sr = ctxState.stepRange;
+    if (!sr) return;
+
+    const rect = bar.getBoundingClientRect();
+    const frac = (e.clientX - rect.left) / rect.width;
+    const step = Math.round(sr.min_step + frac * (sr.max_step - sr.min_step));
+
+    const vr = getViewRange();
+    const halfSpan = (vr.max - vr.min) / 2;
+    const newMin = Math.max(sr.min_step, step - halfSpan);
+    const newMax = Math.min(sr.max_step, newMin + (vr.max - vr.min));
+    zoomChart(newMin, newMax);
+  });
+
+  // Viewport drag: pan or edge resize
+  vp.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sr = ctxState.stepRange;
+    if (!sr) return;
+
+    const vpRect = vp.getBoundingClientRect();
+    const edgeThresh = 6;
+    let type = 'pan';
+    if (e.clientX - vpRect.left < edgeThresh) type = 'resize-left';
+    else if (vpRect.right - e.clientX < edgeThresh) type = 'resize-right';
+
+    ovDrag = { type, startX: e.clientX, startRange: { ...getViewRange() } };
+    document.body.style.cursor = type === 'pan' ? 'grabbing' : 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!ovDrag) return;
+    const sr = ctxState.stepRange;
+    if (!sr) return;
+
+    const bar = document.getElementById('overviewBar');
+    const barRect = bar.getBoundingClientRect();
+    const fullRange = sr.max_step - sr.min_step;
+    const dx = e.clientX - ovDrag.startX;
+    const dStep = Math.round((dx / barRect.width) * fullRange);
+    const { startRange } = ovDrag;
+
+    let newMin, newMax;
+    const minViewSpan = Math.max(100, fullRange * 0.01); // minimum 1% of range
+
+    if (ovDrag.type === 'pan') {
+      const span = startRange.max - startRange.min;
+      newMin = Math.max(sr.min_step, Math.min(sr.max_step - span, startRange.min + dStep));
+      newMax = newMin + span;
+    } else if (ovDrag.type === 'resize-left') {
+      newMin = Math.max(sr.min_step, Math.min(startRange.max - minViewSpan, startRange.min + dStep));
+      newMax = startRange.max;
+    } else {
+      newMin = startRange.min;
+      newMax = Math.min(sr.max_step, Math.max(startRange.min + minViewSpan, startRange.max + dStep));
+    }
+
+    zoomChart(newMin, newMax);
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!ovDrag) return;
+    ovDrag = null;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+
+  // Double-click overview to reset zoom
+  bar.addEventListener('dblclick', () => {
+    ctxState.viewRange = null;
+    Plotly.relayout('chart', { 'xaxis.autorange': true });
+    syncScrubberToView();
+    renderOverviewViewport();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Zoom helpers
+// ---------------------------------------------------------------------------
+function getViewRange() {
+  const sr = ctxState.stepRange;
+  if (!sr) return { min: 0, max: 1 };
+  if (ctxState.viewRange) return ctxState.viewRange;
+  return { min: sr.min_step, max: sr.max_step };
+}
+
+function zoomChart(min, max) {
+  ctxState.viewRange = { min, max };
+  // Suppress the relayout echo — we set a flag
+  ctxState._selfZoom = true;
+  Plotly.relayout('chart', { 'xaxis.range': [min, max] });
+  syncScrubberToView();
+  renderOverviewViewport();
+}
+
+function syncScrubberToView() {
+  const vr = getViewRange();
+  const scrubber = document.getElementById('contextScrubber');
+  scrubber.min = Math.round(vr.min);
+  scrubber.max = Math.round(vr.max);
+
+  const stepInput = document.getElementById('contextStepInput');
+  stepInput.min = Math.round(vr.min);
+  stepInput.max = Math.round(vr.max);
+}
+
+function renderOverviewViewport() {
+  const sr = ctxState.stepRange;
+  if (!sr) return;
+
+  const vp = document.getElementById('overviewViewport');
+  const stepEl = document.getElementById('overviewStep');
+  const fullRange = sr.max_step - sr.min_step;
+  if (fullRange <= 0) return;
+
+  const vr = getViewRange();
+  const leftPct = ((vr.min - sr.min_step) / fullRange) * 100;
+  const rightPct = ((sr.max_step - vr.max) / fullRange) * 100;
+  vp.style.left = leftPct + '%';
+  vp.style.right = rightPct + '%';
+
+  // Step position marker (relative to full range)
+  const stepPct = ((ctxState.step - sr.min_step) / fullRange) * 100;
+  stepEl.style.left = Math.max(0, Math.min(100, stepPct)) + '%';
+}
+
+// ---------------------------------------------------------------------------
+// Chart zoom event handler (called from chart.js)
+// ---------------------------------------------------------------------------
+export function onChartZoom(relayoutData) {
+  if (!ctxState.open || !ctxState.stepRange) return;
+
+  // Skip if we triggered this zoom ourselves
+  if (ctxState._selfZoom) {
+    ctxState._selfZoom = false;
+    return;
+  }
+
+  if (relayoutData['xaxis.autorange']) {
+    ctxState.viewRange = null;
+  } else if (relayoutData['xaxis.range[0]'] != null) {
+    ctxState.viewRange = {
+      min: Math.round(relayoutData['xaxis.range[0]']),
+      max: Math.round(relayoutData['xaxis.range[1]']),
+    };
+  } else if (relayoutData['xaxis.range']) {
+    ctxState.viewRange = {
+      min: Math.round(relayoutData['xaxis.range'][0]),
+      max: Math.round(relayoutData['xaxis.range'][1]),
+    };
+  } else {
+    return;
+  }
+
+  syncScrubberToView();
+  renderOverviewViewport();
+}
+
+// ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
 async function fetchStepRange(runId) {
@@ -87,12 +259,12 @@ export function openContextPanel(runId, step) {
   ctxState.runId = runId;
   ctxState.runMeta = run;
   ctxState.step = step;
+  ctxState.viewRange = null; // reset zoom on new panel open
 
   document.getElementById('contextPanel').classList.add('open');
   document.getElementById('dragHandle').classList.add('active');
   updateContextTitle();
 
-  // Resize chart after drawer transition
   setTimeout(() => Plotly.Plots.resize('chart'), 220);
 
   ctxSetLoading(true);
@@ -100,6 +272,19 @@ export function openContextPanel(runId, step) {
     ctxState.stepRange = sr;
     setupScrubber(sr);
     renderEosTicks(sr);
+    renderOverviewViewport();
+
+    // Sync viewport to current chart zoom if any
+    const chartEl = document.getElementById('chart');
+    if (chartEl && chartEl.layout && chartEl.layout.xaxis) {
+      const xr = chartEl.layout.xaxis.range;
+      if (xr && !chartEl.layout.xaxis.autorange) {
+        ctxState.viewRange = { min: Math.round(xr[0]), max: Math.round(xr[1]) };
+        syncScrubberToView();
+        renderOverviewViewport();
+      }
+    }
+
     return loadContextAtStep(step);
   }).catch(err => {
     if (err.name !== 'AbortError') {
@@ -154,6 +339,7 @@ export async function loadContextAtStep(step) {
   document.getElementById('contextScrubber').value = step;
   updateNavButtonState();
   updateStepIndicator(step);
+  renderOverviewViewport();
 
   ctxSetLoading(true);
   try {
@@ -205,7 +391,7 @@ function updateNavButtonState() {
 }
 
 // ---------------------------------------------------------------------------
-// Scrubber and EOS ticks
+// Scrubber setup
 // ---------------------------------------------------------------------------
 function setupScrubber(stepRange) {
   const scrubber = document.getElementById('contextScrubber');
@@ -358,6 +544,7 @@ export function wireContextEvents() {
     document.getElementById('contextStepInput').value = val;
     ctxState.step = val;
     updateStepIndicator(val);
+    renderOverviewViewport();
 
     clearTimeout(scrubberDebounce);
     scrubberDebounce = setTimeout(() => {
@@ -365,6 +552,6 @@ export function wireContextEvents() {
     }, 150);
   });
 
-  // Initialize drag-to-resize
   initDragHandle();
+  initOverviewBar();
 }

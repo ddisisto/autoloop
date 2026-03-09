@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 import { state, fetchData, getRunColor, getRunDash, getRunLabel } from './state.js';
 import { showToast, updateStatus } from './app.js';
-import { ctxState, openContextPanel, updateStepIndicator } from './context.js';
+import { ctxState, openContextPanel, updateStepIndicator, onChartZoom } from './context.js';
 
 function showLoading(on) {
   document.getElementById('loadingOverlay').classList.toggle('active', on);
@@ -156,7 +156,13 @@ function renderChart(data, runIds) {
 
 export function wireChartClickHandler() {
   const chartEl = document.getElementById('chart');
-  chartEl.removeAllListeners && chartEl.removeAllListeners('plotly_click');
+
+  // Remove all previous listeners, then re-add both
+  chartEl.removeAllListeners && chartEl.removeAllListeners();
+
+  // Zoom sync: chart zoom → context overview
+  chartEl.on('plotly_relayout', (data) => onChartZoom(data));
+
   chartEl.on('plotly_click', (eventData) => {
     if (!eventData || !eventData.points || eventData.points.length === 0) return;
 

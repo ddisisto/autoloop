@@ -95,8 +95,12 @@
           <button class="nav-btn" id="ctxNextEos" title="Next EOS">EOS &#9654;</button>
         </div>
       </div>
-      <div class="context-scrubber">
+      <div class="overview-bar" id="overviewBar">
+        <div class="overview-viewport" id="overviewViewport"></div>
+        <div class="overview-step" id="overviewStep"></div>
         <div class="eos-ticks" id="eosTicks"></div>
+      </div>
+      <div class="context-scrubber">
         <input type="range" id="contextScrubber" min="0" max="99999" value="0">
       </div>
       <div class="context-text" id="contextText">
