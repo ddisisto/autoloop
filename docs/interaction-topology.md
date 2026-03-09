@@ -22,10 +22,10 @@ The autoloop experiments reveal a continuous dynamical system with observable in
 - L (context length): memory horizon / attractor depth, structural actuator
 - W (measurement window): observer resolution — not a generation parameter, but changes what patterns are visible and therefore what feedback is possible
 
-**These dimensions aren't independent.** They form a topology:
-- Phase boundaries exist (T~0.70-0.80 is a crossover zone)
-- Attractor basins have depth that scales non-monotonically with L (the L=192 anomaly)
-- The same system shows qualitatively different dynamics depending on where it sits in T×L space
+**These dimensions interact non-linearly.** They form a topology:
+- T and L are not orthogonal: longer L shifts the collapse boundary upward in T. T_escape(L) is superlinear — L=64 escapes at T≈0.55, L=256 requires T≈0.87
+- Four regimes emerge from the T×L interaction: collapse, suppressed dynamics, rich dynamics, noise
+- The suppressed zone (e.g. L=256 at T=0.70–0.80) has structure but slow mixing — decorrelation lags of 250+ steps, multi-scale decoupling up to 0.35
 - W reveals or hides structure depending on scale — the "instrument" is part of the system
 
 **EOS is an interior signal, not a boundary marker.** At T=1.00 (richest dynamics), EOS fires from the dense center of phase space — the model tries to end when it's most engaged, not when it's stuck or lost. At T=0.50 (collapse), EOS fires during escape attempts from attractors. The meaning of EOS depends on the regime.
@@ -39,17 +39,21 @@ What if interaction with a generative model isn't "submit query, receive answer"
 - EOS isn't "I'm done" — it's a coherence signal from the interior of the dynamics
 - The "quality" of output isn't about matching a spec — it's about the region of phase space the system occupies
 
-## Control surface (speculative)
+## Control surface
 
-| Actuator | Timescale | What it controls |
-|----------|-----------|-----------------|
-| T (temperature) | Per-step | Noise floor, escape probability |
-| L (context length) | Structural | Memory depth, attractor stickiness |
-| W (measurement window) | Observer | What scales of structure are visible/steerable |
-| Embedding-space steering | Directional | Semantic trajectory (not yet explored) |
-| User input | Perturbation | Phase-space displacement |
+| Actuator | Timescale | What it controls | Status |
+|----------|-----------|-----------------|--------|
+| T (temperature) | Per-step | Noise floor, escape probability | Characterized (static); schedule mode designed |
+| L (context length) | Structural | Memory depth, attractor stickiness | Characterized (static); schedule mode designed |
+| W (measurement window) | Observer | What scales of structure are visible/steerable | Analysis tool; not yet a control input |
+| Schedule (T,L trajectory) | Multi-step | Path through parameter space | Designed (schedule.py); open question: does path matter? |
+| Feedback controller | Closed-loop | Maintain target regime via metric feedback | Designed (Controller protocol); not yet built |
+| Embedding-space steering | Directional | Semantic trajectory | Not yet explored |
+| User input | Perturbation | Phase-space displacement | Not yet explored |
 
 Each operates on a different timescale. A controller that navigates all of them simultaneously is qualitatively different from "set temperature to 0.7 and hope for the best."
+
+The central open experiment: does the *trajectory* through T×L space matter, or only the endpoint? If a hot-start (T=1.0) followed by cooling produces different attractor basins than a cold-start at the same final T — path-dependence is real, and schedule design becomes a first-class concern.
 
 ## What this implies
 
@@ -63,16 +67,17 @@ Each operates on a different timescale. A controller that navigates all of them 
 
 ## Open questions
 
-- Can a human interact meaningfully with phase-space information, or does this require automated control?
-- What does embedding-space steering look like in this framework? Is it another actuator, or does it change the topology itself?
-- Is this specific to autoregressive text generation, or does it generalize to other generative modalities?
-- The "staircase of basins" at T=0.50 — are these a property of the model, the tokenizer, or the generation process? Do they exist in larger models?
+- **Path-dependence:** Does annealing (hot start → cool) land in different attractor basins than cold start at the same final (T, L)? This is testable now with schedule mode.
+- **Human-in-the-loop:** Can a human interact meaningfully with phase-space information, or does this require automated control? The explorer is the testbed.
+- **Embedding-space steering:** Is it another actuator, or does it change the topology itself?
+- **Generality:** Is this specific to autoregressive text generation, or does it generalize to other generative modalities?
+- **Model-dependence:** The staircase of basins at T=0.50, the superlinear T_escape(L) — are these properties of SmolLM-135M specifically, or of autoregressive generation generally? L=512 sweep is probing this edge.
 
 ## Connection to autoloop experiments
 
 This framing emerged directly from observing:
-- Three-regime structure (collapse / rich / noise) and the sharp transitions between them
-- T and L as orthogonal actuators with different timescales
+- Four-regime structure (collapse / suppressed / rich / noise) and the transitions between them
+- T×L interaction: T_escape(L) is superlinear, actuators are coupled not orthogonal
 - Non-monotonic L effects (the L=192 anomaly at T=0.50)
 - EOS as interior signal at T=1.00 vs boundary signal at T=0.50
 - W as measurement resolution that reveals/hides structure at different scales
@@ -97,4 +102,16 @@ The key transition: "jump in the seat" at any point in a recorded run, reconstru
 
 This means every recorded run is not just data to analyze — it's a waypoint you can return to and branch from. The phase space becomes navigable, not just observable.
 
-Future: embedding-space projections (UMAP/t-SNE of hidden states) as the "true" phase portrait. Trajectories through embedding space, with metric-derived views as interpretable projections. Steering in embedding space = directional perturbation of generation. The topology of the space becomes the interface itself.
+## The schedule system as bridge
+
+The schedule system (designed, not yet built) provides the concrete bridge from instruments to controls:
+
+**Open-loop (schedule.py):** Predefined T(t), L(t) trajectories. Test whether path through parameter space matters. First experiment: three paths to the same (T=0.70, L=192) — cold start, hot start with cooldown, annealing with L ramp. If final-segment statistics differ, path-dependence is confirmed.
+
+**Closed-loop (Controller protocol):** Feedback controllers that observe live metrics (entropy, compressibility, EOS rate, decorrelation lag) and adjust T and L to maintain a target regime. The simplest: proportional control on entropy — if entropy drops below threshold, raise T; if it rises above, lower T. More sophisticated: multi-objective control targeting the rich-dynamics region of phase space.
+
+**The key insight from recent data:** The suppressed-dynamics zone (L=256, T=0.70–0.80) suggests that simply raising T isn't sufficient for large L — the system can have structure without dynamics. A controller needs to observe *mixing rate* (decorrelation lag), not just entropy level. This is why the four-regime model matters for control design: you need to distinguish "structured and dynamic" from "structured and stuck."
+
+## Future directions
+
+Embedding-space projections (UMAP/t-SNE of hidden states) as the "true" phase portrait. Trajectories through embedding space, with metric-derived views as interpretable projections. Steering in embedding space = directional perturbation of generation. The topology of the space becomes the interface itself.
