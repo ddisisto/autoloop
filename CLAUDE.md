@@ -84,24 +84,25 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Crossover: L={64,128,192} × T={0.60,0.70,0.80,0.90} × S=42 (12 runs)
 - Seed replication at T=0.50: L={64,128,192} × S={42,123,7} (9 runs)
 - L-densification at T=0.50: L={160,176,208,224} × S={42,123,7} (15 runs)
-- L=256 crossover fill: T={0.60,0.70,0.80,0.90} × S=42 (in progress)
-- Total: ~48 runs across all conditions
+- L=256 crossover: T={0.60,0.70,0.80,0.90} × S=42 (4 runs, complete)
+- L=512 escape boundary: T={0.90,1.00,1.10,1.20} × S=42 (in progress)
+- Total: ~52 runs across all conditions
 
 ### Key Findings (see observations.md)
-- Three regimes: collapse (T≤0.60), rich dynamics (T~0.80–1.00), noise (T≥1.50)
-- T and L are orthogonal actuators: T = noise floor, L = memory depth / attractor stickiness
-- Collapse boundary is L-dependent: L=192 collapsed at T=0.60 while L=64/128 have escaped
-- Sharp escape at T=0.70 regardless of L — all jump above entropy 1.0
-- EOS peak shifts with L: tracks escape-from-collapse boundary
+- Four regimes: collapse, suppressed dynamics, rich dynamics, noise
+- T_escape(L) is superlinear: L=64→T≈0.55, L=128→T≈0.57, L=192→T≈0.67, L=256→T≈0.87
+- Suppressed zone (new): L=256 at T=0.70–0.80 has structure but slow mixing (decorrelation lag 253–356)
+- T and L are NOT orthogonal: longer L shifts collapse boundary upward in T
+- Slope-flip pivot shifts with L: comp crossover at T≈0.75 for L=192, T≈0.95 for L=256
+- Multi-scale decoupling peaks in suppressed zone (|comp_W256−comp_W64| up to 0.35)
+- Three-sensor framework: entropy, compressibility, EOS rate + decorrelation as fourth lens
 - L-densification at T=0.50: jagged non-monotonic profile, no clean phase transition
-- Slope-flip: comp decreases with L at T≤0.60, increases at T=1.00; sign flip at T~0.70–0.80
-- Three-sensor framework: entropy, compressibility, EOS rate
 - "Memory-depth annealing": L-reduction as escape mechanism from stuck attractors
 
 ### Key Parameters
 - Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
-- Context lengths L: 64, 128, 160, 176, 192, 208, 224, 256
-- Temperatures T: 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50
+- Context lengths L: 64, 128, 160, 176, 192, 208, 224, 256, 512
+- Temperatures T: 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.50
 - Seeds: 42 (all conditions); 123, 7 (T=0.50 + L-dense conditions)
 - Tokens per run: 100,000 (post-pre-fill)
 - Sampling: pure temperature scaling, no top-k/top-p

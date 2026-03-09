@@ -31,7 +31,7 @@
 
     <!-- Chart controls -->
     <div class="controls">
-      <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin-bottom:8px;">Chart</h3>
+      <h3>Chart</h3>
       <div class="control-row">
         <label>Type</label>
         <select id="chartType">
@@ -70,13 +70,18 @@
     </div>
   </div>
 
-  <div class="chart-area">
-    <div class="loading-overlay" id="loadingOverlay">
-      <div class="spinner"></div>
+  <div class="workspace">
+    <div class="chart-area">
+      <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+      </div>
+      <div id="chart"></div>
     </div>
-    <div id="chart"></div>
-    <div class="context-panel" id="contextPanel">
-      <div class="context-panel-header">
+
+    <div class="drag-handle" id="dragHandle"></div>
+
+    <div class="context-drawer" id="contextPanel">
+      <div class="context-header">
         <span class="context-title" id="contextTitle">Context</span>
         <button class="context-close" id="contextClose" title="Close">&times;</button>
       </div>
@@ -90,7 +95,7 @@
           <button class="nav-btn" id="ctxNextEos" title="Next EOS">EOS &#9654;</button>
         </div>
       </div>
-      <div class="context-scrubber-container">
+      <div class="context-scrubber">
         <div class="eos-ticks" id="eosTicks"></div>
         <input type="range" id="contextScrubber" min="0" max="99999" value="0">
       </div>

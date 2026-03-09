@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Context inspection panel
+// Context inspection panel (right drawer)
 // ---------------------------------------------------------------------------
 import { state, apiFetch } from './state.js';
 import { showToast } from './app.js';
@@ -21,6 +21,40 @@ export const ctxState = {
 const stepRangeCache = {}; // runId -> step_range response
 let ctxFetchController = null; // AbortController for in-flight context fetches
 let scrubberDebounce = null;
+
+// ---------------------------------------------------------------------------
+// Drag handle for drawer resize
+// ---------------------------------------------------------------------------
+let dragging = false;
+
+function initDragHandle() {
+  const handle = document.getElementById('dragHandle');
+  const drawer = document.getElementById('contextPanel');
+
+  handle.addEventListener('mousedown', (e) => {
+    if (!ctxState.open) return;
+    e.preventDefault();
+    dragging = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const mainRect = document.querySelector('.workspace').getBoundingClientRect();
+    const newWidth = mainRect.right - e.clientX;
+    const clamped = Math.max(300, Math.min(600, newWidth));
+    drawer.style.width = clamped + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    Plotly.Plots.resize('chart');
+  });
+}
 
 // ---------------------------------------------------------------------------
 // API
@@ -55,7 +89,11 @@ export function openContextPanel(runId, step) {
   ctxState.step = step;
 
   document.getElementById('contextPanel').classList.add('open');
+  document.getElementById('dragHandle').classList.add('active');
   updateContextTitle();
+
+  // Resize chart after drawer transition
+  setTimeout(() => Plotly.Plots.resize('chart'), 220);
 
   ctxSetLoading(true);
   fetchStepRange(runId).then(sr => {
@@ -75,8 +113,9 @@ export function openContextPanel(runId, step) {
 export function closeContextPanel() {
   ctxState.open = false;
   document.getElementById('contextPanel').classList.remove('open');
+  document.getElementById('dragHandle').classList.remove('active');
   removeStepIndicator();
-  setTimeout(() => Plotly.Plots.resize('chart'), 50);
+  setTimeout(() => Plotly.Plots.resize('chart'), 220);
 }
 
 // ---------------------------------------------------------------------------
@@ -325,4 +364,7 @@ export function wireContextEvents() {
       loadContextAtStep(val);
     }, 150);
   });
+
+  // Initialize drag-to-resize
+  initDragHandle();
 }
