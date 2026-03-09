@@ -12,9 +12,11 @@ Append-only record of findings. Each entry includes reproduction commands.
 - T (temperature): per-step noise floor. Controls escape probability from attractors.
 - L (context length): memory horizon. Controls attractor basin depth, stickiness, and collapse boundary.
 
-**Three regimes** at fixed L: collapse (T≤0.60), rich dynamics (T~0.80–1.00), noise (T≥1.50). Crossover zone is T~0.70–0.80. But the collapse boundary is L-dependent — longer L extends collapse upward in T.
+**Three regimes** at fixed L: collapse (T≤T_escape), rich dynamics (T well above T_escape), noise (T≥1.50). But the collapse boundary T_escape is strongly L-dependent — longer L extends collapse dramatically upward in T.
 
-**Collapse boundary shifts with L.** At T=0.60: L=192 is collapsed (entropy 0.187) while L=64 (0.791) and L=128 (0.502) have escaped. The escape is sharp — at T=0.70 all L values jump above entropy 1.0. Longer context doesn't just deepen collapse, it extends the collapse regime to higher temperatures.
+**Collapse boundary T_escape(L) is an increasing function of L.** Estimated escape temperatures: L=64/128 ≈ 0.55–0.60, L=192 ≈ 0.65–0.70, L=256 ≈ 0.85–0.90. This is not a gentle shift — doubling context length from 128 to 256 pushes the escape boundary up by ~0.3 in T. The "universal sharp escape at T=0.70" was only universal for L≤192.
+
+**A fourth regime: suppressed dynamics.** L=256 at T=0.70–0.80 is neither collapsed (entropy 0.4–0.6, not <0.1) nor escaped (entropy well below the L≤192 values of 1.1–1.6). Decorrelation lags of 253–356 steps reveal slow-mixing attractor dynamics. Surprisal kurtosis is intermediate (29–60, vs 500+ in collapse and <10 in rich dynamics). The system has local structure (comp_W64 ~0.6) but no large-scale repetition (comp_W256 ~0.25). This suppressed zone is where the multi-scale decoupling is strongest.
 
 **Attractor structure at T=0.50 is a staircase, not a binary.** Each L value has a distinct entropy floor — L=64 sits on a high meta-stable basin (~0.2–0.4 nats), L=128 on a lower false floor (~0.1–0.2 nats), L=256 hits the true zero-entropy floor by ~15k steps. Collapse is a timescale phenomenon: every T=0.50 run may collapse eventually; L sets how fast you descend the staircase.
 
@@ -22,7 +24,7 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **Slope-flip in the T dimension.** Compressibility (W=64) *decreases* with L at T≤0.60 (deeper collapse = less local structure) but *increases* with L at T=1.00 (longer context = more structure). The sign flip occurs around T=0.70–0.80. This is the phase boundary in the L dimension.
 
-**EOS peak shifts with L.** Peak EOS rate occurs at T=0.90 for L=64 and L=128, but at T=0.70 for L=192. The EOS peak tracks the escape-from-collapse transition: it fires most at the boundary between structured and free dynamics. Since L=192's collapse extends to T=0.60, its escape boundary (and EOS peak) is at a lower T.
+**EOS peak tracks the escape boundary.** Peak EOS rate: L=64 at T=0.90 (0.00092), L=128 at T=0.90 (0.00104), L=192 at T=0.70 (0.00083), L=256 at T=0.90 (0.00087). The peak fires at or just above T_escape — where the system is actively transitioning between collapse and rich dynamics. L=192's peak at T=0.70 reflects its lower escape boundary.
 
 **T=1.50 is a universal noise floor.** Compressibility ~0.705 and entropy ~8.0–8.3 regardless of L. At high T, context length is irrelevant — thermal noise dominates.
 
@@ -32,14 +34,14 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **Transfer functions confirm the phase structure.** T→compressibility curves for different L cross at a single pivot point (T≈0.70). Below: longer L = less structure (deeper collapse). Above: longer L = more structure (richer dynamics). T→entropy curves change shape with L: L=64 is roughly linear, L=192 has a sharp elbow at T=0.70 (stuck below, released above). EOS peak is sharper and shifted to lower T for longer L.
 
-**Entropy autocorrelation reveals temporal structure.** ACF quantifies "attractor stickiness" as decorrelation timescale. T=0.50 L=64 shows oscillatory ACF (escape/recapture cycles with period ~L). T=0.50 L=256 never decorrelates (locked). T=0.60 L=256 has ~300+ step decorrelation (extended collapse). In rich dynamics (T=0.70–1.00), decorrelation time scales cleanly with L. At T=1.50, all L values decorrelate in ~20 steps (noise floor). Decorrelation timescale is a fourth lens complementary to the three-sensor framework — it measures *temporal* memory rather than instantaneous state.
+**Entropy autocorrelation reveals temporal structure.** Decorrelation lag (first lag where ACF < 1/e) cleanly separates regimes. Collapsed runs: lag 2–8 (locked, no fluctuations to decorrelate). Suppressed zone (L=256, T=0.70–0.80): lag 253–356 (slow-mixing attractor dynamics — the longest in the grid). Rich dynamics (all L at T≥0.90): lag 1–10 (fast mixing regardless of L). Noise (T=1.50): lag 1 (memoryless). Key insight: decorrelation is NOT proportional to L in the rich regime — once escaped, mixing is fast. The interesting temporal structure lives in the suppressed zone near T_escape.
 
 **Open questions:**
-- What is L=192's exact escape temperature? Somewhere in T=0.60–0.70. T-densification at T={0.62, 0.65, 0.68} would pin it.
-- Does L=256 extend collapse even further in T? Partial data at T=0.60 (in progress) suggests yes.
-- Is the T=1.00 compressibility increase with L (0.739→0.785) robust across seeds?
-- Does decorrelation timescale scale linearly with L in the rich-dynamics regime?
-- Where does the decoupling index (comp_W256 − comp_W64) peak? Predicted: T~0.80.
+- What is T_escape(L) precisely? Current estimates are coarse (from 0.1-step T grid). T-densification at L=192 (T={0.62, 0.65, 0.68}) and L=256 (T={0.82, 0.85, 0.88}) would pin the function.
+- Is T_escape(L) superlinear? If so, L=512 might require T>1.0 to escape — meaning there's a maximum context length for rich dynamics at any given temperature.
+- What drives the suppressed-dynamics regime? L=256 at T=0.70–0.80 has high comp_W64 (~0.6) but low entropy (~0.4–0.6). Is this a single deep attractor or switching between multiple shallow ones?
+- Is the T=1.00 compressibility increase with L (0.739→0.785 for L=64→192, but 0.743 for L=256) robust? L=256 breaks the monotonic trend — possibly still influenced by the nearby escape boundary.
+- Surprisal gap crosses zero at T=1.0 and goes negative at T=1.50. Is T=1.0 special (unscaled = true distribution), or is this a smooth crossover?
 
 ---
 
@@ -549,4 +551,107 @@ Pre-registered predictions, to be scored when data arrives. Format: prediction, 
 # These predictions will be scored when:
 # - L=256 sweep completes (predictions 1-5)
 # - Remaining analysis implemented (predictions 6-9)
+```
+
+### 2026-03-09 — L=256 Crossover Results and Prediction Scorecard
+
+**Data:** `L0256_T{0.60,0.70,0.80,0.90}_S42.parquet` (100k tokens each). Grid now rectangular: L={64,128,192,256} × T={0.50–1.50} × S=42.
+
+**L=256 crossover summary:**
+
+| T | entropy | comp_W64 | eos_rate | decor_lag | decouple (W256−W64) |
+|---|---------|----------|----------|-----------|---------------------|
+| 0.50 | 0.069 | 0.229 | 0.00001 | 2 | −0.161 |
+| 0.60 | 0.084 | 0.222 | 0.00007 | 50 | −0.149 |
+| 0.70 | 0.403 | 0.593 | 0.00033 | 253 | −0.342 |
+| 0.80 | 0.615 | 0.610 | 0.00031 | 356 | −0.351 |
+| 0.90 | 2.250 | 0.673 | 0.00087 | 10 | −0.209 |
+| 1.00 | 4.917 | 0.743 | 0.00057 | 2 | −0.150 |
+| 1.50 | 8.342 | 0.705 | 0.00046 | 1 | −0.095 |
+
+**The big finding: L=256 extends collapse through T=0.80.** The "universal sharp escape at T=0.70" was only universal for L≤192. L=256 doesn't escape until somewhere between T=0.80 and T=0.90. The escape boundary T_escape(L) is an increasing function of L, shifting by ~0.2 from L=192 to L=256.
+
+**Escape boundary estimates:** L=64/128: T_escape ≈ 0.55–0.60. L=192: T_escape ≈ 0.65–0.70. L=256: T_escape ≈ 0.85–0.90. This is not a gentle shift — the collapse regime expands dramatically with context length.
+
+**Decorrelation reveals the suppressed zone.** L=256 at T=0.70 and T=0.80 has decorrelation lags of 253 and 356 — the system has structure (comp_W64 ~0.6, not collapsed to 0.2) but is trapped in slow-mixing attractors. This is a new regime: not fully collapsed (entropy 0.4–0.6, not <0.1) but not escaped either. Call it "suppressed dynamics."
+
+**Decoupling index peaks in the suppressed zone.** L=256 T=0.70: −0.342, T=0.80: −0.351. These are the highest magnitudes in the entire grid. The system has local structure (W=64 sees it) but no large-scale repetition (W=256 misses it). This is exactly what "suppressed but not collapsed" looks like through the multi-scale lens.
+
+**Surprisal gap (H − (−log p)) pattern across all conditions:**
+
+| | L=64 | L=128 | L=192 | L=256 |
+|---|------|-------|-------|-------|
+| T=0.50 | +0.56 | +0.17 | +0.30 | +0.06 |
+| T=0.60 | +0.52 | +0.34 | +0.14 | +0.06 |
+| T=0.70 | +0.75 | +0.56 | +0.51 | +0.22 |
+| T=0.80 | +0.73 | +0.55 | +0.55 | +0.23 |
+| T=0.90 | +0.47 | +0.49 | +0.51 | +0.39 |
+| T=1.00 | −0.00 | −0.01 | +0.01 | +0.00 |
+| T=1.50 | −1.62 | −1.51 | −1.46 | −1.44 |
+
+Gap is positive for T<1.0 (model over-estimates uncertainty relative to what it actually samples), crosses zero at T=1.0, goes large-negative at T=1.50 (model under-estimates — tokens are more surprising than the entropy suggests, because temperature scaling pushes sampling into the tails).
+
+**Surprisal kurtosis tracks collapse depth:**
+
+| | L=64 | L=128 | L=192 | L=256 |
+|---|------|-------|-------|-------|
+| T=0.50 | 92 | 524 | 1023 | 1660 |
+| T=0.70 | 11 | 16 | 15 | 60 |
+| T=0.80 | 5 | 8 | 8 | 29 |
+| T=1.00 | 0.2 | −0.2 | −0.4 | −0.6 |
+
+Collapsed runs have extremely heavy-tailed surprisal (rare large-surprise events punctuating near-zero background). L=256 at T=0.70–0.80 has intermediate kurtosis (29–60), confirming the "suppressed" classification.
+
+---
+
+**Prediction scorecard:**
+
+1. **L=256 T=0.60 deeply collapsed (entropy < 0.15, comp < 0.25).** Entropy 0.084, comp 0.222. **✓ CORRECT.**
+
+2. **L=256 T=0.70 escaped but barely (entropy 0.8–1.5).** Entropy 0.403. Still in the collapse/suppressed zone, not escaped. **✗ WRONG.** The sharp escape at T=0.70 is NOT universal — L=256 breaks the pattern.
+
+3. **L=256 T=0.80–0.90 follows L-scaling.** T=0.80: entropy 0.615 vs L=192's 1.618 — not following the scaling, still suppressed. T=0.90: entropy 2.250 vs L=192's 2.868 — closer but still below. **✗ WRONG at T=0.80, ~CORRECT at T=0.90.** Split verdict.
+
+4. **Slope-flip pivot rightward to T≥0.80.** comp_W64 at T=0.90: L=64=0.715, L=256=0.673 (L=256 still below). At T=1.00: L=64=0.739, L=256=0.743 (crossover). Pivot is at T≈0.95, rightward of the L=192 pivot (~0.75). Predicted T≥0.80. **✓ CORRECT** (direction and approximate value).
+
+5. **L=256 EOS peak at T=0.70 or T=0.60.** EOS rates: T=0.60:0.00007, T=0.70:0.00033, T=0.80:0.00031, T=0.90:0.00087 (peak). **✗ WRONG.** Peak is at T=0.90, tracking the actual escape boundary, not the predicted one. The logic was right (peak tracks escape), but the escape T was wrong.
+
+6. **Surprisal gap near zero in collapse, positive in rich dynamics.** Collapse: gap 0.06–0.17 (small ✓). Rich dynamics T=0.70–0.90: gap 0.4–0.75 (positive ✓). But T=1.50: gap −1.5 (predicted "small", actually large-negative). **PARTIAL.** Collapse and rich dynamics correct; noise regime wrong — temperature scaling pushes sampling into distribution tails, making surprisal exceed entropy.
+
+7. **EOS inter-arrival exponential at T=1.50, heavy-tailed in crossover.** CV (std/mean) at T=1.50: 1.02–1.21 across L (near 1.0 = exponential ✓). At L=256 T=0.70: CV=3.58 (very heavy tail ✓). At L=256 T=0.80: CV=1.68 (heavy ✓). **✓ CORRECT.**
+
+8. **Decoupling index peaks at T~0.80.** For L=256, peak magnitude is at T=0.80 (−0.351). For L=64, peak is at T=0.60 (−0.239). The peak tracks the crossover/suppressed zone, which shifts with L. Prediction said T~0.80, which is correct for L=256 but not universal. **✓ CORRECT** (for the most interesting case; the peak shifts with L as the escape boundary does).
+
+9. **Decorrelation timescale scales linearly with L in rich dynamics.** At T=0.90 (rich for all L): lags are 1, 1, 1, 10. At T=1.00: lags are 1, 6, 6, 2. No clear L-scaling — decorrelation is uniformly fast (1–10 steps) in the rich regime. The long decorrelation times (253, 356) only appear in L=256's suppressed zone, not in the rich-dynamics regime proper. **✗ WRONG.** In rich dynamics, the system mixes in O(1) steps regardless of L. Memory depth affects attractor structure, not mixing time once escaped.
+
+**Summary: 4 correct, 1 partial, 4 wrong.** The key miss: underestimating how far L=256 extends the collapse regime. Predictions 2, 3, 5 all failed because T_escape(L=256) ≈ 0.85–0.90, not 0.70 as assumed. Prediction 9 revealed that decorrelation is fast once escaped — the interesting dynamics are in the approach to escape, not in the rich regime.
+
+```bash
+python summary_table.py                         # full grid summary
+python summary_table.py --out data/summary.csv  # persist
+```
+
+### 2026-03-09 — Predictions: L=512 Escape Boundary
+
+**Data in progress:** L=512 × T={0.90, 1.00, 1.10, 1.20} × S=42 (100k tokens each).
+
+**T_escape(L) trend so far:** L=64→0.55, L=128→0.57, L=192→0.67, L=256→0.87. The jumps accelerate: +0.02, +0.10, +0.20. Extrapolating superlinearly, L=512 escape boundary could be well above T=1.0.
+
+**Predictions:**
+
+1. **L=512 T=0.90 will be collapsed or deeply suppressed.** Entropy < 0.3. Confidence: HIGH. L=256 was only at 2.25 here, and L=512 adds another doubling of context. If the suppressed zone extends proportionally, T=0.90 should be well inside it.
+
+2. **L=512 T=1.00 will be suppressed, not escaped.** Entropy < 1.5, decorrelation lag > 100. Confidence: MEDIUM-HIGH. This is the headline test — if T_escape(512) > 1.0, temperature alone cannot rescue long-context generation from collapse. T=1.0 is the "native" temperature (no scaling), so suppression here means the model's own distribution is insufficient.
+
+3. **L=512 T=1.10 will be in the crossover zone.** Entropy 1.0–3.0, showing signs of partial escape. Confidence: MEDIUM. If T_escape is ~1.1–1.2, this is near the boundary.
+
+4. **L=512 T=1.20 will be escaped into rich dynamics.** Entropy > 3.0, decorrelation lag < 20. Confidence: MEDIUM. Even with superlinear scaling, T=1.20 should be enough headroom. But if T_escape(512) > 1.2, everything we know about the scaling is even more dramatic than expected.
+
+5. **The suppressed zone will be wider for L=512 than L=256.** L=256 had ~0.2 in T (0.70–0.90) of suppressed dynamics. L=512 should have ≥0.3 in T. Confidence: MEDIUM-HIGH. More attractor depth = more temperature range needed to fully escape.
+
+6. **Compressibility at L=512 in the suppressed zone will show extreme multi-scale decoupling.** |comp_W256 − comp_W64| > 0.35 (exceeding L=256's peak of 0.351). Confidence: MEDIUM. Deeper attractors with more local structure but even less large-scale repetition.
+
+```bash
+# Scoring when L=512 sweep completes:
+python summary_table.py | grep "512,"
 ```

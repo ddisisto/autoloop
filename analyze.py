@@ -33,6 +33,25 @@ def default_window_sizes(L: int) -> list[int]:
     return [L, max(L // 4, 16)]
 
 
+def comp_stats(cache: dict, W: int) -> dict[str, float]:
+    """Extract compressibility summary stats for window size W from analysis cache.
+
+    Returns dict with mean, std, min, max (NaN-safe). Returns all-NaN dict if W missing.
+    """
+    comp = cache.get("compressibility", {}).get(W)
+    if comp is None:
+        return {"mean": float("nan"), "std": float("nan"), "min": float("nan"), "max": float("nan")}
+    valid = comp[~np.isnan(comp)] if isinstance(comp, np.ndarray) else np.array([x for x in comp if not np.isnan(x)])
+    if len(valid) == 0:
+        return {"mean": float("nan"), "std": float("nan"), "min": float("nan"), "max": float("nan")}
+    return {
+        "mean": float(valid.mean()),
+        "std": float(valid.std()),
+        "min": float(valid.min()),
+        "max": float(valid.max()),
+    }
+
+
 def sliding_compressibility(decoded_texts: pd.Series, window_size: int) -> np.ndarray:
     """Compute compressibility over a sliding window of tokens.
 

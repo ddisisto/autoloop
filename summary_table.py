@@ -13,10 +13,9 @@ import logging
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-from analyze import analyze_run, _load_experiment_df
+from analyze import analyze_run, comp_stats, _load_experiment_df
 from metrics import run_scalars
 from plot import parse_run_name
 
@@ -54,9 +53,7 @@ def build_summary(runs_dir: Path) -> pd.DataFrame:
 
         scalars = run_scalars(exp, acf)
 
-        # Compressibility at W=64: mean of non-NaN values
-        comp_w64 = analysis["compressibility"][64]
-        comp_w64_mean = float(np.nanmean(comp_w64))
+        comp_w64_mean = comp_stats(analysis, 64)["mean"]
 
         row = {
             "L": params["L"],
