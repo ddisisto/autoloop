@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 from analyze import analyze_run, sliding_compressibility
-from metrics import decorrelation_lag
+from analyze.metrics import decorrelation_lag
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -482,7 +482,7 @@ def analyze_precollapse(
         pre_start = max(0, first_onset - pre_window)
         pre_entropy = entropy[pre_start:first_onset]
         if len(pre_entropy) > 100:
-            from analyze import entropy_autocorrelation
+            from analyze.compressibility import entropy_autocorrelation
             acf = entropy_autocorrelation(pre_entropy, max_lag=min(500, len(pre_entropy) - 1))
             result.pre_decorr_lag = decorrelation_lag(acf)
 

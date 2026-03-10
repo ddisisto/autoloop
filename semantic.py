@@ -22,16 +22,23 @@ Usage:
 import argparse
 import glob
 import logging
-import math
-import os
 import re
 import sys
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
+
+from analyze.semantic import (
+    HeapsLaw,
+    CoherenceProfile,
+    RepetitionOnset,
+    fit_heaps_law as _fit_heaps,
+    measure_coherence as _measure_coherence,
+    detect_repetition_onset as _detect_repetition,
+    vocab_stats as _vocab_stats,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger(__name__)
@@ -158,21 +165,9 @@ def find_theme_hits(
 
 def vocab_stats(run: RunInfo) -> dict:
     """Compute vocabulary richness metrics for a run."""
-    words = [w.lower() for w in run.text.split() if len(w) > 1]
-    wc = Counter(words)
-    n_tokens = len(words)
-    n_types = len(wc)
-    hapax = sum(1 for w, c in wc.items() if c == 1)
-    ttr = n_types / n_tokens if n_tokens > 0 else 0.0
-
-    return {
-        "name": run.name, "L": run.L, "T": run.T, "seed": run.seed,
-        "n_words": n_tokens, "n_unique": n_types,
-        "type_token_ratio": round(ttr, 4),
-        "hapax_count": hapax,
-        "hapax_ratio": round(hapax / n_types, 4) if n_types > 0 else 0.0,
-        "top10": wc.most_common(10),
-    }
+    result = _vocab_stats(run.tokens)
+    result.update(name=run.name, L=run.L, T=run.T, seed=run.seed)
+    return result
 
 
 def neighbor_profile(
@@ -252,205 +247,74 @@ def attractor_catalog(runs: dict[str, RunInfo], entropy_threshold: float = 1.0) 
     return results
 
 
-## ── Analysis 3: Repetition onset detection ────────────────────────
+## ── Analyses 3-5: delegate to analyze.semantic ────────────────────
+# CLI wrappers add run metadata (name, L, T) to package results.
 
 
 @dataclass
-class RepetitionOnset:
+class RunRepetitionOnset:
     run_name: str
     L: int
     T: float
-    onset_step: int | None  # step where repetition ratio crosses threshold
-    onset_fraction: float   # onset_step / total_steps
-    final_rep_ratio: float  # repetition ratio in last 10k tokens
-    profile: list[float]    # repetition ratio at each checkpoint
+    onset_step: int | None
+    onset_fraction: float
+    final_rep_ratio: float
+    profile: list[float]
+
+
+@dataclass
+class RunHeapsLaw:
+    run_name: str
+    L: int
+    T: float
+    beta: float
+    K: float
+    r_squared: float
+    vocab_at_10k: int
+    vocab_at_100k: int
+    saturation_ratio: float
+
+
+@dataclass
+class RunCoherenceProfile:
+    run_name: str
+    L: int
+    T: float
+    mean_coherence: float
+    std_coherence: float
+    min_coherence: float
+    coherence_curve: list[float]
 
 
 def detect_repetition_onset(
     run: RunInfo, window: int = 5000, stride: int = 5000, threshold: float = 0.5
-) -> RepetitionOnset:
-    """Detect where n-gram repetition begins in a run.
-
-    Slides a window across the token stream, measuring what fraction of
-    bigrams in each window have been seen 3+ times already in that window.
-    The onset is the first window where this fraction exceeds the threshold.
-    """
-    words = "".join(run.tokens).lower().split()
-    n_words = len(words)
-    profile = []
-    onset_step = None
-
-    for start in range(0, n_words - window, stride):
-        chunk = words[start : start + window]
-        bigrams = Counter()
-        for i in range(len(chunk) - 1):
-            bigrams[f"{chunk[i]} {chunk[i+1]}"] += 1
-
-        n_bi = sum(bigrams.values())
-        repeated = sum(c for c in bigrams.values() if c >= 3)
-        ratio = repeated / n_bi if n_bi > 0 else 0.0
-        profile.append(ratio)
-
-        if onset_step is None and ratio >= threshold:
-            # Map word position back to approximate token position
-            onset_step = start  # approximate (word index ~ token index for short tokens)
-
-    # Final window
-    final_chunk = words[max(0, n_words - window):]
-    final_bigrams = Counter()
-    for i in range(len(final_chunk) - 1):
-        final_bigrams[f"{final_chunk[i]} {final_chunk[i+1]}"] += 1
-    n_bi = sum(final_bigrams.values())
-    final_rep = sum(c for c in final_bigrams.values() if c >= 3) / n_bi if n_bi > 0 else 0.0
-
-    return RepetitionOnset(
+) -> RunRepetitionOnset:
+    r = _detect_repetition(run.tokens, window=window, stride=stride, threshold=threshold)
+    return RunRepetitionOnset(
         run_name=run.name, L=run.L, T=run.T,
-        onset_step=onset_step,
-        onset_fraction=onset_step / n_words if onset_step is not None else 1.0,
-        final_rep_ratio=final_rep,
-        profile=profile,
+        onset_step=r.onset_step, onset_fraction=r.onset_fraction,
+        final_rep_ratio=r.final_rep_ratio, profile=r.profile,
     )
 
 
-## ── Analysis 4: Heaps' law fitting ───────────────────────────────
-
-
-@dataclass
-class HeapsLaw:
-    run_name: str
-    L: int
-    T: float
-    beta: float       # exponent: V(n) = K * n^beta
-    K: float           # coefficient
-    r_squared: float   # goodness of fit
-    vocab_at_10k: int
-    vocab_at_100k: int
-    saturation_ratio: float  # vocab_100k / vocab_10k
-
-
-def fit_heaps_law(run: RunInfo, checkpoints: int = 20) -> HeapsLaw:
-    """Fit Heaps' law V(n) = K·n^β to vocabulary growth curve."""
-    words = "".join(run.tokens).lower().split()
-    n_words = len(words)
-    step_size = max(1, n_words // checkpoints)
-
-    ns = []
-    vs = []
-    seen: set[str] = set()
-    vocab_10k = 0
-    vocab_100k = 0
-
-    for i, w in enumerate(words):
-        seen.add(w)
-        if (i + 1) % step_size == 0:
-            ns.append(i + 1)
-            vs.append(len(seen))
-        if i + 1 == 10000:
-            vocab_10k = len(seen)
-
-    vocab_100k = len(seen)
-    if vocab_10k == 0:
-        vocab_10k = len(seen)  # run shorter than 10k words
-
-    # Fit log(V) = log(K) + beta * log(n)
-    if len(ns) < 3:
-        return HeapsLaw(
-            run_name=run.name, L=run.L, T=run.T,
-            beta=0.0, K=0.0, r_squared=0.0,
-            vocab_at_10k=vocab_10k, vocab_at_100k=vocab_100k,
-            saturation_ratio=vocab_100k / vocab_10k if vocab_10k > 0 else 0.0,
-        )
-
-    log_n = np.log(np.array(ns, dtype=float))
-    log_v = np.log(np.array(vs, dtype=float))
-
-    # Least-squares fit
-    n_pts = len(log_n)
-    sum_x = log_n.sum()
-    sum_y = log_v.sum()
-    sum_xy = (log_n * log_v).sum()
-    sum_x2 = (log_n ** 2).sum()
-
-    denom = n_pts * sum_x2 - sum_x ** 2
-    if abs(denom) < 1e-12:
-        beta = 0.0
-        log_K = sum_y / n_pts
-    else:
-        beta = (n_pts * sum_xy - sum_x * sum_y) / denom
-        log_K = (sum_y - beta * sum_x) / n_pts
-
-    K = math.exp(log_K)
-
-    # R-squared
-    y_mean = sum_y / n_pts
-    ss_tot = ((log_v - y_mean) ** 2).sum()
-    y_pred = log_K + beta * log_n
-    ss_res = ((log_v - y_pred) ** 2).sum()
-    r_sq = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
-
-    return HeapsLaw(
+def fit_heaps_law(run: RunInfo, checkpoints: int = 20) -> RunHeapsLaw:
+    h = _fit_heaps(run.tokens, checkpoints=checkpoints)
+    return RunHeapsLaw(
         run_name=run.name, L=run.L, T=run.T,
-        beta=beta, K=K, r_squared=r_sq,
-        vocab_at_10k=vocab_10k, vocab_at_100k=vocab_100k,
-        saturation_ratio=vocab_100k / vocab_10k if vocab_10k > 0 else 0.0,
+        beta=h.beta, K=h.K, r_squared=h.r_squared,
+        vocab_at_10k=h.vocab_at_10k, vocab_at_100k=h.vocab_at_100k,
+        saturation_ratio=h.saturation_ratio,
     )
-
-
-## ── Analysis 5: Semantic coherence ───────────────────────────────
-
-
-@dataclass
-class CoherenceProfile:
-    run_name: str
-    L: int
-    T: float
-    mean_coherence: float    # average overlap between adjacent windows
-    std_coherence: float
-    min_coherence: float     # sharpest topic break
-    coherence_curve: list[float]  # overlap at each window boundary
 
 
 def measure_coherence(
     run: RunInfo, window_words: int = 500, stride_words: int = 250
-) -> CoherenceProfile:
-    """Measure semantic coherence as n-gram overlap between sliding windows.
-
-    For each pair of adjacent windows, computes Jaccard similarity of their
-    bigram sets. High overlap = topic persistence; low overlap = topic shift.
-    """
-    words = "".join(run.tokens).lower().split()
-    n_words = len(words)
-
-    def bigram_set(word_list: list[str]) -> set[str]:
-        return {f"{word_list[i]} {word_list[i+1]}" for i in range(len(word_list) - 1)}
-
-    # Build windows
-    windows = []
-    for start in range(0, n_words - window_words, stride_words):
-        windows.append(bigram_set(words[start : start + window_words]))
-
-    if len(windows) < 2:
-        return CoherenceProfile(
-            run_name=run.name, L=run.L, T=run.T,
-            mean_coherence=0.0, std_coherence=0.0, min_coherence=0.0,
-            coherence_curve=[],
-        )
-
-    # Jaccard similarity between adjacent windows
-    overlaps = []
-    for i in range(len(windows) - 1):
-        a, b = windows[i], windows[i + 1]
-        union = len(a | b)
-        inter = len(a & b)
-        overlaps.append(inter / union if union > 0 else 0.0)
-
-    arr = np.array(overlaps)
-    return CoherenceProfile(
+) -> RunCoherenceProfile:
+    c = _measure_coherence(run.tokens, window_words=window_words, stride_words=stride_words)
+    return RunCoherenceProfile(
         run_name=run.name, L=run.L, T=run.T,
-        mean_coherence=float(arr.mean()),
-        std_coherence=float(arr.std()),
-        min_coherence=float(arr.min()),
-        coherence_curve=overlaps,
+        mean_coherence=c.mean_coherence, std_coherence=c.std_coherence,
+        min_coherence=c.min_coherence, coherence_curve=c.coherence_curve,
     )
 
 

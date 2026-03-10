@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from analyze import analyze_run, comp_stats, _load_experiment_df
-from metrics import run_scalars
+from analyze import analyze_run, comp_stats, load_experiment_df
+from analyze.metrics import run_scalars
 from plot import parse_run_name
 
 log = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def build_summary(runs_dir: Path) -> pd.DataFrame:
         log.info("Processing %s", pq.name)
         params = parse_run_name(pq)
 
-        exp = _load_experiment_df(pq)
+        exp = load_experiment_df(pq)
         analysis = analyze_run(pq, window_sizes=[64], exp=exp)
         acf = analysis["entropy_autocorrelation"]
 
