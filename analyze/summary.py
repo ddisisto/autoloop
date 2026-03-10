@@ -5,8 +5,13 @@ import pandas as pd
 
 
 def default_window_sizes(L: int) -> list[int]:
-    """Default window sizes for a given context length."""
-    return [L, max(L // 4, 16)]
+    """Standard window grid [32,64,128,256].
+
+    Floor at 32 (gzip overhead dominates below this).
+    Always includes windows above L — longer-range patterns may be
+    visible even beyond the context window.
+    """
+    return [32, 64, 128, 256]
 
 
 def comp_stats(cache: dict, W: int) -> dict[str, float]:

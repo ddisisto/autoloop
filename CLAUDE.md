@@ -84,7 +84,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 
 ### What's Built
 - `generate.py`: generation loop with schedule support (per-segment L/T), pre-seeded context (`--prefill-text`), checkpoint/resume with schedule validation, per-1k-step logging, decoded_text fix for multi-byte UTF-8
-- `analyze.py`: modular metric computation (compressibility, stationarity, summaries); single incremental `.analysis.pkl` cache per run; accepts pre-loaded DataFrames; canonical home for `default_window_sizes()`
+- `analyze/`: analysis package (compressibility, stationarity, summaries); single incremental `.analysis.pkl` cache per run; accepts pre-loaded DataFrames; `default_window_sizes()` returns [32,64,128,256] (floor at 32, always includes W>L)
 - `analyze_windows.py`: recompute analysis at standard W grid [16,32,64,128,256]
 - `plot.py`: entropy time series (EOS rate EMA overlay), compressibility, phase portraits (EOS diamonds), temporal phase portraits (cividis), split violin
 - `plot_window_scaling.py`: window scaling plots (comp vs L, comp vs W, heatmaps)
@@ -124,6 +124,8 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Pre-collapse trajectories trace paths through connected semantic basins (education → violence → apocalypse → cataloging → imprisonment → Star Wars)
 - Vocabulary richness (TTR) spans 100x across regimes; Heaps' β cleanly separates collapse (0.17) from rich dynamics (0.80) from escape events (>1.0)
 - Collapse is deterministic (all seeds collapse at T=0.50) but content is seed-dependent — 21 unique attractors across 3 seeds × 7 L values
+- Escape by semantic mutation: at L=16 (threshold lock-in), attractor period expands ("Star Wars" → "Star Wars 2000" → "The Old Republic" → escape). Period-doubling route to chaos
+- Suppressed dynamics is scale-invariant: L=16/T=0.60 pre-seeded ≈ L=256/T=0.70 natural (same coherence, TTR). Regime depends on basin-depth/thermal-energy ratio, not absolute L or T
 
 ### Key Parameters
 - Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
