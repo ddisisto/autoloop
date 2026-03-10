@@ -56,6 +56,10 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **Pre-collapse trajectories map semantic basin connectivity.** Runs don't jump to attractors — they traverse paths through semantic space. L=256/T=0.60 walks: education → political violence → apocalyptic text → civilization → bureaucratic cataloging → imprisonment ("the man was not allowed to leave" ×399) → Star Wars (forever). Each waypoint is a basin the system passed through. Across all collapsed runs, these descent paths form a graph of the model's semantic topology — the basins are connected, and the paths between them reveal how concepts relate in the learned representation.
 
+**Closed-loop control is possible.** A simple controller (adjust T ±0.05 per segment, adjust L ±16 when T saturates) can hold Heaps' β near a target. Balance points exist: L=8/T=0.70, L=16/T=0.75, L=128/T=0.90-0.95 — the balance T tracks T_escape(L). At small L the balance basin is wide (β stays 0.85-1.07 for any T in 0.70-1.00); at L=128 it oscillates (β swings 0.60-1.27), revealing a sharper escape boundary. β ≈ 0.90 appears to be a natural equilibrium for SmolLM-135M, regardless of L or starting T.
+
+**Compressibility is a collapse detector, not a rich-dynamics discriminator.** W>L analysis across 64 runs: at T=1.00, comp_W256 at L=64 (W>L) is only 0.03 below the noise floor (T=1.50). The in-context contribution at W>L scales is minimal. The controller's real operating range is at W≤L scales. Entropy and Heaps' β are the right sensors for navigating the escape boundary.
+
 **Open questions:**
 - Does the lock-in ratio (~4-8 copies) hold for longer cycles (3-token, 4-token) and across models? If universal, it reveals a property of in-context learning generally.
 - What drives the suppressed-dynamics regime? L=256 at T=0.70–0.80 has high comp_W64 (~0.6) but low entropy (~0.4–0.6). Is this a single deep attractor or switching between multiple shallow ones? Basin transition analysis suggests the latter: 21 escape events at L=256 T=0.80, with progressive deepening.
@@ -63,6 +67,9 @@ Append-only record of findings. Each entry includes reproduction commands.
 - Do the four regimes and annealing mechanism generalize beyond SmolLM-135M?
 - Can escape spike magnitude serve as a single-run estimator of T_escape, replacing grid sweeps?
 - Is the escape-by-mutation mechanism (period expansion → chaos) a general route, or specific to short cycles at threshold L?
+- Is β ≈ 0.90 model-specific or a property of the generation setup? Would a different model equilibrate at the same point?
+- Can proportional T control stabilize the L=128 oscillation, or does the escape boundary have intrinsic bistability?
+- What does the generated text look like at the balance point? Coherent or high-entropy noise with the right vocab statistics?
 
 ---
 
@@ -80,3 +87,4 @@ Detailed entries archived by date. Each file contains full reproduction commands
 | 2026-03-10b | [observations-2026-03-10b.md](docs/observations-2026-03-10b.md) | Pre-seeded basin escape probes: hysteresis (basin exit >> basin avoidance), L-titration of basin depth (lock-in at 4-8 copies), single-token vs multi-token attractor depth, mutual prediction as basin depth mechanism |
 | 2026-03-10c | [observations-2026-03-10c.md](docs/observations-2026-03-10c.md) | Semantic analysis: "temperature" attractor at L=128/T=0.60, vocabulary richness 100x range, Heaps' law β separates regimes, attractor content describes own dynamics (eigenstates), pre-collapse trajectories map semantic basin connectivity, seed-dependent content but deterministic collapse |
 | 2026-03-10d | [observations-2026-03-10d.md](docs/observations-2026-03-10d.md) | Escape by semantic mutation (period-doubling route to chaos), L=16 β=2.926 anomaly, suppressed zone equivalence across scales, L=128/T=0.60 "temperature" eigenstate, full 15-attractor catalog |
+| 2026-03-10e | [observations-2026-03-10e.md](docs/observations-2026-03-10e.md) | Controller v1 with balance points (β≈0.90 equilibrium), comp_stats interface fix, W>L analysis (compressibility as collapse detector) |

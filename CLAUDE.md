@@ -14,10 +14,11 @@ utils.py             # Shared primitives (compressibility, eos_ema, fix_decoded_
 metrics.py           # Scalar metric extraction (surprisal stats, EOS interarrival, decorrelation lag)
 summary_table.py     # Cross-condition summary CSV from all runs
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
-analyze_windows.py   # Recompute analysis at standard W grid [16,32,64,128,256]
+analyze_windows.py   # Recompute analysis at standard W grid (from default_window_sizes)
 plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
 precollapse.py       # Pre-collapse trajectory analysis (regime classification, basin transitions, W/L convergence)
 semantic.py          # Semantic analysis (theme search, attractor catalog, Heaps' law, repetition onset, coherence)
+controller.py        # Closed-loop controller (hill-climb β toward target, adjust L/T per segment)
 anneal.py            # Annealing experiment runner (phased: probes, tier1-5, --check, --dry-run)
 sweep.py             # Unified sweep runner (presets, ad-hoc grids, --status)
 explorer.py          # Interactive web explorer backend (FastAPI)
@@ -65,6 +66,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Per-step `temperature` and `context_length` columns in parquet (vary per-step in scheduled runs)
 - Each run includes a JSON sidecar with full metadata (schedule, prefill_text, model revision, torch version, timing)
 - Analysis cache: single `.analysis.pkl` per parquet, incremental (new window sizes merged in), invalidated by parquet mtime
+- Compressibility arrays have leading NaN (first W-1 positions). Use `comp_stats(cache, W)` for scalar summaries; access raw arrays only for time-series work
 - Checkpoints: same stem as parquet `.ckpt` — kept after run completion for extension; stores schedule spec for resume validation
 - Model weights: `data/model/SmolLM-135M/` (local, not fetched at runtime)
 
@@ -85,7 +87,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 ### What's Built
 - `generate.py`: generation loop with schedule support (per-segment L/T), pre-seeded context (`--prefill-text`), checkpoint/resume with schedule validation, per-1k-step logging, decoded_text fix for multi-byte UTF-8
 - `analyze/`: analysis package (compressibility, stationarity, summaries); single incremental `.analysis.pkl` cache per run; accepts pre-loaded DataFrames; `default_window_sizes()` returns [32,64,128,256] (floor at 32, always includes W>L)
-- `analyze_windows.py`: recompute analysis at standard W grid [16,32,64,128,256]
+- `analyze_windows.py`: recompute analysis at standard W grid (defers to `default_window_sizes()`)
 - `plot.py`: entropy time series (EOS rate EMA overlay), compressibility, phase portraits (EOS diamonds), temporal phase portraits (cividis), split violin
 - `plot_window_scaling.py`: window scaling plots (comp vs L, comp vs W, heatmaps)
 - `utils.py`: shared primitives — `compressibility()`, `eos_ema()`
@@ -126,6 +128,8 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Collapse is deterministic (all seeds collapse at T=0.50) but content is seed-dependent — 21 unique attractors across 3 seeds × 7 L values
 - Escape by semantic mutation: at L=16 (threshold lock-in), attractor period expands ("Star Wars" → "Star Wars 2000" → "The Old Republic" → escape). Period-doubling route to chaos
 - Suppressed dynamics is scale-invariant: L=16/T=0.60 pre-seeded ≈ L=256/T=0.70 natural (same coherence, TTR). Regime depends on basin-depth/thermal-energy ratio, not absolute L or T
+- Closed-loop control works: controller finds balance points at β≈0.90 (L=8/T=0.70, L=16/T=0.75, L=128/T=0.90-0.95). Balance T tracks T_escape(L). Small L has wide β basin; L=128 oscillates at the escape boundary.
+- Compressibility is a collapse detector, not a rich-dynamics discriminator. W>L signal is weak (~0.03 below noise floor). Entropy and Heaps' β are the right control signals.
 
 ### Key Parameters
 - Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
@@ -159,6 +163,11 @@ python generate.py --schedule "50000:L256:T0.60,10000:L64:T0.60,40000:L256:T0.60
 python generate.py --context-length 256 --temperature 0.60 --seed 42 \
   --num-tokens 100000 --prefill-text " Star Wars" \
   --model-dir data/model/SmolLM-135M --output-dir data/runs --device cuda
+
+# Closed-loop controller (hill-climb β toward 1.0)
+python controller.py --seed 42 --total-steps 10000               # default L=64, T=0.70
+python controller.py --seed 42 --total-steps 3000 --segment-steps 160 --start-L 16 --start-T 0.55
+python controller.py --seed 42 --total-steps 3000 --start-L 8 --start-T 0.60 --dry-run
 
 # Interactive explorer
 uvicorn explorer:app --reload --port 8000   # then open http://localhost:8000

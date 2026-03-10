@@ -46,6 +46,16 @@ STEP_METRIC_DEFS: dict[str, dict] = {
         "description": "Whether the generated token was EOS (0/1)",
         "column": "eos",
     },
+    "temperature": {
+        "name": "Temperature",
+        "description": "Sampling temperature at each step (varies in controller/schedule runs)",
+        "column": "temperature",
+    },
+    "context_length": {
+        "name": "Context Length",
+        "description": "Context window size at each step (varies in controller/schedule runs)",
+        "column": "context_length",
+    },
 }
 
 # Block-level metric prefix (compressibility at various W)
@@ -63,31 +73,162 @@ class RunInfo:
         self.path = parquet_path
         self.id = parquet_path.stem  # e.g. L0064_T0.50_S42
 
-        m = re.match(r"L(\d+)_T([\d.]+)_S(\d+)", self.id)
-        if not m:
-            raise ValueError(f"Cannot parse run name: {self.id}")
-        self.L = int(m.group(1))
-        self.T = float(m.group(2))
-        self.seed = int(m.group(3))
-
-        # Read JSON sidecar if present
+        # Read JSON sidecar if present (needed for non-standard names)
         sidecar = parquet_path.with_suffix(".meta.json")
         self.meta: dict = {}
         if sidecar.exists():
             with open(sidecar) as f:
                 self.meta = json.load(f)
 
-        self.tokens = self.meta.get("num_tokens", 0)
+        # Classify run type and extract parameters
+        self.run_type = self._classify()
+        self.L, self.T, self.seed = self._extract_params()
+
+        # For variable-parameter runs, record the range
+        self.L_varies = False
+        self.T_varies = False
+        self.L_range: tuple[int, int] | None = None
+        self.T_range: tuple[float, float] | None = None
+        if self.run_type in ("controller", "schedule"):
+            self._detect_variable_params()
+
+        self.tokens = self.meta.get("num_tokens", self.meta.get("total_steps", 0))
+
+        # Decision log path for controller runs
+        self.decisions_path: Path | None = None
+        if self.run_type == "controller":
+            dp = parquet_path.with_suffix(".decisions.json")
+            if dp.exists():
+                self.decisions_path = dp
+
+    def _classify(self) -> str:
+        """Infer run type from filename prefix and metadata."""
+        if self.meta.get("controller"):
+            return "controller"
+        if self.id.startswith("ctrl_"):
+            return "controller"
+        if self.id.startswith("anneal_"):
+            return "anneal"
+        if self.id.startswith("probe_"):
+            return "probe"
+        if self.id.startswith("sched_"):
+            return "schedule"
+        if re.match(r"L\d+_T[\d.]+_S\d+", self.id):
+            return "fixed"
+        # Unknown prefix — accept if meta.json exists
+        if self.meta:
+            return "other"
+        raise ValueError(f"Cannot parse run name and no meta.json: {self.id}")
+
+    def _extract_params(self) -> tuple[int, float, int]:
+        """Extract L, T, seed — from filename regex or meta.json fallback."""
+        # Try standard fixed-param pattern
+        m = re.match(r"L(\d+)_T([\d.]+)_S(\d+)", self.id)
+        if m:
+            return int(m.group(1)), float(m.group(2)), int(m.group(3))
+
+        # Try anneal pattern: anneal_L{L}_{label}_S{seed}
+        m = re.match(r"anneal_L(\d+)_\w+_S(\d+)", self.id)
+        if m:
+            L = int(m.group(1))
+            seed = int(m.group(2))
+            T = self.meta.get("temperature", 0.0)
+            # If no T in meta, read from parquet
+            if T == 0.0:
+                try:
+                    import pyarrow.parquet as pq
+                    pf = pq.ParquetFile(self.path)
+                    batch = pf.read_row_group(0, columns=["temperature"])
+                    T = float(batch.column("temperature")[0].as_py())
+                except Exception:
+                    pass
+            return L, float(T), seed
+
+        # Try controller pattern: ctrl_S{seed}_{L}_{T}
+        m = re.match(r"ctrl_S(\d+)_(\d+)_([\d.]+)", self.id)
+        if m:
+            seed = int(m.group(1))
+            L = int(m.group(2))
+            T = float(m.group(3))
+            return L, T, seed
+
+        # Try probe pattern: probe_L{L}_T{T} (no seed, no meta)
+        m = re.match(r"probe_L(\d+)_T(\d+)", self.id)
+        if m:
+            L = int(m.group(1))
+            # T encoded without dot: 060 -> 0.60
+            T_raw = m.group(2)
+            T = int(T_raw) / 100.0
+            return L, T, 0
+
+        # Fallback: read from meta.json
+        meta = self.meta
+        L = meta.get("context_length", meta.get("start_L", 0))
+        T = meta.get("temperature", meta.get("start_T", 0.0))
+        seed = meta.get("seed", 0)
+
+        # Last resort: read from parquet first row
+        if L == 0 and self.path.exists():
+            try:
+                import pyarrow.parquet as pq
+                pf = pq.ParquetFile(self.path)
+                batch = pf.read_row_group(0, columns=["context_length", "temperature"])
+                if "context_length" in batch.column_names:
+                    L = int(batch.column("context_length")[0].as_py())
+                if "temperature" in batch.column_names:
+                    T = float(batch.column("temperature")[0].as_py())
+            except Exception:
+                pass
+
+        return int(L), float(T), int(seed)
+
+    def _detect_variable_params(self) -> None:
+        """Check parquet for varying L/T columns (without loading full df)."""
+        try:
+            import pyarrow.parquet as pq
+            pf = pq.ParquetFile(self.path)
+            # Read just the L/T columns from the first and last row groups
+            cols = []
+            schema_names = pf.schema.names
+            if "context_length" in schema_names:
+                cols.append("context_length")
+            if "temperature" in schema_names:
+                cols.append("temperature")
+            if not cols:
+                return
+            table = pf.read(columns=cols)
+            if "context_length" in cols:
+                L_col = table.column("context_length")
+                L_min, L_max = int(L_col.to_pylist()[0]), int(L_col.to_pylist()[-1])
+                # Check a few points for variation
+                vals = set(L_col.to_pylist()[::max(1, len(L_col) // 20)])
+                if len(vals) > 1:
+                    self.L_varies = True
+                    self.L_range = (min(vals), max(vals))
+            if "temperature" in cols:
+                T_col = table.column("temperature")
+                vals = set(round(v, 4) for v in T_col.to_pylist()[::max(1, len(T_col) // 20)])
+                if len(vals) > 1:
+                    self.T_varies = True
+                    self.T_range = (min(vals), max(vals))
+        except Exception:
+            pass  # non-critical; just won't show range info
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "id": self.id,
             "L": self.L,
             "T": self.T,
             "seed": self.seed,
             "tokens": self.tokens,
             "path": self.path.name,
+            "run_type": self.run_type,
         }
+        if self.L_varies and self.L_range:
+            d["L_range"] = list(self.L_range)
+        if self.T_varies and self.T_range:
+            d["T_range"] = list(self.T_range)
+        return d
 
 
 class RunCache:
@@ -110,11 +251,16 @@ class RunCache:
         """Get analysis results, triggering computation if needed.
 
         Passes the already-loaded experiment DataFrame to avoid double-loading.
+        For variable-L runs, uses the starting L for window size selection.
         """
         if info.id not in self._analyses:
-            ws = default_window_sizes(info.L)
+            # For variable-L runs, use the minimum L for window size selection
+            L_for_windows = info.L
+            if info.L_varies and info.L_range:
+                L_for_windows = info.L_range[0]
+            ws = default_window_sizes(L_for_windows)
             exp = self.get_experiment_df(info)
-            log.info("Analyzing %s (W=%s)", info.id, ws)
+            log.info("Analyzing %s (type=%s, W=%s)", info.id, info.run_type, ws)
             self._analyses[info.id] = analyze_run(info.path, ws, exp=exp)
         return self._analyses[info.id]
 
@@ -142,11 +288,15 @@ class RunIndex:
             try:
                 info = RunInfo(p)
                 self.runs[info.id] = info
-                log.debug("Indexed run: %s", info.id)
+                log.debug("Indexed run: %s (type=%s)", info.id, info.run_type)
             except ValueError as e:
                 log.warning("Skipping %s: %s", p.name, e)
 
-        log.info("Indexed %d runs", len(self.runs))
+        type_counts = {}
+        for info in self.runs.values():
+            type_counts[info.run_type] = type_counts.get(info.run_type, 0) + 1
+        log.info("Indexed %d runs: %s", len(self.runs),
+                 ", ".join(f"{k}={v}" for k, v in sorted(type_counts.items())))
 
     def resolve_glob(self, pattern: str) -> list[str]:
         """Resolve a glob/fnmatch pattern against run IDs."""
@@ -183,12 +333,15 @@ def build_metric_registry(
     """
     metrics: list[dict] = []
 
-    # Check step-level metrics from the first available run
+    # Check step-level metrics across run types (columns may differ)
     step_columns_found: set[str] = set()
-    if index.runs:
-        sample_info = next(iter(index.runs.values()))
-        sample_df = cache.get_experiment_df(sample_info)
-        step_columns_found = set(sample_df.columns)
+    sampled_types: set[str] = set()
+    for info in index.runs.values():
+        if info.run_type in sampled_types:
+            continue
+        sampled_types.add(info.run_type)
+        sample_df = cache.get_experiment_df(info)
+        step_columns_found.update(sample_df.columns)
 
     for metric_id, defn in STEP_METRIC_DEFS.items():
         if defn["column"] in step_columns_found:
@@ -542,6 +695,83 @@ def get_ngrams(
     return JSONResponse(content={
         "run_id": info.id,
         "ngrams": ngrams,
+    })
+
+
+@app.get("/api/events")
+def get_events(
+    run: str = Query(..., description="Run ID"),
+) -> JSONResponse:
+    """Return event markers for a run (controller decisions, schedule transitions).
+
+    For controller runs, reads the .decisions.json sidecar.
+    For schedule/anneal runs, detects L/T transitions from the parquet data.
+    """
+    assert run_index is not None
+    assert run_cache is not None
+
+    if run not in run_index.runs:
+        return JSONResponse(content={"error": f"Run not found: {run}"}, status_code=404)
+
+    info = run_index.runs[run]
+    events: list[dict] = []
+
+    # Controller runs: read decision log
+    if info.decisions_path is not None:
+        with open(info.decisions_path) as f:
+            decisions = json.load(f)
+        for d in decisions:
+            events.append({
+                "step": d["step"],
+                "type": d.get("action", "decision"),
+                "L": d.get("L"),
+                "T": d.get("T"),
+                "beta": d.get("beta"),
+                "entropy": d.get("entropy"),
+                "reason": d.get("reason", ""),
+            })
+    else:
+        # Detect L/T transitions from parquet columns
+        exp = run_cache.get_experiment_df(info)
+        if "context_length" in exp.columns:
+            L_col = exp["context_length"]
+            changes = L_col.ne(L_col.shift())
+            for idx in exp.index[changes][1:]:  # skip first row
+                row = exp.iloc[idx]
+                events.append({
+                    "step": int(idx),
+                    "type": "L_change",
+                    "L": int(row["context_length"]),
+                    "T": float(row["temperature"]) if "temperature" in exp.columns else None,
+                    "reason": f"L→{int(row['context_length'])}",
+                })
+        if "temperature" in exp.columns:
+            T_col = exp["temperature"].round(4)
+            changes = T_col.ne(T_col.shift())
+            for idx in exp.index[changes][1:]:
+                row = exp.iloc[idx]
+                # Avoid duplicate if L also changed at same step
+                if not any(e["step"] == int(idx) for e in events):
+                    events.append({
+                        "step": int(idx),
+                        "type": "T_change",
+                        "L": int(row["context_length"]) if "context_length" in exp.columns else None,
+                        "T": float(row["temperature"]),
+                        "reason": f"T→{float(row['temperature']):.2f}",
+                    })
+                else:
+                    # Augment existing event
+                    for e in events:
+                        if e["step"] == int(idx):
+                            e["type"] = "LT_change"
+                            e["T"] = float(row["temperature"])
+                            e["reason"] += f", T→{float(row['temperature']):.2f}"
+
+    events.sort(key=lambda e: e["step"])
+    return JSONResponse(content={
+        "run_id": info.id,
+        "run_type": info.run_type,
+        "events": events,
     })
 
 

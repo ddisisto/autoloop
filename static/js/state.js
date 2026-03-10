@@ -99,7 +99,15 @@ export function getRunDash(run) {
 }
 
 export function getRunLabel(run) {
-  return `L=${run.L} T=${parseFloat(run.T).toFixed(2)} S=${run.seed}`;
+  const base = `L=${run.L} T=${parseFloat(run.T).toFixed(2)} S=${run.seed}`;
+  if (!run.run_type || run.run_type === 'fixed') return base;
+  const tag = run.run_type === 'controller' ? 'ctrl'
+    : run.run_type === 'anneal' ? 'annl'
+    : run.run_type;
+  const extras = [];
+  if (run.T_range) extras.push(`T:${run.T_range[0].toFixed(2)}-${run.T_range[1].toFixed(2)}`);
+  if (run.L_range) extras.push(`L:${run.L_range[0]}-${run.L_range[1]}`);
+  return `[${tag}] ${base}${extras.length ? ' ' + extras.join(' ') : ''}`;
 }
 
 // ---------------------------------------------------------------------------
