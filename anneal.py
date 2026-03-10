@@ -16,6 +16,7 @@ import logging
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -57,30 +58,82 @@ def is_done(name: str) -> bool:
     return (RUNS_DIR / f"{name}.parquet").exists()
 
 
-def run_batch(runs: list[dict]) -> None:
+def format_duration(seconds: float) -> str:
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h}h {m:02d}m {s:02d}s"
+    return f"{m}m {s:02d}s"
+
+
+def run_batch(runs: list[dict], label: str) -> None:
     """Run a batch sequentially, skipping completed runs."""
     total = len(runs)
-    done = sum(1 for r in runs if is_done(r["name"]))
-    if done == total:
+    pending = [r for r in runs if not is_done(r["name"])]
+    skipped = total - len(pending)
+
+    if not pending:
         log.info("All %d runs already complete.", total)
         return
-    log.info("%d/%d runs complete, %d remaining.", done, total, total - done)
 
-    for i, r in enumerate(runs, 1):
-        if is_done(r["name"]):
-            log.info("[%d/%d] %s — already done, skipping", i, total, r["name"])
-            continue
-        log.info("[%d/%d] Starting %s", i, total, r["name"])
+    # File logging
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = REPO_ROOT / "data"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"anneal_{label}_{timestamp}.txt"
+    logging.getLogger().addHandler(logging.FileHandler(log_file))
+
+    log.info("%s: %d conditions pending, %d already done",
+             label, len(pending), skipped)
+    log.info("Log file: %s", log_file)
+
+    done = 0
+    failed = 0
+    failures: list[tuple[str, str]] = []
+
+    for i, r in enumerate(pending, 1):
+        name = r["name"]
+        header = f"=== [{i}/{len(pending)}] {name}"
+        log.info("%s — started %s ===", header, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
         t0 = time.monotonic()
-        result = run(**r)
-        elapsed = time.monotonic() - t0
-        if result.returncode == 130:
-            log.info("Interrupted. Exiting.")
-            sys.exit(130)
-        if result.returncode != 0:
-            log.error("%s failed with code %d", r["name"], result.returncode)
-            sys.exit(result.returncode)
-        log.info("[%d/%d] %s done in %.0fs", i, total, r["name"], elapsed)
+        try:
+            result = run(**r)
+            elapsed = time.monotonic() - t0
+
+            if result.returncode == 0:
+                done += 1
+                log.info("%s — done in %s (%d done, %d failed, %d remaining) ===",
+                         header, format_duration(elapsed), done, failed,
+                         len(pending) - done - failed)
+            elif result.returncode in (130, -2):
+                log.info("%s — interrupted after %s (checkpoint saved). Stopping.",
+                         header, format_duration(elapsed))
+                break
+            else:
+                failed += 1
+                failures.append((name, f"exit code {result.returncode}"))
+                log.error("%s — FAILED (exit %d) after %s (%d done, %d failed, %d remaining) ===",
+                          header, result.returncode, format_duration(elapsed),
+                          done, failed, len(pending) - done - failed)
+        except KeyboardInterrupt:
+            elapsed = time.monotonic() - t0
+            log.info("%s — interrupted after %s. Subprocess checkpoint may be saved.",
+                     header, format_duration(elapsed))
+            break
+        except Exception as e:
+            elapsed = time.monotonic() - t0
+            failed += 1
+            failures.append((name, str(e)))
+            log.error("%s — EXCEPTION after %s: %s ===", header, format_duration(elapsed), e)
+
+    log.info("=" * 60)
+    log.info("%s finished. %d done, %d failed, %d skipped (already done).",
+             label, done, failed, skipped)
+    if failures:
+        log.error("Failed runs:")
+        for name, reason in failures:
+            log.error("  %s: %s", name, reason)
 
 
 def check_probes() -> None:
@@ -219,8 +272,17 @@ def main() -> None:
     }
     runs = phases[args.phase]
 
-    if args.phase == "probes" and args.check:
-        check_probes()
+    if args.check:
+        if args.phase == "probes":
+            check_probes()
+        else:
+            # Show status for any phase (same as --dry-run)
+            for r in runs:
+                status = "DONE" if is_done(r["name"]) else "TODO"
+                sched = r.get("schedule", f"L{r.get('L')} T{r.get('T')}")
+                print(f"  [{status}] {r['name']:<35} {sched}")
+            done = sum(1 for r in runs if is_done(r["name"]))
+            print(f"\n{done}/{len(runs)} complete")
         return
 
     if args.dry_run:
@@ -232,7 +294,7 @@ def main() -> None:
         print(f"\n{done}/{len(runs)} complete")
         return
 
-    run_batch(runs)
+    run_batch(runs, label=args.phase)
 
     if args.phase == "probes":
         log.info("Probes complete. Run 'python anneal.py probes --check' to analyze.")

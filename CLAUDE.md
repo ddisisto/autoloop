@@ -17,6 +17,8 @@ reproduce_plots.py   # Regenerate all standard plots from available data (with c
 analyze_windows.py   # Recompute analysis at standard W grid [16,32,64,128,256]
 plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
 precollapse.py       # Pre-collapse trajectory analysis (regime classification, basin transitions, W/L convergence)
+semantic.py          # Semantic analysis (theme search, attractor catalog, Heaps' law, repetition onset, coherence)
+anneal.py            # Annealing experiment runner (phased: probes, tier1-5, --check, --dry-run)
 sweep.py             # Unified sweep runner (presets, ad-hoc grids, --status)
 explorer.py          # Interactive web explorer backend (FastAPI)
 static/              # Explorer frontend
@@ -32,6 +34,7 @@ explorer.md          # Explorer design doc
 run-index.md         # Run tracker, grid overview, phase planning
 observations.md      # Current model summary + evidence log index
 docs/                # Longer-form documents + observation archives
+  annealing-experiment.md    # Annealing experiment design (tiered, probe-first)
   observations-2026-03-*.md  # Dated observation archives (from observations.md)
   project-brief.md   # Research design document
   share.md           # Draft post/article for sharing findings
@@ -110,10 +113,17 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Concept fragmentation: temperature controls expression fidelity, not concept activation
 - L-densification at T=0.50: jagged non-monotonic profile, no clean phase transition
 - "Memory-depth annealing": L-reduction as escape mechanism — bounded by T_escape saturation
+- Basin escape hysteresis: pre-seeded attractor at L=64/T=0.80 stays stuck (BOS T_escape=0.55). Basin exit requires ~0.4T more than basin avoidance
+- L-titration of basin depth: " Star Wars" (2-token cycle) locks in at 4-8 copies (L=8 escapes, L=16 stuck). Sharp transition, not gradual
+- Single-token attractors (" young") much shallower than multi-token mutual-prediction cycles — basin depth depends on mutual information between cycle positions
 - Basin transitions: escape spikes >6 nats always reach shallower basins; <1 nat leads deeper 67% of time (L=256 T=0.80)
 - Progressive basin deepening: floors cascade from 0.05→0.014 over a run's lifetime
 - Attractor content is semantically diverse and L-dependent (shorter periods at higher L)
 - W/L convergence: slope divergence fingerprints attractor approach (local compression + global expansion)
+- Attractor content describes its own dynamics: tautologies, incomplete predicates, self-perpetuating conditions, confinement
+- Pre-collapse trajectories trace paths through connected semantic basins (education → violence → apocalypse → cataloging → imprisonment → Star Wars)
+- Vocabulary richness (TTR) spans 100x across regimes; Heaps' β cleanly separates collapse (0.17) from rich dynamics (0.80) from escape events (>1.0)
+- Collapse is deterministic (all seeds collapse at T=0.50) but content is seed-dependent — 21 unique attractors across 3 seeds × 7 L values
 
 ### Key Parameters
 - Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
@@ -166,6 +176,21 @@ python precollapse.py                              # summary by regime (all T<=1
 python precollapse.py --detail L0256_T0.80_S42     # detailed report with basin transitions
 python precollapse.py --csv data/precollapse.csv   # all metrics to CSV
 python precollapse.py --runs data/runs/L0256*.parquet  # specific runs
+
+# Annealing experiments
+python anneal.py probes              # Phase 0: quick feasibility (5k tokens)
+python anneal.py probes --check      # analyze probe results
+python anneal.py tier1               # Phase A: escape threshold (100k tokens)
+python anneal.py tier2               # Phase B: return dynamics (100k tokens)
+python anneal.py tier5               # Phase B: T vs L comparison (100k tokens)
+python anneal.py tier1 --dry-run     # preview without running
+
+# Semantic analysis
+python semantic.py                                  # default theme "temperature", all runs
+python semantic.py --seed 42                        # filter to seed 42
+python semantic.py --theme "the" --seed 42          # custom theme
+python semantic.py --csv data/semantic.csv          # export all metrics
+python semantic.py --runs data/runs/L0256*.parquet  # specific runs
 
 # Cross-condition summary table
 python summary_table.py                         # print to stdout
