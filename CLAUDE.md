@@ -197,10 +197,11 @@ python anneal.py tier5               # Phase B: T vs L comparison (100k tokens)
 python anneal.py tier1 --dry-run     # preview without running
 
 # Semantic analysis
-python semantic.py                                  # default theme "temperature", all runs
-python semantic.py --seed 42                        # filter to seed 42
-python semantic.py --theme "the" --seed 42          # custom theme
-python semantic.py --csv data/semantic.csv          # export all metrics
+python semantic.py --clouds                         # auto-discover themes, map basins, co-occurrence
+python semantic.py --clouds --csv data/basins.csv   # export basin fingerprints
+python semantic.py --themes water book food          # multi-theme compact density report
+python semantic.py --theme "the" --seed 42          # single theme full analysis (legacy)
+python semantic.py --csv data/semantic.csv          # export all metrics (single-theme mode)
 python semantic.py --runs data/runs/L0256*.parquet  # specific runs
 
 # Cross-condition summary table

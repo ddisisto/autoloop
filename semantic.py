@@ -10,11 +10,14 @@ Analyses:
   3. Repetition onset: detect the step where n-gram repetition begins
   4. Heaps' law: fit vocabulary growth V(n) = K·n^β, report β by condition
   5. Semantic coherence: n-gram overlap between sliding windows
+  6. Theme clouds: multi-theme density + neighbor analysis across all runs
 
 Usage:
     python semantic.py                          # default theme: "temperature"
     python semantic.py --theme "the"            # custom theme
     python semantic.py --theme "temperature" --context-radius 30
+    python semantic.py --themes water book temperature author food  # multi-theme
+    python semantic.py --discover 20            # auto-discover top 20 dense themes
     python semantic.py --runs data/runs/L0256*.parquet
     python semantic.py --csv data/semantic.csv  # export metrics
 """
@@ -184,6 +187,241 @@ def neighbor_profile(
             tok.strip().lower() for tok in neighbors if tok.strip()
         )
     return by_t
+
+
+## ── Analysis 6: Theme clouds ─────────────────────────────────────
+
+# Functional words filtered from theme discovery
+STOPWORDS = frozenset({
+    "the", "and", "for", "that", "this", "with", "from", "are", "was", "were",
+    "has", "have", "had", "not", "but", "you", "your", "they", "their", "them",
+    "its", "his", "her", "she", "will", "can", "could", "would", "should", "may",
+    "might", "been", "being", "also", "more", "most", "than", "then", "when",
+    "where", "which", "what", "who", "how", "all", "each", "every", "both", "few",
+    "many", "much", "some", "any", "other", "such", "only", "very", "just", "about",
+    "into", "over", "after", "before", "between", "through", "during", "without",
+    "within", "against", "along", "among", "around", "because", "since", "until",
+    "while", "these", "those", "here", "there", "our", "out", "own", "same",
+    "still", "even", "back", "well", "like", "made", "make", "does", "did", "get",
+    "got", "new", "one", "two", "first", "last", "long", "great", "little",
+    "right", "old", "big", "high", "end", "part", "know", "take", "come", "see",
+    "look", "way", "use", "used", "using", "said", "says", "find", "give", "tell",
+    "help", "put", "need", "try", "called", "year", "years", "time", "people",
+    "world", "day", "work", "life", "however", "including", "according", "often",
+    "based", "known", "different", "important", "include", "number", "several",
+    "whether", "possible", "likely", "provide", "process", "available", "general",
+    "specific", "common", "certain", "able", "small", "large", "early", "late",
+    "best", "good", "better", "example", "form", "type", "types", "per", "set",
+    "three", "four", "five", "now", "let", "say", "thing", "things", "fact",
+    "case", "point", "another", "going", "must", "goes", "want", "keep", "given",
+    "show", "down", "start", "name", "line", "hand", "move", "play", "home",
+    "state", "mean", "means", "turn", "real", "away", "next", "second", "full",
+    "level", "order", "place", "open", "close", "left", "done", "body", "become",
+    "above", "below", "area", "side", "kind", "system", "group", "began", "begin",
+    "today", "less", "power", "under", "though", "call", "hold", "head", "word",
+    "words", "making", "info", "bring", "read", "write", "free", "true", "data",
+    "note", "human",
+})
+
+
+@dataclass
+class ThemeCloud:
+    """A theme word's density profile across runs."""
+    word: str
+    total_hits: int
+    n_runs_present: int
+    max_density: float
+    mean_density: float
+    top_run: str
+    top_count: int
+    spikiness: float
+
+
+@dataclass
+class ThemePair:
+    """Co-occurrence of two themes in the same runs."""
+    word_a: str
+    word_b: str
+    shared_runs: list[str]
+    jaccard: float
+
+
+@dataclass
+class RunBasin:
+    """A run's dominant semantic basin (top themes)."""
+    run_name: str
+    L: int
+    T: float
+    top_themes: list[tuple[str, float]]  # (word, density)
+    basin_label: str  # human-readable summary
+
+
+def _clean_words(tokens: list[str]) -> list[str]:
+    """Extract content words from token list."""
+    text = "".join(tokens)
+    words = text.lower().split()
+    cleaned = []
+    for w in words:
+        w = re.sub(r"[^a-z]", "", w)
+        if len(w) > 3 and w not in STOPWORDS:
+            cleaned.append(w)
+    return cleaned
+
+
+def discover_themes(
+    runs: dict[str, RunInfo], min_hits: int = 100, min_runs: int = 3, top_n: int = 60
+) -> list[ThemeCloud]:
+    """Find content words with highest density across runs."""
+    global_counts: Counter = Counter()
+    per_run: dict[str, Counter] = {}
+    run_sizes: dict[str, int] = {}
+
+    for name, run in runs.items():
+        words = _clean_words(run.tokens)
+        c = Counter(words)
+        per_run[name] = c
+        run_sizes[name] = len(words)
+        global_counts.update(c)
+
+    results = []
+    for word, total in global_counts.items():
+        if total < min_hits:
+            continue
+        densities = []
+        for name in runs:
+            n = run_sizes.get(name, 0)
+            if n == 0:
+                continue
+            count = per_run[name].get(word, 0)
+            densities.append((name, count, count / n))
+
+        n_present = sum(1 for d in densities if d[1] > 0)
+        if n_present < min_runs:
+            continue
+
+        densities.sort(key=lambda x: -x[2])
+        max_d = densities[0][2]
+        mean_d = sum(d[2] for d in densities) / len(densities)
+        spikiness = max_d / mean_d if mean_d > 0 else 0
+
+        results.append(ThemeCloud(
+            word=word, total_hits=total, n_runs_present=n_present,
+            max_density=max_d, mean_density=mean_d,
+            top_run=densities[0][0], top_count=densities[0][1],
+            spikiness=spikiness,
+        ))
+
+    results.sort(key=lambda w: -w.total_hits)
+    return results[:top_n], per_run, run_sizes
+
+
+def find_co_occurrences(
+    themes: list[ThemeCloud],
+    per_run: dict[str, Counter],
+    run_sizes: dict[str, int],
+    density_factor: float = 2.0,
+) -> list[ThemePair]:
+    """Find theme pairs that co-occur in the same runs above threshold."""
+    # For each theme, find runs where density > factor × mean
+    dense_runs: dict[str, set[str]] = {}
+    for tc in themes:
+        threshold = tc.mean_density * density_factor
+        dense = set()
+        for name, n in run_sizes.items():
+            if n == 0:
+                continue
+            if per_run[name].get(tc.word, 0) / n > threshold:
+                dense.add(name)
+        dense_runs[tc.word] = dense
+
+    pairs = []
+    words = [tc.word for tc in themes]
+    for i, w1 in enumerate(words):
+        for w2 in words[i + 1:]:
+            overlap = dense_runs[w1] & dense_runs[w2]
+            if not overlap:
+                continue
+            union = dense_runs[w1] | dense_runs[w2]
+            jaccard = len(overlap) / len(union) if union else 0
+            pairs.append(ThemePair(
+                word_a=w1, word_b=w2,
+                shared_runs=sorted(overlap), jaccard=jaccard,
+            ))
+
+    pairs.sort(key=lambda p: -p.jaccard)
+    return pairs
+
+
+def map_run_basins(
+    runs: dict[str, RunInfo],
+    themes: list[ThemeCloud],
+    per_run: dict[str, Counter],
+    run_sizes: dict[str, int],
+    top_k: int = 5,
+) -> list[RunBasin]:
+    """For each run, identify its dominant semantic basin."""
+    theme_words = {tc.word for tc in themes}
+    results = []
+    for name, run in runs.items():
+        n = run_sizes.get(name, 0)
+        if n == 0:
+            continue
+        densities = []
+        for word in theme_words:
+            count = per_run[name].get(word, 0)
+            if count > 0:
+                densities.append((word, count / n))
+        densities.sort(key=lambda x: -x[1])
+        top = densities[:top_k]
+        label = " + ".join(w for w, _ in top[:3]) if top else "(empty)"
+        results.append(RunBasin(
+            run_name=name, L=run.L, T=run.T,
+            top_themes=top, basin_label=label,
+        ))
+    results.sort(key=lambda r: (r.L, r.T))
+    return results
+
+
+def print_clouds_report(
+    themes: list[ThemeCloud],
+    pairs: list[ThemePair],
+    basins: list[RunBasin],
+) -> None:
+    """Print the multi-theme cloud analysis."""
+    print(f"\n{'=' * 90}")
+    print(f"  SEMANTIC THEME MAP — {len(basins)} runs, {len(themes)} themes discovered")
+    print(f"{'=' * 90}\n")
+
+    print(f"  {'Word':18s} {'Total':>7s} {'Runs':>5s} {'MaxDens':>8s} {'MeanDens':>9s}"
+          f" {'Spike':>6s} {'TopRun':>30s}")
+    print("  " + "-" * 90)
+    for tc in themes:
+        print(f"  {tc.word:18s} {tc.total_hits:>7d} {tc.n_runs_present:>5d}"
+              f" {tc.max_density:>8.4f} {tc.mean_density:>9.5f}"
+              f" {tc.spikiness:>6.1f} {tc.top_run:>30s}")
+
+    print(f"\n{'=' * 90}")
+    print(f"  THEME CO-OCCURRENCE (Jaccard > 0, runs at >2× mean density)")
+    print(f"{'=' * 90}\n")
+
+    print(f"  {'Theme A':15s} {'Theme B':15s} {'Shared':>7s} {'Jaccard':>8s}  Shared runs")
+    print("  " + "-" * 90)
+    for p in pairs[:40]:
+        run_list = ", ".join(p.shared_runs[:3])
+        if len(p.shared_runs) > 3:
+            run_list += f" +{len(p.shared_runs) - 3}"
+        print(f"  {p.word_a:15s} {p.word_b:15s} {len(p.shared_runs):>7d}"
+              f" {p.jaccard:>8.3f}  {run_list}")
+
+    print(f"\n{'=' * 90}")
+    print(f"  RUN BASINS — dominant themes per run")
+    print(f"{'=' * 90}\n")
+
+    print(f"  {'Run':35s} {'L':>4s} {'T':>5s}  Basin")
+    print("  " + "-" * 85)
+    for b in basins:
+        theme_str = ", ".join(f"{w}({d:.3f})" for w, d in b.top_themes[:5])
+        print(f"  {b.run_name:35s} {b.L:>4d} {b.T:>5.2f}  {theme_str}")
 
 
 ## ── Analysis 2: Attractor catalog ──────────────────────────────────
@@ -570,92 +808,154 @@ def print_report(
         print(f"    T={t_val:.2f}: coherence={mean_c:.3f}  {bar}")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Semantic analysis across runs")
-    parser.add_argument("--theme", default="temperature",
-                        help="Theme word/phrase to search for (default: temperature)")
-    parser.add_argument("--runs", nargs="+", default=None,
-                        help="Specific parquet files (default: all L*.parquet)")
-    parser.add_argument("--context-radius", type=int, default=80,
-                        help="Characters of context around each hit (default: 80)")
-    parser.add_argument("--entropy-window", type=int, default=20,
-                        help="Token window for local entropy stats (default: 20)")
-    parser.add_argument("--csv", default=None,
-                        help="Export vocab stats to CSV")
-    parser.add_argument("--seed", type=int, default=None,
-                        help="Filter to specific seed (default: all)")
-    args = parser.parse_args()
-
-    # Discover runs
-    if args.runs:
+def _discover_run_files(
+    run_patterns: list[str] | None,
+) -> list[str]:
+    """Find parquet files from explicit patterns or default glob."""
+    if run_patterns:
         files = []
-        for pattern in args.runs:
+        for pattern in run_patterns:
             files.extend(glob.glob(pattern))
-    else:
-        files = sorted(
-            glob.glob("data/runs/L*.parquet")
-            + glob.glob("data/runs/anneal_*.parquet")
-            + glob.glob("data/runs/sched_*.parquet")
-        )
+        return files
+    return sorted(
+        glob.glob("data/runs/L*.parquet")
+        + glob.glob("data/runs/anneal_*.parquet")
+        + glob.glob("data/runs/sched_*.parquet")
+        + glob.glob("data/runs/ctrl_*.parquet")
+    )
 
-    if not files:
-        log.error("No parquet files found")
-        sys.exit(1)
 
-    log.info(f"Loading {len(files)} runs...")
-
-    # Load all runs
+def _load_runs(
+    files: list[str], seed_filter: int | None = None,
+) -> dict[str, RunInfo]:
+    """Load all runs, optionally filtering by seed."""
     all_runs: dict[str, RunInfo] = {}
     for f in sorted(files):
         run = load_run(f)
         if run is None:
             continue
-        if args.seed is not None and run.seed != args.seed:
+        if seed_filter is not None and run.seed != seed_filter:
             continue
         all_runs[run.name] = run
+    return all_runs
 
-    log.info(f"Loaded {len(all_runs)} runs")
 
+def run_clouds(all_runs: dict[str, RunInfo], csv_path: str | None = None) -> None:
+    """Run the theme cloud discovery + co-occurrence + basin mapping."""
+    log.info("Discovering themes...")
+    themes, per_run, run_sizes = discover_themes(all_runs)
+    log.info(f"Found {len(themes)} themes")
+
+    log.info("Finding co-occurrences...")
+    pairs = find_co_occurrences(themes, per_run, run_sizes)
+    log.info(f"Found {len(pairs)} co-occurring pairs")
+
+    log.info("Mapping run basins...")
+    basins = map_run_basins(all_runs, themes, per_run, run_sizes)
+
+    print_clouds_report(themes, pairs, basins)
+
+    if csv_path:
+        rows = []
+        for b in basins:
+            row = {"run": b.run_name, "L": b.L, "T": b.T, "basin": b.basin_label}
+            for word, density in b.top_themes:
+                row[f"theme_{word}"] = density
+            rows.append(row)
+        pd.DataFrame(rows).to_csv(csv_path, index=False)
+        log.info(f"Wrote {csv_path}")
+
+
+def run_themes(
+    all_runs: dict[str, RunInfo],
+    themes: list[str],
+    context_radius: int,
+    entropy_window: int,
+) -> None:
+    """Run theme search for one or more specific themes (compact report)."""
+    for theme in themes:
+        log.info(f"Searching for '{theme}'...")
+        all_hits: list[ThemeHit] = []
+        for run in all_runs.values():
+            hits = find_theme_hits(run, theme, context_radius, entropy_window)
+            all_hits.extend(hits)
+
+        log.info(f"  {len(all_hits)} hits across"
+                 f" {len(set(h.run_name for h in all_hits))} runs")
+
+        neighbors = neighbor_profile(all_hits, all_runs)
+
+        # Compact per-theme report
+        print(f"\n{'=' * 70}")
+        print(f"  '{theme}' — {len(all_hits)} hits across"
+              f" {len(set(h.run_name for h in all_hits))}/{len(all_runs)} runs")
+        print(f"{'=' * 70}")
+
+        # Top runs by density
+        by_run: dict[str, list[ThemeHit]] = {}
+        for h in all_hits:
+            by_run.setdefault(h.run_name, []).append(h)
+
+        densities = []
+        for rname, rhits in by_run.items():
+            run = all_runs[rname]
+            total_chars = len(run.text)
+            rate = len(rhits) / total_chars * 100000 if total_chars > 0 else 0
+            densities.append((rname, len(rhits), rate))
+        densities.sort(key=lambda x: -x[2])
+
+        print(f"\n  Top runs:")
+        for rname, count, rate in densities[:8]:
+            bar = "#" * min(int(rate / 5), 40)
+            print(f"    {rname:35s} {count:4d} ({rate:6.1f}/100k) {bar}")
+
+        # Neighbor cloud
+        for t_val in sorted(neighbors):
+            top = neighbors[t_val].most_common(15)
+            top_str = ", ".join(f"{w}({c})" for w, c in top)
+            print(f"\n  Neighbors (T={t_val:.2f}): {top_str}")
+
+
+def run_full_analysis(
+    all_runs: dict[str, RunInfo],
+    theme: str,
+    context_radius: int,
+    entropy_window: int,
+    csv_path: str | None = None,
+) -> None:
+    """Run the original full single-theme analysis."""
     # Find theme hits
-    log.info(f"Searching for '{args.theme}'...")
+    log.info(f"Searching for '{theme}'...")
     all_hits: list[ThemeHit] = []
     for run in all_runs.values():
-        hits = find_theme_hits(run, args.theme, args.context_radius, args.entropy_window)
+        hits = find_theme_hits(run, theme, context_radius, entropy_window)
         all_hits.extend(hits)
 
     log.info(f"Found {len(all_hits)} hits across {len(set(h.run_name for h in all_hits))} runs")
 
-    # Neighbor analysis
     neighbors = neighbor_profile(all_hits, all_runs)
 
-    # Vocab stats
     log.info("Computing vocabulary stats...")
     vocab = [vocab_stats(run) for run in all_runs.values()]
 
-    # Attractor catalog
     log.info("Building attractor catalog...")
     attractors = attractor_catalog(all_runs)
 
-    # Repetition onset
     log.info("Detecting repetition onset...")
     repetitions = [detect_repetition_onset(run) for run in all_runs.values()]
 
-    # Heaps' law
     log.info("Fitting Heaps' law...")
     heaps = [fit_heaps_law(run) for run in all_runs.values()]
 
-    # Semantic coherence
     log.info("Measuring semantic coherence...")
     coherence_results = [measure_coherence(run) for run in all_runs.values()]
 
-    # Report
     print_report(
-        args.theme, all_runs, all_hits, vocab, neighbors,
+        theme, all_runs, all_hits, vocab, neighbors,
         attractors, repetitions, heaps, coherence_results,
     )
 
-    # CSV export
-    if args.csv:
+    if csv_path:
         rows = []
         heaps_by_name = {h.run_name: h for h in heaps}
         coh_by_name = {c.run_name: c for c in coherence_results}
@@ -686,8 +986,46 @@ def main() -> None:
                             "mean_entropy": a.mean_entropy})
             rows.append(row)
 
-        pd.DataFrame(rows).to_csv(args.csv, index=False)
-        log.info(f"Wrote {args.csv}")
+        pd.DataFrame(rows).to_csv(csv_path, index=False)
+        log.info(f"Wrote {csv_path}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Semantic analysis across runs")
+    parser.add_argument("--theme", default=None,
+                        help="Single theme for full analysis (legacy mode)")
+    parser.add_argument("--themes", nargs="+", default=None,
+                        help="Multiple themes for compact density report")
+    parser.add_argument("--clouds", action="store_true",
+                        help="Auto-discover themes, map basins, find co-occurrences")
+    parser.add_argument("--runs", nargs="+", default=None,
+                        help="Specific parquet files (default: all)")
+    parser.add_argument("--context-radius", type=int, default=80,
+                        help="Characters of context around each hit (default: 80)")
+    parser.add_argument("--entropy-window", type=int, default=20,
+                        help="Token window for local entropy stats (default: 20)")
+    parser.add_argument("--csv", default=None,
+                        help="Export to CSV")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Filter to specific seed (default: all)")
+    args = parser.parse_args()
+
+    files = _discover_run_files(args.runs)
+    if not files:
+        log.error("No parquet files found")
+        sys.exit(1)
+
+    log.info(f"Loading {len(files)} runs...")
+    all_runs = _load_runs(files, args.seed)
+    log.info(f"Loaded {len(all_runs)} runs")
+
+    if args.clouds:
+        run_clouds(all_runs, args.csv)
+    elif args.themes:
+        run_themes(all_runs, args.themes, args.context_radius, args.entropy_window)
+    else:
+        theme = args.theme or "temperature"
+        run_full_analysis(all_runs, theme, args.context_radius, args.entropy_window, args.csv)
 
 
 if __name__ == "__main__":

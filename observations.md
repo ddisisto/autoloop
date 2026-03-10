@@ -60,6 +60,12 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **Compressibility is a collapse detector, not a rich-dynamics discriminator.** W>L analysis across 64 runs: at T=1.00, comp_W256 at L=64 (W>L) is only 0.03 below the noise floor (T=1.50). The in-context contribution at W>L scales is minimal. The controller's real operating range is at W≤L scales. Entropy and Heaps' β are the right sensors for navigating the escape boundary.
 
+**Balance-point texture is L-dependent.** Controller runs at β≈0.90 produce qualitatively different text depending on L. L=8: topic soup (jumps every few sentences, no n-gram repeats >3). L=128: thematic orbits (azalea watering → acid-base chemistry, top 4-gram ×39). L=256: thematic orbits (Mars rover missions on repeat, top trigram ×38). Short context = diversity through forgetting; long context = diversity through exploration within a semantic basin. Both achieve β≈0.90 legitimately — the metric measures vocabulary growth rate, and both strategies produce it.
+
+**L=256 controller finds T=0.95.** `ctrl_S42_256_0.70` ramped T steadily from 0.70→1.00 over 7 segments (β stuck at 0.73-0.78 below the dead zone), then settled at T=0.95, β=0.95. Zero rollbacks. Balance T tracks T_escape(L) as predicted: T=0.70 (L=8), T=0.75 (L=16), T=0.90-0.95 (L=128, L=256).
+
+**Semantic theme mapping reveals basin fingerprints.** Auto-discovery across 59 runs finds 60 content themes. Every T=0.50 run is dominated by 1-3 themes at 10-50% word density (the attractor basin). Higher-T runs share a low-density background (health, water, study, research at 0.001-0.003). Seeds determine which basin: L=64/T=0.50 → S42 gets generator+culture, S123 gets book+heart, S7 gets describe+house. Three theme classes: attractor words (spike in one run, spikiness >50), widespread content words (40+ runs, moderate density), structural words (govern, control — topically neutral, neighbor profile shifts by regime).
+
 **Open questions:**
 - Does the lock-in ratio (~4-8 copies) hold for longer cycles (3-token, 4-token) and across models? If universal, it reveals a property of in-context learning generally.
 - What drives the suppressed-dynamics regime? L=256 at T=0.70–0.80 has high comp_W64 (~0.6) but low entropy (~0.4–0.6). Is this a single deep attractor or switching between multiple shallow ones? Basin transition analysis suggests the latter: 21 escape events at L=256 T=0.80, with progressive deepening.
@@ -69,7 +75,8 @@ Append-only record of findings. Each entry includes reproduction commands.
 - Is the escape-by-mutation mechanism (period expansion → chaos) a general route, or specific to short cycles at threshold L?
 - Is β ≈ 0.90 model-specific or a property of the generation setup? Would a different model equilibrate at the same point?
 - Can proportional T control stabilize the L=128 oscillation, or does the escape boundary have intrinsic bistability?
-- What does the generated text look like at the balance point? Coherent or high-entropy noise with the right vocab statistics?
+- Can semantic basin fingerprints predict which attractor a run will find? Is there a topology to basin space?
+- The "self" neighbor profile reorganizes with temperature (psychological → code → grammatical). How deep does this conceptual reorganization go?
 
 ---
 
@@ -88,3 +95,4 @@ Detailed entries archived by date. Each file contains full reproduction commands
 | 2026-03-10c | [observations-2026-03-10c.md](docs/observations-2026-03-10c.md) | Semantic analysis: "temperature" attractor at L=128/T=0.60, vocabulary richness 100x range, Heaps' law β separates regimes, attractor content describes own dynamics (eigenstates), pre-collapse trajectories map semantic basin connectivity, seed-dependent content but deterministic collapse |
 | 2026-03-10d | [observations-2026-03-10d.md](docs/observations-2026-03-10d.md) | Escape by semantic mutation (period-doubling route to chaos), L=16 β=2.926 anomaly, suppressed zone equivalence across scales, L=128/T=0.60 "temperature" eigenstate, full 15-attractor catalog |
 | 2026-03-10e | [observations-2026-03-10e.md](docs/observations-2026-03-10e.md) | Controller v1 with balance points (β≈0.90 equilibrium), comp_stats interface fix, W>L analysis (compressibility as collapse detector) |
+| 2026-03-10f | [observations-2026-03-10f.md](docs/observations-2026-03-10f.md) | Semantic theme mapping (--clouds/--themes), L=256 controller (T=0.95 balance), balance-point text is L-dependent, basin fingerprint catalog, three theme classes, "self" profile shifts with T |
