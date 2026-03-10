@@ -50,6 +50,10 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **Attractor content is not random — it describes its own dynamics.** Across 21 collapsed runs (3 seeds × 7 L values at T=0.50), every seed finds a unique attractor, but the content systematically features tautologies ("the generator is a generator"), incomplete predicates ("was a time where"), self-perpetuating conditions ("not getting enough sleep... can include not getting enough sleep"), recursive structures ("the disease of the disease"), and confinement ("the man was not allowed to leave"). These are eigenstates: configurations where content, structure, and prediction align into zero-gradient fixed points. The collapsed content clusters into semantic families — medical/body, political/historical, social categories, self-referential — exposing the sharpest peaks in the model's probability landscape.
 
+**Escape by semantic mutation (period-doubling route to chaos).** At L=16 (threshold lock-in), the model doesn't jump out of the Star Wars attractor — it tunnels out by mutating it. "Star Wars" → "Star Wars 2000" → "Star Wars 2001" → "Star Wars: The Old Republic" → "The Seventh Planet" → freedom. Each mutation increases the cycle's period, diluting the mutual-prediction lock until it can't self-reinforce. Analogous to period-doubling as a route to chaos. Once escaped, the system never returns (only 1 Star Wars block in 100k tokens). The post-escape phase has β=2.926 (highest in dataset) — explosive vocabulary growth from a standing start.
+
+**Suppressed dynamics is scale-invariant.** L=16 pre-seeded at T=0.60 has coherence (0.451±0.234) and TTR (0.175) nearly identical to L=256 at T=0.70 (coherence 0.448±0.220, TTR 0.133). The regime is defined by the ratio of basin depth to thermal energy, not absolute L or T. A shallow basin at low temperature behaves like a deep basin at moderate temperature.
+
 **Pre-collapse trajectories map semantic basin connectivity.** Runs don't jump to attractors — they traverse paths through semantic space. L=256/T=0.60 walks: education → political violence → apocalyptic text → civilization → bureaucratic cataloging → imprisonment ("the man was not allowed to leave" ×399) → Star Wars (forever). Each waypoint is a basin the system passed through. Across all collapsed runs, these descent paths form a graph of the model's semantic topology — the basins are connected, and the paths between them reveal how concepts relate in the learned representation.
 
 **Open questions:**
@@ -58,6 +62,7 @@ Append-only record of findings. Each entry includes reproduction commands.
 - Is the L=512 T=1.10 decorrelation anomaly (lag=70) a single-seed artifact or a real pocket of slow dynamics in the rich-dynamics zone?
 - Do the four regimes and annealing mechanism generalize beyond SmolLM-135M?
 - Can escape spike magnitude serve as a single-run estimator of T_escape, replacing grid sweeps?
+- Is the escape-by-mutation mechanism (period expansion → chaos) a general route, or specific to short cycles at threshold L?
 
 ---
 
@@ -74,3 +79,4 @@ Detailed entries archived by date. Each file contains full reproduction commands
 | 2026-03-10 | [observations-2026-03-10.md](docs/observations-2026-03-10.md) | Concept fragmentation under temperature; pre-collapse trajectories and basin transition dynamics (energy landscape, escape spike thresholds, W/L convergence, attractor diversity) |
 | 2026-03-10b | [observations-2026-03-10b.md](docs/observations-2026-03-10b.md) | Pre-seeded basin escape probes: hysteresis (basin exit >> basin avoidance), L-titration of basin depth (lock-in at 4-8 copies), single-token vs multi-token attractor depth, mutual prediction as basin depth mechanism |
 | 2026-03-10c | [observations-2026-03-10c.md](docs/observations-2026-03-10c.md) | Semantic analysis: "temperature" attractor at L=128/T=0.60, vocabulary richness 100x range, Heaps' law β separates regimes, attractor content describes own dynamics (eigenstates), pre-collapse trajectories map semantic basin connectivity, seed-dependent content but deterministic collapse |
+| 2026-03-10d | [observations-2026-03-10d.md](docs/observations-2026-03-10d.md) | Escape by semantic mutation (period-doubling route to chaos), L=16 β=2.926 anomaly, suppressed zone equivalence across scales, L=128/T=0.60 "temperature" eigenstate, full 15-attractor catalog |
