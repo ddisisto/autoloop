@@ -16,6 +16,7 @@ summary_table.py     # Cross-condition summary CSV from all runs
 reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
 analyze_windows.py   # Recompute analysis at standard W grid [16,32,64,128,256]
 plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
+precollapse.py       # Pre-collapse trajectory analysis (regime classification, basin transitions, W/L convergence)
 sweep.py             # Unified sweep runner (presets, ad-hoc grids, --status)
 explorer.py          # Interactive web explorer backend (FastAPI)
 static/              # Explorer frontend
@@ -87,6 +88,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `utils.py`: shared primitives — `compressibility()`, `eos_ema()`
 - `reproduce_plots.py`: one-command regen of all standard plot slices (analysis + figure mtime caching)
 - `explorer.py` + `static/index.html`: interactive web explorer (FastAPI + Plotly.js), buffered context viewer with scroll sync, infinite scroll, L-window visual, token search (case/word/regex)
+- `precollapse.py`: pre-collapse trajectory analysis — regime classification (escaped/oscillating/collapsed/deep_collapsed), basin transition detection (escape spike vs landing depth), W/L convergence profiles, attractor content extraction
 - `sweep.py`: unified sweep runner with presets (pilot, crossover, seed, ldense, l256-crossover) and ad-hoc grids
 
 ### Data Collected (run `sweep.py --status` for live grid)
@@ -108,6 +110,10 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - Concept fragmentation: temperature controls expression fidelity, not concept activation
 - L-densification at T=0.50: jagged non-monotonic profile, no clean phase transition
 - "Memory-depth annealing": L-reduction as escape mechanism — bounded by T_escape saturation
+- Basin transitions: escape spikes >6 nats always reach shallower basins; <1 nat leads deeper 67% of time (L=256 T=0.80)
+- Progressive basin deepening: floors cascade from 0.05→0.014 over a run's lifetime
+- Attractor content is semantically diverse and L-dependent (shorter periods at higher L)
+- W/L convergence: slope divergence fingerprints attractor approach (local compression + global expansion)
 
 ### Key Parameters
 - Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
@@ -154,6 +160,12 @@ python plot.py --runs data/runs/L0064_T*_S42.parquet --downsample 50
 python reproduce_plots.py
 python reproduce_plots.py --force          # bypass cache
 python reproduce_plots.py --plots entropy  # only specific plot types
+
+# Pre-collapse analysis
+python precollapse.py                              # summary by regime (all T<=1.2)
+python precollapse.py --detail L0256_T0.80_S42     # detailed report with basin transitions
+python precollapse.py --csv data/precollapse.csv   # all metrics to CSV
+python precollapse.py --runs data/runs/L0256*.parquet  # specific runs
 
 # Cross-condition summary table
 python summary_table.py                         # print to stdout
