@@ -30,6 +30,7 @@ const searchState = {
   query: '',
   matches: [],    // step positions
   currentIdx: -1, // index into matches
+  flags: { case: false, word: false, regex: false },
 };
 
 // Word cloud state
@@ -276,6 +277,7 @@ export function openContextPanel(runId, step) {
   searchState.query = '';
   searchState.matches = [];
   searchState.currentIdx = -1;
+  searchState.error = null;
   const searchInput = document.getElementById('ctxSearchInput');
   if (searchInput) searchInput.value = '';
 
@@ -484,7 +486,7 @@ function renderContextTokens(data) {
       }
 
       // Highlight search matches within token text
-      if (searchState.query && tok.text.toLowerCase().includes(searchState.query.toLowerCase())) {
+      if (searchState.query && tokenMatchesSearch(tok.text)) {
         span.classList.add('search-match');
       }
 
@@ -620,6 +622,19 @@ function updateTabTitle() {
 // ---------------------------------------------------------------------------
 // Token search
 // ---------------------------------------------------------------------------
+function tokenMatchesSearch(text) {
+  const q = searchState.query;
+  if (!q) return false;
+  try {
+    let pattern = searchState.flags.regex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (searchState.flags.word) pattern = `\\b${pattern}\\b`;
+    const flags = searchState.flags.case ? '' : 'i';
+    return new RegExp(pattern, flags).test(text);
+  } catch {
+    return false;
+  }
+}
+
 async function runSearch(query) {
   searchState.query = query;
   searchState.matches = [];
@@ -633,7 +648,17 @@ async function runSearch(query) {
 
   try {
     const params = new URLSearchParams({ run: ctxState.runId, q: query });
+    if (searchState.flags.case) params.set('case', '1');
+    if (searchState.flags.word) params.set('word', '1');
+    if (searchState.flags.regex) params.set('regex', '1');
     const data = await apiFetch(`/api/search?${params}`);
+    if (data.error) {
+      searchState.error = data.error;
+      updateSearchUI();
+      renderSearchTicks();
+      return;
+    }
+    searchState.error = null;
     searchState.matches = data.matches || [];
     // Find nearest match to current step
     if (searchState.matches.length > 0) {
@@ -668,10 +693,17 @@ function updateSearchUI() {
 
   if (!searchState.query) {
     status.textContent = '';
+    status.title = '';
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+  } else if (searchState.error) {
+    status.textContent = 'err';
+    status.title = searchState.error;
     prevBtn.disabled = true;
     nextBtn.disabled = true;
   } else if (searchState.matches.length === 0) {
     status.textContent = '0/0';
+    status.title = '';
     prevBtn.disabled = true;
     nextBtn.disabled = true;
   } else {
@@ -751,10 +783,11 @@ export function wireContextEvents() {
 
   // Search
   const searchInput = document.getElementById('ctxSearchInput');
-  searchInput.addEventListener('input', () => {
+  const triggerSearch = () => {
     clearTimeout(searchDebounce);
     searchDebounce = setTimeout(() => runSearch(searchInput.value.trim()), 300);
-  });
+  };
+  searchInput.addEventListener('input', triggerSearch);
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -769,6 +802,30 @@ export function wireContextEvents() {
   });
   document.getElementById('ctxSearchPrev').addEventListener('click', () => searchNavigate(-1));
   document.getElementById('ctxSearchNext').addEventListener('click', () => searchNavigate(1));
+
+  // Search flag toggles
+  function bindSearchFlag(btnId, flagName) {
+    const btn = document.getElementById(btnId);
+    btn.addEventListener('click', () => {
+      searchState.flags[flagName] = !searchState.flags[flagName];
+      btn.classList.toggle('active', searchState.flags[flagName]);
+      if (searchInput.value.trim()) runSearch(searchInput.value.trim());
+    });
+  }
+  bindSearchFlag('ctxSearchCase', 'case');
+  bindSearchFlag('ctxSearchWord', 'word');
+  bindSearchFlag('ctxSearchRegex', 'regex');
+
+  // Alt+C/W/R shortcuts when search input focused
+  searchInput.addEventListener('keydown', (e) => {
+    if (!e.altKey) return;
+    const map = { c: 'ctxSearchCase', w: 'ctxSearchWord', r: 'ctxSearchRegex' };
+    const btnId = map[e.key.toLowerCase()];
+    if (btnId) {
+      e.preventDefault();
+      document.getElementById(btnId).click();
+    }
+  });
 
   initDragHandle();
   initOverviewBar();

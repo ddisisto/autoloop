@@ -549,11 +549,15 @@ def get_ngrams(
 def search_tokens(
     run: str = Query(..., description="Run ID"),
     q: str = Query(..., description="Search string"),
+    case: bool = Query(False, description="Case-sensitive search"),
+    word: bool = Query(False, description="Whole-word matching (\\b wrapper)"),
+    regex: bool = Query(False, description="Treat query as regex"),
 ) -> JSONResponse:
-    """Search for a plain-text substring across all tokens in a run.
+    """Search for text across all tokens in a run.
 
     Concatenates decoded_text and finds all occurrences, mapping each back
     to the step where the match starts. Returns matching step positions.
+    Supports case sensitivity, whole-word, and regex modes.
     """
     assert run_index is not None
     assert run_cache is not None
@@ -573,35 +577,26 @@ def search_tokens(
         char_to_step.extend([i] * len(t))
 
     full_text = "".join(texts)
-    q_lower = q.lower()
-    text_lower = full_text.lower()
 
-    # Find all occurrences — for multi-word queries, allow non-alpha chars
-    # between words (matching how ngram extraction works)
+    # Build regex pattern
+    pattern = q if regex else re.escape(q)
+    if word:
+        pattern = rf"\b{pattern}\b"
+    flags = 0 if case else re.IGNORECASE
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as e:
+        return JSONResponse(content={"error": f"Invalid regex: {e}", "matches": []})
+
+    # Find all occurrences
     match_steps: list[int] = []
     seen_steps: set[int] = set()
-
-    if " " in q_lower:
-        # Multi-word: build regex with flexible gaps between words
-        words = q_lower.split()
-        pattern = r"[^a-z]+".join(re.escape(w) for w in words)
-        for m in re.finditer(pattern, text_lower):
-            pos = m.start()
-            step = char_to_step[pos] if pos < len(char_to_step) else len(texts) - 1
-            if step not in seen_steps:
-                match_steps.append(step)
-                seen_steps.add(step)
-    else:
-        pos = 0
-        while True:
-            pos = text_lower.find(q_lower, pos)
-            if pos == -1:
-                break
-            step = char_to_step[pos] if pos < len(char_to_step) else len(texts) - 1
-            if step not in seen_steps:
-                match_steps.append(step)
-                seen_steps.add(step)
-            pos += 1
+    for m in compiled.finditer(full_text):
+        pos = m.start()
+        step = char_to_step[pos] if pos < len(char_to_step) else len(texts) - 1
+        if step not in seen_steps:
+            match_steps.append(step)
+            seen_steps.add(step)
 
     return JSONResponse(content={
         "query": q,
