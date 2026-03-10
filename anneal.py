@@ -91,8 +91,10 @@ def check_probes() -> None:
     tokenizer = AutoTokenizer.from_pretrained(str(MODEL_DIR))
 
     probes = [
-        "probe_L256", "probe_L064_T060", "probe_L064_T080",
-        "probe_L064_T100", "probe_L032_T060", "probe_young_L064",
+        "probe_L002_T060", "probe_L004_T060", "probe_L008_T060",
+        "probe_L016_T060", "probe_L032_T060", "probe_L064_T060",
+        "probe_L064_T080", "probe_L064_T100", "probe_L256",
+        "probe_young_L064",
     ]
 
     print(f"\n{'Probe':<22} {'Status':<8} {'Ent(last1k)':<12} {'Comp(last1k)':<13} {'Top token':<20} {'Top %':<8}")
@@ -145,27 +147,32 @@ TIER1 = [
     dict(name=f"anneal_L{L:03d}_{tag}_S{s}", L=L, T=0.60, N=100000,
          prefill=" Star Wars", seed=s)
     for s in TIER1_SEEDS
-    for L, tag in [(256, "control"), (192, "stuck"), (128, "border"), (64, "escape")]
+    for L, tag in [(256, "control"), (16, "stuck"), (8, "escape"), (4, "escape")]
+] + [
+    # Boundary probes — pinpoint the transition (10k, seed 42 only)
+    dict(name=f"anneal_L{L:03d}_probe_S42", L=L, T=0.60, N=10000,
+         prefill=" Star Wars", seed=42)
+    for L in [10, 12, 14]
 ]
 
 TIER2 = [
     dict(name=f"anneal_cycle_short_S{s}",
-         schedule="20000:L256:T0.60,10000:L64:T0.60,70000:L256:T0.60",
+         schedule="20000:L256:T0.60,10000:L8:T0.60,70000:L256:T0.60",
          N=100000, prefill=" Star Wars", seed=s)
     for s in TIER1_SEEDS
 ] + [
     dict(name=f"anneal_cycle_long_S{s}",
-         schedule="20000:L256:T0.60,30000:L64:T0.60,50000:L256:T0.60",
+         schedule="20000:L256:T0.60,30000:L8:T0.60,50000:L256:T0.60",
          N=100000, prefill=" Star Wars", seed=s)
     for s in TIER1_SEEDS
 ] + [
     dict(name=f"anneal_cycle_brief_S{s}",
-         schedule="20000:L256:T0.60,3000:L64:T0.60,77000:L256:T0.60",
+         schedule="20000:L256:T0.60,3000:L8:T0.60,77000:L256:T0.60",
          N=100000, prefill=" Star Wars", seed=s)
     for s in TIER1_SEEDS
 ] + [
     dict(name=f"anneal_no_return_S{s}",
-         schedule="20000:L256:T0.60,80000:L64:T0.60",
+         schedule="20000:L256:T0.60,80000:L8:T0.60",
          N=100000, prefill=" Star Wars", seed=s)
     for s in TIER1_SEEDS
 ]
@@ -177,12 +184,12 @@ TIER5 = [
     for s in [42]
 ] + [
     dict(name=f"anneal_L_escape_S{s}",
-         schedule="20000:L256:T0.60,10000:L64:T0.60,70000:L256:T0.60",
+         schedule="20000:L256:T0.60,10000:L8:T0.60,70000:L256:T0.60",
          N=100000, prefill=" Star Wars", seed=s)
     for s in [42]
 ] + [
     dict(name=f"anneal_both_S{s}",
-         schedule="20000:L256:T0.60,10000:L64:T1.00,70000:L256:T0.60",
+         schedule="20000:L256:T0.60,10000:L8:T1.00,70000:L256:T0.60",
          N=100000, prefill=" Star Wars", seed=s)
     for s in [42]
 ]

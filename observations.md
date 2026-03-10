@@ -42,8 +42,12 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **W/L convergence fingerprints the approach to collapse.** When W approaches L, compressibility descent slopes show a sign flip in the suppressed zone: small W slopes negative (local structure forming), large W slopes positive (global structure diverging). This divergence — local compression with global expansion — is a fingerprint of attractor approach. Slope divergence is near-zero in escaped runs (all scales trend together).
 
+**Basin escape hysteresis.** T_escape measured from BOS (avoiding collapse) does NOT predict the temperature needed to escape a pre-existing attractor. " Star Wars" (2-token cycle) pre-seeded at L=64 survives T=0.60 and T=0.80, only escaping at T=1.00 — despite T_escape(L=64) ≈ 0.55 from BOS. The basin is ~0.4T deeper once occupied. Meanwhile " young" (1-token repeat) escapes trivially at L=64/T=0.60 — single-token repeats lack the mutual-prediction lock of multi-token cycles.
+
+**Basin depth is a smooth function of L with a sharp transition.** Pre-seeding " Star Wars" across L=2,4,8,16,32,64 at T=0.60: entropy drops smoothly from 5.01 (L=2) to 3.55 (L=8), then collapses to 0.32 (L=16). The lock-in threshold is 4-8 copies of the cycle in context. Below this, model priors dominate; above, the pattern self-reinforces. Compressibility is bimodal — 0.5 (escaped) or 0.012 (locked) — with no intermediate regime. Escape destinations are generic (function words), with no competing attractors.
+
 **Open questions:**
-- Can L-reduction escape a stuck attractor mid-run? (The annealing experiment — fork a collapsed run, reduce L temporarily, observe whether it finds a different basin.)
+- Does the lock-in ratio (~4-8 copies) hold for longer cycles (3-token, 4-token) and across models? If universal, it reveals a property of in-context learning generally.
 - What drives the suppressed-dynamics regime? L=256 at T=0.70–0.80 has high comp_W64 (~0.6) but low entropy (~0.4–0.6). Is this a single deep attractor or switching between multiple shallow ones? Basin transition analysis suggests the latter: 21 escape events at L=256 T=0.80, with progressive deepening.
 - Is the L=512 T=1.10 decorrelation anomaly (lag=70) a single-seed artifact or a real pocket of slow dynamics in the rich-dynamics zone?
 - Do the four regimes and annealing mechanism generalize beyond SmolLM-135M?
@@ -62,3 +66,4 @@ Detailed entries archived by date. Each file contains full reproduction commands
 | 2026-03-08 | [observations-2026-03-08.md](docs/observations-2026-03-08.md) | Attractor staircase at T=0.50, multi-window analysis (W dimension), seed replication confirms L=192 anomaly, pre-registered L-densification predictions |
 | 2026-03-09 | [observations-2026-03-09.md](docs/observations-2026-03-09.md) | L-densification results (jagged profile), collapse boundary is L-dependent, transfer functions, L=256 crossover (suppressed zone discovered), L=512 escape boundary saturates, single-token attractor dominance, structural resonance |
 | 2026-03-10 | [observations-2026-03-10.md](docs/observations-2026-03-10.md) | Concept fragmentation under temperature; pre-collapse trajectories and basin transition dynamics (energy landscape, escape spike thresholds, W/L convergence, attractor diversity) |
+| 2026-03-10b | [observations-2026-03-10b.md](docs/observations-2026-03-10b.md) | Pre-seeded basin escape probes: hysteresis (basin exit >> basin avoidance), L-titration of basin depth (lock-in at 4-8 copies), single-token vs multi-token attractor depth, mutual prediction as basin depth mechanism |

@@ -34,36 +34,56 @@ From the sweep data, these are documented collapse patterns:
 
 Single-token attractors dominate (91% of collapse). Multi-token attractors like " Star Wars" (2 tokens) are rarer — the subword boundary slightly dilutes self-reinforcement.
 
-## Experiment Tiers
+## Probe Results (Phase 0 — complete)
+
+Probes revealed that the original Tier 1-2 design was miscalibrated. Key findings:
+
+1. **Hysteresis is massive.** " Star Wars" at L=64/T=0.60 stays STUCK (ent=0.04). Even T=0.80 at L=64 stays stuck. Only T=1.00 escapes. BOS-measured T_escape is useless for pre-seeded basins.
+2. **L-titration works, but the threshold is much lower than expected.** L=8 escapes, L=16 does not. The lock-in requires ~4-8 copies of the cycle in context.
+3. **Single-token repeats (" young") are shallow** — escape trivially at L=64/T=0.60.
+4. **Escape destinations are generic** (function words), not competing attractors.
+
+See [observations-2026-03-10b.md](observations-2026-03-10b.md) for full data.
+
+## Experiment Tiers (recalibrated)
 
 ### Tier 1 — Escape Threshold (fixed L, prefill " Star Wars")
 
-Does L-reduction escape work, and does T_escape measured from BOS match T_escape from a pre-existing attractor?
+Now calibrated to the actual escape boundary: L=8 escapes, L=16 doesn't. Probes confirmed L=64 at T=0.60 and T=0.80 are stuck.
 
 | Run name | L | T | Prefill | Expected | Rationale |
 |---|---|---|---|---|---|
-| `anneal_L256_control` | 256 | 0.60 | " Star Wars" | Stuck | T=0.60 << T_escape(256)=0.87 |
-| `anneal_L192_stuck` | 192 | 0.60 | " Star Wars" | Stuck | T=0.60 < T_escape(192)=0.67 |
-| `anneal_L128_border` | 128 | 0.60 | " Star Wars" | Borderline | T=0.60 ≈ T_escape(128)=0.57 |
-| `anneal_L064_escape` | 64 | 0.60 | " Star Wars" | Escape | T=0.60 > T_escape(64)=0.55 |
+| `anneal_L256_control` | 256 | 0.60 | " Star Wars" | Stuck | Probe confirmed |
+| `anneal_L016_stuck` | 16 | 0.60 | " Star Wars" | Stuck | Probe confirmed (8 copies locks in) |
+| `anneal_L008_escape` | 8 | 0.60 | " Star Wars" | Escape | Probe confirmed (4 copies escapes) |
+| `anneal_L004_escape` | 4 | 0.60 | " Star Wars" | Escape | Probe confirmed (2 copies escapes) |
 
-**What this reveals:** Whether the escape boundary from a pre-existing attractor matches the collapse boundary from BOS start. If they differ, that's evidence for hysteresis — the system needs more energy to *leave* a basin than to *avoid* it.
+Boundary probes (pinpoint the transition):
 
-N=100,000 for all. Seeds: 42, 123, 7 (3 seeds x 4 conditions = 12 runs).
+| Run name | L | T | Prefill | Expected | Rationale |
+|---|---|---|---|---|---|
+| `anneal_L010_probe` | 10 | 0.60 | " Star Wars" | Unknown | 5 copies — between escape and lock-in |
+| `anneal_L012_probe` | 12 | 0.60 | " Star Wars" | Unknown | 6 copies |
+| `anneal_L014_probe` | 14 | 0.60 | " Star Wars" | Unknown | 7 copies |
+
+N=100,000 for confirmed conditions. Seeds: 42, 123, 7 (3 seeds each).
+N=10,000 for boundary probes. Seed 42 only.
 
 ### Tier 2 — Return Dynamics (the full annealing cycle)
 
-After escaping at L=64, what happens when L is restored to 256? Three possibilities:
+**Recalibrated: escape phase uses L=8, not L=64.** L=64 stays stuck — the escape phase must drop below the lock-in threshold.
+
+After escaping at L=8, what happens when L is restored to 256? Three possibilities:
 - **Re-collapse to " Star Wars"**: the attractor still exists and recaptures
 - **Find a different attractor**: path-dependence confirmed
 - **Sustain rich dynamics**: escape is durable
 
 | Run name | Schedule | Prefill | Key question |
 |---|---|---|---|
-| `anneal_cycle_short` | 20k:L256:T0.60, 10k:L64:T0.60, 70k:L256:T0.60 | " Star Wars" | Does it re-collapse after escape? |
-| `anneal_cycle_long` | 20k:L256:T0.60, 30k:L64:T0.60, 50k:L256:T0.60 | " Star Wars" | Does longer escape phase change the return? |
-| `anneal_cycle_brief` | 20k:L256:T0.60, 3k:L64:T0.60, 77k:L256:T0.60 | " Star Wars" | Minimum escape duration? |
-| `anneal_no_return` | 20k:L256:T0.60, 80k:L64:T0.60 | " Star Wars" | What does sustained L=64/T=0.60 look like? |
+| `anneal_cycle_short` | 20k:L256:T0.60, 10k:L8:T0.60, 70k:L256:T0.60 | " Star Wars" | Does it re-collapse after escape? |
+| `anneal_cycle_long` | 20k:L256:T0.60, 30k:L8:T0.60, 50k:L256:T0.60 | " Star Wars" | Does longer escape phase change the return? |
+| `anneal_cycle_brief` | 20k:L256:T0.60, 3k:L8:T0.60, 77k:L256:T0.60 | " Star Wars" | Minimum escape duration? |
+| `anneal_no_return` | 20k:L256:T0.60, 80k:L8:T0.60 | " Star Wars" | What does sustained L=8/T=0.60 look like? |
 
 Seeds: 42, 123, 7 (12 runs per seed set).
 
@@ -71,42 +91,43 @@ Seeds: 42, 123, 7 (12 runs per seed set).
 
 ### Tier 3 — Attractor Generality
 
-Is escape a property of L-reduction generally, or specific to " Star Wars"? Single-token attractors may be stickier (perfect KV cache self-reinforcement) than multi-token ones.
+Probes already showed single-token (" young") escapes at L=64 while multi-token (" Star Wars") does not. Expand to map the lock-in threshold for different attractor types.
 
 | Run name | L | T | Prefill | Expected |
 |---|---|---|---|---|
-| `anneal_young_L064` | 64 | 0.60 | " young" | Escape (single-token, may be stickier) |
 | `anneal_young_L256` | 256 | 0.60 | " young" | Stuck (control) |
-| `anneal_disease_L064` | 64 | 0.60 | " disease" | Escape |
+| `anneal_young_L016` | 16 | 0.60 | " young" | Escape? (1-token, shallower basin) |
+| `anneal_young_L032` | 32 | 0.60 | " young" | Borderline? |
+| `anneal_disease_L064` | 64 | 0.60 | " disease" | Escape? |
 | `anneal_disease_L256` | 256 | 0.60 | " disease" | Stuck (control) |
+| `anneal_newyork_L064` | 64 | 0.60 | " New York" | Stuck? (2-token named entity, deep like Star Wars?) |
+| `anneal_newyork_L008` | 8 | 0.60 | " New York" | Escape? |
 
-Seeds: 42 only (8 runs). Expand if results are interesting.
-
-**What this reveals:** Whether different attractors have different escape thresholds. If " young" (single-token, from deeper collapse at T=0.50) resists L=64 escape while " Star Wars" (2-token) doesn't, that tells us about basin depth vs token structure.
+Seeds: 42 only. Tests the hypothesis that basin depth depends on mutual information between cycle positions, not cycle length.
 
 ### Tier 4 — Path Dependence (gradual vs sudden)
 
-Does the *shape* of L-reduction matter, or only the minimum L reached?
+Does the *shape* of L-reduction matter, or only the minimum L reached? Recalibrated: ramp must pass through L=8 to escape.
 
 | Run name | Schedule | Prefill |
 |---|---|---|
-| `anneal_sudden` | 20k:L256:T0.60, 10k:L64:T0.60, 70k:L256:T0.60 | " Star Wars" |
-| `anneal_gradual` | 20k:L256:T0.60, 5k:L192:T0.60, 5k:L128:T0.60, 5k:L64:T0.60, 5k:L128:T0.60, 5k:L192:T0.60, 55k:L256:T0.60 | " Star Wars" |
-| `anneal_ramp_down` | 20k:L256:T0.60, 5k:L192:T0.60, 5k:L128:T0.60, 70k:L64:T0.60 | " Star Wars" |
+| `anneal_sudden` | 20k:L256:T0.60, 10k:L8:T0.60, 70k:L256:T0.60 | " Star Wars" |
+| `anneal_gradual` | 20k:L256:T0.60, 5k:L64:T0.60, 5k:L16:T0.60, 5k:L8:T0.60, 5k:L16:T0.60, 5k:L64:T0.60, 55k:L256:T0.60 | " Star Wars" |
+| `anneal_ramp_down` | 20k:L256:T0.60, 5k:L64:T0.60, 5k:L16:T0.60, 70k:L8:T0.60 | " Star Wars" |
 
-Seeds: 42 only (3 runs). This is exploratory.
+Seeds: 42 only (3 runs). Exploratory.
 
-**What this reveals:** Whether gradual L-reduction through the escape boundary produces different dynamics than a sudden drop. If the system escapes at L=128 during the ramp (where T=0.60 ≈ T_escape) but not at L=192, we see the boundary in real time.
+**What this reveals:** Whether the gradual ramp through L=64→16→8 produces different escape dynamics than a sudden drop to L=8. We know L=16 is stuck and L=8 escapes — does the system show any pre-escape loosening at L=16 during the ramp?
 
 ### Tier 5 — T-annealing comparison
 
-For completeness: does raising T achieve the same escape as reducing L? This compares the two actuators directly.
+Does raising T achieve the same escape as reducing L? Compares the two actuators directly.
 
 | Run name | Schedule | Prefill |
 |---|---|---|
 | `anneal_T_escape` | 20k:L256:T0.60, 10k:L256:T1.00, 70k:L256:T0.60 | " Star Wars" |
-| `anneal_L_escape` | 20k:L256:T0.60, 10k:L64:T0.60, 70k:L256:T0.60 | " Star Wars" |
-| `anneal_both` | 20k:L256:T0.60, 10k:L64:T1.00, 70k:L256:T0.60 | " Star Wars" |
+| `anneal_L_escape` | 20k:L256:T0.60, 10k:L8:T0.60, 70k:L256:T0.60 | " Star Wars" |
+| `anneal_both` | 20k:L256:T0.60, 10k:L8:T1.00, 70k:L256:T0.60 | " Star Wars" |
 
 Seeds: 42 only (3 runs).
 
@@ -199,25 +220,29 @@ python generate.py --context-length 64 --temperature 0.60 --seed 42 \
   --num-tokens 5000 --prefill-text " young" --run-name probe_young_L064 \
   --model-dir data/model/SmolLM-135M --output-dir data/runs --device cuda
 
-# --- Phase A: Tier 1 full runs (calibrate L/T from probe results) ---
+# --- Phase A: Tier 1 full runs (recalibrated from probes) ---
 
-python generate.py --context-length 256 --temperature 0.60 --seed 42 \
-  --num-tokens 100000 --prefill-text " Star Wars" --run-name anneal_L256_control_S42 \
+# Use anneal.py for batch execution:
+python anneal.py tier1              # 15 runs: 3 seeds x 4 L-values + 3 boundary probes
+python anneal.py tier1 --dry-run    # preview
+
+# Example individual runs:
+python generate.py --context-length 8 --temperature 0.60 --seed 42 \
+  --num-tokens 100000 --prefill-text " Star Wars" --run-name anneal_L008_escape_S42 \
   --model-dir data/model/SmolLM-135M --output-dir data/runs --device cuda
 
-python generate.py --context-length 64 --temperature 0.60 --seed 42 \
-  --num-tokens 100000 --prefill-text " Star Wars" --run-name anneal_L064_escape_S42 \
-  --model-dir data/model/SmolLM-135M --output-dir data/runs --device cuda
+# --- Phase B: Tier 2 schedule runs (escape at L=8, not L=64) ---
 
-# --- Phase B: Tier 2 schedule runs ---
+python anneal.py tier2              # 12 runs: 3 seeds x 4 schedule variants
+python anneal.py tier2 --dry-run    # preview
 
-python generate.py --schedule "20000:L256:T0.60,10000:L64:T0.60,70000:L256:T0.60" \
+# Example:
+python generate.py --schedule "20000:L256:T0.60,10000:L8:T0.60,70000:L256:T0.60" \
   --seed 42 --prefill-text " Star Wars" --run-name anneal_cycle_short_S42 \
   --model-dir data/model/SmolLM-135M --output-dir data/runs --device cuda
 
 # --- Phase B: Tier 5 T vs L comparison ---
 
-python generate.py --schedule "20000:L256:T0.60,10000:L256:T1.00,70000:L256:T0.60" \
-  --seed 42 --prefill-text " Star Wars" --run-name anneal_T_escape_S42 \
-  --model-dir data/model/SmolLM-135M --output-dir data/runs --device cuda
+python anneal.py tier5              # 3 runs: T-escape, L-escape, both
+python anneal.py tier5 --dry-run    # preview
 ```
