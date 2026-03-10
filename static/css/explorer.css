@@ -463,7 +463,9 @@ input[type="number"] { width: 70px; flex: none; }
 .context-text::-webkit-scrollbar { width: 6px; }
 .context-text::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-.ctx-token { display: inline; border-radius: 2px; padding: 0 1px; }
+.ctx-token { display: inline; border-radius: 2px; padding: 0 1px; cursor: default; }
+.ctx-token.out-of-context { opacity: 0.4; }
+.ctx-token.in-context { border-bottom: 1.5px solid rgba(83, 194, 201, 0.3); }
 .ctx-token.current { background: rgba(83, 194, 201, 0.35); outline: 1px solid var(--accent); }
 .ctx-token.search-match { background: rgba(78, 204, 163, 0.3); outline: 1px solid var(--success); }
 .ctx-eos {

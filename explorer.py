@@ -611,8 +611,14 @@ def get_context(
     run: str = Query(..., description="Run ID (e.g. L0064_T0.70_S42)"),
     step: int = Query(..., description="Step number to center the context window on"),
     window: int | None = Query(None, description="Number of tokens to return (default: run's L value)"),
+    before: int | None = Query(None, description="Tokens before step (overrides window)"),
+    after: int | None = Query(None, description="Tokens after step (overrides window)"),
 ) -> JSONResponse:
-    """Return the tokens in the model's context window at a given step."""
+    """Return tokens around a given step.
+
+    If before/after are specified, returns tokens from [step-before, step+after].
+    Otherwise falls back to window (tokens ending at step).
+    """
     assert run_index is not None
     assert run_cache is not None
 
@@ -625,11 +631,15 @@ def get_context(
     info = run_index.runs[run]
     exp = run_cache.get_experiment_df(info)
 
-    w = window if window is not None else info.L
-
-    # Context window at step N: the w tokens ending at step N
-    window_end = step
-    window_start = step - w + 1
+    if before is not None or after is not None:
+        b = before if before is not None else 0
+        a = after if after is not None else 0
+        window_start = step - b
+        window_end = step + a
+    else:
+        w = window if window is not None else info.L
+        window_end = step
+        window_start = step - w + 1
 
     # Clamp to data range
     window_start = max(window_start, 0)

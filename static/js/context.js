@@ -18,7 +18,17 @@ export const ctxState = {
   contextData: null,   // latest /api/context response
   loading: false,
   viewRange: null,     // {min, max} = chart zoom; null = full range
+  bufferRange: null,   // {start, end} step indices currently in DOM
+  entropyBounds: null, // {min, range} for consistent coloring across extensions
+  extending: false,    // lock for concurrent buffer extensions
 };
+
+// Buffer/scroll constants
+const BUFFER_SIZE = 2000;
+const SCROLL_MARGIN_PX = 400;
+const EXTEND_SIZE = 500;
+const ACTIVE_FRAC = 2 / 3;   // position from top for active token (lower 1/3)
+let programmaticScroll = false;
 
 const stepRangeCache = {}; // runId -> step_range response
 let ctxFetchController = null;
@@ -252,12 +262,13 @@ async function fetchStepRange(runId) {
   return data;
 }
 
-async function fetchContext(runId, step, windowSize) {
-  if (ctxFetchController) ctxFetchController.abort();
-  ctxFetchController = new AbortController();
-
-  const params = new URLSearchParams({ run: runId, step: String(step), window: String(windowSize) });
-  const resp = await fetch(`/api/context?${params}`, { signal: ctxFetchController.signal });
+async function fetchContext(runId, step, { window, before, after, signal } = {}) {
+  const params = new URLSearchParams({ run: runId, step: String(step) });
+  if (window != null) params.set('window', String(window));
+  if (before != null) params.set('before', String(before));
+  if (after != null) params.set('after', String(after));
+  const opts = signal ? { signal } : {};
+  const resp = await fetch(`/api/context?${params}`, opts);
   if (!resp.ok) throw new Error(`API error: ${resp.status}`);
   return resp.json();
 }
@@ -274,6 +285,9 @@ export function openContextPanel(runId, step) {
   ctxState.runMeta = run;
   ctxState.step = step;
   ctxState.viewRange = null; // reset zoom on new panel open
+  ctxState.bufferRange = null;
+  ctxState.entropyBounds = null;
+  ctxState.extending = false;
   searchState.query = '';
   searchState.matches = [];
   searchState.currentIdx = -1;
@@ -361,15 +375,48 @@ export async function loadContextAtStep(step) {
   updateStepIndicator(step);
   renderOverviewViewport();
 
+  // If step is within current buffer, just scroll to it
+  const br = ctxState.bufferRange;
+  if (br && step >= br.start && step <= br.end) {
+    updateActiveStep(step);
+    scrollToStep(step);
+    return;
+  }
+
+  // Otherwise load a new buffer centered on this step
+  await loadBuffer(step);
+}
+
+async function loadBuffer(step) {
+  const sr = ctxState.stepRange;
+  if (!sr) return;
+
+  const before = Math.min(Math.round(BUFFER_SIZE * ACTIVE_FRAC), step - sr.min_step);
+  const after = Math.min(BUFFER_SIZE - before - 1, sr.max_step - step);
+
+  if (ctxFetchController) ctxFetchController.abort();
+  ctxFetchController = new AbortController();
+
   ctxSetLoading(true);
   try {
-    const L = ctxState.runMeta.L;
-    const data = await fetchContext(ctxState.runId, step, L);
+    const data = await fetchContext(ctxState.runId, step, {
+      before, after, signal: ctxFetchController.signal,
+    });
     ctxState.contextData = data;
+    ctxState.bufferRange = { start: data.window_start, end: data.window_end };
+
+    // Compute and store entropy bounds for consistent coloring
+    const entropies = data.tokens.map(t => t.entropy).filter(e => e != null && !isNaN(e));
+    const minE = entropies.length ? Math.min(...entropies) : 0;
+    const maxE = entropies.length ? Math.max(...entropies) : 1;
+    ctxState.entropyBounds = { min: minE, range: (maxE - minE) || 1 };
+
     renderContextTokens(data);
+    updateActiveStep(step);
+    scrollToStep(step);
   } catch (err) {
     if (err.name !== 'AbortError') {
-      console.error('Context load failed:', err);
+      console.error('Buffer load failed:', err);
       showToast('Failed to load context', 'error');
     }
   } finally {
@@ -446,10 +493,38 @@ function renderEosTicks(stepRange) {
 // ---------------------------------------------------------------------------
 // Token rendering
 // ---------------------------------------------------------------------------
+function buildTokenSpan(tok, entropyBounds) {
+  if (tok.eos) {
+    const eos = document.createElement('span');
+    eos.className = 'ctx-eos';
+    eos.textContent = 'EOS';
+    eos.title = `Step ${tok.step} | EOS token`;
+    eos.dataset.step = tok.step;
+    return eos;
+  }
+
+  const span = document.createElement('span');
+  span.className = 'ctx-token';
+  span.dataset.step = tok.step;
+
+  if (tok.entropy != null && !isNaN(tok.entropy) && entropyBounds) {
+    const norm = (tok.entropy - entropyBounds.min) / entropyBounds.range;
+    const alpha = 0.05 + norm * 0.20;
+    span.style.backgroundColor = `rgba(239, 85, 59, ${alpha.toFixed(3)})`;
+  }
+
+  if (searchState.query && tokenMatchesSearch(tok.text)) {
+    span.classList.add('search-match');
+  }
+
+  span.textContent = tok.text;
+  span.title = `Step ${tok.step} | H=${tok.entropy != null ? tok.entropy.toFixed(3) : '?'} | logp=${tok.log_prob != null ? tok.log_prob.toFixed(3) : '?'}`;
+  return span;
+}
+
 function renderContextTokens(data) {
   const textEl = document.getElementById('contextText');
   const loadingEl = document.getElementById('contextLoading');
-
   const frag = document.createDocumentFragment();
 
   if (!data.tokens || data.tokens.length === 0) {
@@ -458,52 +533,15 @@ function renderContextTokens(data) {
     msg.textContent = 'No tokens available at this step.';
     frag.appendChild(msg);
   } else {
-    const entropies = data.tokens.map(t => t.entropy).filter(e => e != null && !isNaN(e));
-    const minE = entropies.length > 0 ? Math.min(...entropies) : 0;
-    const maxE = entropies.length > 0 ? Math.max(...entropies) : 1;
-    const rangeE = maxE - minE || 1;
-
+    const bounds = ctxState.entropyBounds;
     for (const tok of data.tokens) {
-      if (tok.eos) {
-        const eos = document.createElement('span');
-        eos.className = 'ctx-eos';
-        eos.textContent = 'EOS';
-        eos.title = `Step ${tok.step} | EOS token`;
-        frag.appendChild(eos);
-        continue;
-      }
-
-      const span = document.createElement('span');
-      span.className = 'ctx-token';
-      if (tok.step === ctxState.step) {
-        span.classList.add('current');
-      }
-
-      if (tok.entropy != null && !isNaN(tok.entropy)) {
-        const norm = (tok.entropy - minE) / rangeE;
-        const alpha = 0.05 + norm * 0.20;
-        span.style.backgroundColor = `rgba(239, 85, 59, ${alpha.toFixed(3)})`;
-      }
-
-      // Highlight search matches within token text
-      if (searchState.query && tokenMatchesSearch(tok.text)) {
-        span.classList.add('search-match');
-      }
-
-      span.textContent = tok.text;
-      span.title = `Step ${tok.step} | H=${tok.entropy != null ? tok.entropy.toFixed(3) : '?'} | logp=${tok.log_prob != null ? tok.log_prob.toFixed(3) : '?'}`;
-      frag.appendChild(span);
+      frag.appendChild(buildTokenSpan(tok, bounds));
     }
   }
 
   textEl.innerHTML = '';
   textEl.appendChild(frag);
   textEl.appendChild(loadingEl);
-
-  const currentEl = textEl.querySelector('.ctx-token.current');
-  if (currentEl) {
-    currentEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -516,6 +554,154 @@ export function updateStepIndicator(step) {
 
 function removeStepIndicator() {
   removeStepIndicatorAll();
+}
+
+// ---------------------------------------------------------------------------
+// Scroll positioning and active step management
+// ---------------------------------------------------------------------------
+function scrollToStep(step) {
+  const textEl = document.getElementById('contextText');
+  const span = textEl.querySelector(`[data-step="${step}"]`);
+  if (!span) return;
+
+  programmaticScroll = true;
+  const containerRect = textEl.getBoundingClientRect();
+  const spanRect = span.getBoundingClientRect();
+  const targetY = containerRect.height * ACTIVE_FRAC;
+  textEl.scrollTop += (spanRect.top - containerRect.top) - targetY;
+  requestAnimationFrame(() => { programmaticScroll = false; });
+}
+
+function getStepAtViewFraction(frac) {
+  const textEl = document.getElementById('contextText');
+  const rect = textEl.getBoundingClientRect();
+  const y = rect.top + rect.height * frac;
+  const x = rect.left + rect.width / 2;
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  // Walk up to find a token with data-step
+  let node = el;
+  while (node && node !== textEl) {
+    if (node.dataset && node.dataset.step != null) return parseInt(node.dataset.step);
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function updateActiveStep(step) {
+  const textEl = document.getElementById('contextText');
+  const L = ctxState.runMeta ? ctxState.runMeta.L : 0;
+  const contextStart = step - L + 1;
+
+  // Update current highlight and context window markers
+  const prev = textEl.querySelector('.ctx-token.current');
+  if (prev) prev.classList.remove('current');
+
+  textEl.querySelectorAll('[data-step]').forEach(el => {
+    const s = parseInt(el.dataset.step);
+    const inCtx = s >= contextStart && s <= step;
+    el.classList.toggle('in-context', inCtx);
+    el.classList.toggle('out-of-context', !inCtx);
+    if (s === step && el.classList.contains('ctx-token')) {
+      el.classList.add('current');
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Infinite scroll: extend buffer at edges
+// ---------------------------------------------------------------------------
+async function extendBuffer(direction) {
+  if (ctxState.extending) return;
+  const br = ctxState.bufferRange;
+  const sr = ctxState.stepRange;
+  if (!br || !sr) return;
+
+  let anchorStep, before, after;
+  if (direction === 'up') {
+    if (br.start <= sr.min_step) return;
+    anchorStep = br.start;
+    before = Math.min(EXTEND_SIZE, br.start - sr.min_step);
+    after = 0;
+  } else {
+    if (br.end >= sr.max_step) return;
+    anchorStep = br.end;
+    before = 0;
+    after = Math.min(EXTEND_SIZE, sr.max_step - br.end);
+  }
+  if (before === 0 && after === 0) return;
+
+  ctxState.extending = true;
+  const bufferRef = br; // snapshot to detect if buffer was replaced during fetch
+  try {
+    const data = await fetchContext(ctxState.runId, anchorStep, { before, after });
+    // If buffer was replaced (e.g. user navigated), discard
+    if (ctxState.bufferRange !== bufferRef) return;
+
+    const textEl = document.getElementById('contextText');
+    const loadingEl = document.getElementById('contextLoading');
+    const bounds = ctxState.entropyBounds;
+    const frag = document.createDocumentFragment();
+
+    const newTokens = direction === 'up'
+      ? data.tokens.filter(t => t.step < br.start)
+      : data.tokens.filter(t => t.step > br.end);
+
+    if (newTokens.length === 0) return;
+
+    for (const tok of newTokens) {
+      frag.appendChild(buildTokenSpan(tok, bounds));
+    }
+
+    if (direction === 'up') {
+      const prevHeight = textEl.scrollHeight;
+      textEl.insertBefore(frag, textEl.firstChild);
+      textEl.scrollTop += textEl.scrollHeight - prevHeight;
+      br.start = data.window_start;
+    } else {
+      textEl.insertBefore(frag, loadingEl);
+      br.end = data.window_end;
+    }
+
+    // Update context window classes on new tokens
+    updateActiveStep(ctxState.step);
+  } catch (err) {
+    if (err.name !== 'AbortError') console.error('Buffer extend failed:', err);
+  } finally {
+    ctxState.extending = false;
+  }
+}
+
+let scrollSyncRAF = null;
+
+function onContextScroll() {
+  if (programmaticScroll) return;
+
+  if (scrollSyncRAF) return;
+  scrollSyncRAF = requestAnimationFrame(() => {
+    scrollSyncRAF = null;
+
+    // Sync step from scroll position
+    const step = getStepAtViewFraction(ACTIVE_FRAC);
+    if (step != null && step !== ctxState.step) {
+      ctxState.step = step;
+      document.getElementById('contextStepInput').value = step;
+      document.getElementById('contextScrubber').value = step;
+      updateActiveStep(step);
+      updateStepIndicator(step);
+      renderOverviewViewport();
+      updateNavButtonState();
+    }
+
+    // Check buffer edges for extension
+    const textEl = document.getElementById('contextText');
+    if (textEl.scrollTop < SCROLL_MARGIN_PX) {
+      extendBuffer('up');
+    }
+    if (textEl.scrollHeight - textEl.clientHeight - textEl.scrollTop < SCROLL_MARGIN_PX) {
+      extendBuffer('down');
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -825,6 +1011,24 @@ export function wireContextEvents() {
       e.preventDefault();
       document.getElementById(btnId).click();
     }
+  });
+
+  // Scroll-synced step tracking
+  document.getElementById('contextText').addEventListener('scroll', onContextScroll);
+
+  // Double-click to flag a token as active position
+  document.getElementById('contextText').addEventListener('dblclick', (e) => {
+    const token = e.target.closest('[data-step]');
+    if (!token) return;
+    e.preventDefault();
+    const step = parseInt(token.dataset.step);
+    ctxState.step = step;
+    document.getElementById('contextStepInput').value = step;
+    document.getElementById('contextScrubber').value = step;
+    updateActiveStep(step);
+    updateStepIndicator(step);
+    renderOverviewViewport();
+    updateNavButtonState();
   });
 
   initDragHandle();

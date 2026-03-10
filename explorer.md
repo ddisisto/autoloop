@@ -295,13 +295,16 @@ This connects back to interaction-topology.md: the phase space IS the interface.
 - [x] Glob patterns in run selector
 
 ### Phase 2: Context redesign
-- [ ] DOM restructure: `.workspace` wrapping `.chart-container` + `.context-drawer`
+- [x] DOM restructure: `.workspace` wrapping `.chart-container` + `.context-drawer`
 - [ ] Popover on chart click (lightweight, positioned near click point)
 - [ ] Pin-to-drawer flow (popover → right drawer opens)
 - [ ] Adjustable W_display in drawer header (independent of L)
-- [ ] L-window highlight in continuous text (shaded band)
-- [ ] Bidirectional scroll/zoom sync (text ↔ chart X axis)
-- [ ] Resize handle between chart and drawer
+- [x] L-window highlight in continuous text (in-context underline + out-of-context dimming)
+- [x] Bidirectional scroll/zoom sync (text ↔ chart X axis)
+- [x] Resize handle between chart and drawer
+- [x] Buffer-based context viewer (~2000 tokens, infinite scroll, scroll-synced position)
+- [x] Token search with case sensitivity, whole word, and regex toggles
+- [x] Double-click token to flag as active position
 - [ ] Flags: create, display on charts, list in sidebar, persist, export
 
 ### Phase 3: Events & extended views

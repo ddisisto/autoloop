@@ -24,7 +24,7 @@ static/              # Explorer frontend
   js/app.js          # Init, event wiring, hash state, presets
   js/panels.js       # Composable chart strips, Plotly rendering, zoom sync
   js/presets.js      # Hardcoded + user-saved chart layouts
-  js/context.js      # Context drawer, overview bar, search, word cloud
+  js/context.js      # Context drawer, buffered token view, scroll sync, search, word cloud
   js/sidebar.js      # Run list, favorites
   js/state.js        # App state, color-by system, API helpers
 explorer.md          # Explorer design doc
@@ -86,7 +86,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `plot_window_scaling.py`: window scaling plots (comp vs L, comp vs W, heatmaps)
 - `utils.py`: shared primitives — `compressibility()`, `eos_ema()`
 - `reproduce_plots.py`: one-command regen of all standard plot slices (analysis + figure mtime caching)
-- `explorer.py` + `static/index.html`: interactive web explorer (FastAPI + Plotly.js), context inspection
+- `explorer.py` + `static/index.html`: interactive web explorer (FastAPI + Plotly.js), buffered context viewer with scroll sync, infinite scroll, L-window visual, token search (case/word/regex)
 - `sweep.py`: unified sweep runner with presets (pilot, crossover, seed, ldense, l256-crossover) and ad-hoc grids
 
 ### Data Collected (run `sweep.py --status` for live grid)
