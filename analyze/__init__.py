@@ -3,12 +3,16 @@
 Public API:
     analyze_run(parquet_path, window_sizes, exp=None) -> dict
     default_window_sizes(L) -> list[int]
-    comp_stats(cache, W) -> dict
+    comp_stats(cache, W) -> dict  — NaN-safe scalar stats (use this, not raw arrays)
     summarize_run(exp) -> dict
-    sliding_compressibility(decoded_texts, window_size) -> np.ndarray
+    sliding_compressibility(decoded_texts, window_size) -> np.ndarray  — has leading NaN
     stationarity_blocks(series, n_blocks=5) -> dict
     entropy_autocorrelation(entropy, max_lag=2000) -> np.ndarray
     load_experiment_df(parquet_path) -> pd.DataFrame
+
+Note: compressibility arrays have NaN at positions 0..W-2 (no full window).
+For scalar summaries, always use comp_stats(). Access raw arrays only for
+time-series work where positional alignment matters.
 
 Submodules:
     analyze.metrics    — scalar metric extraction (surprisal, EOS, decorrelation)

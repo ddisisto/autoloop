@@ -19,7 +19,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from analyze import analyze_run
+from analyze import analyze_run, comp_stats
 from analyze_windows import STANDARD_WINDOWS
 from plot import FIGURES_DIR, ensure_figures_dir, parse_run_name
 
@@ -39,12 +39,7 @@ def _get_analysis(parquet_path: Path, window_sizes: list[int]) -> dict:
 def load_mean_compressibility(parquet_path: Path, window_sizes: list[int]) -> dict[int, float]:
     """Load analysis and return mean compressibility per window size."""
     analysis = _get_analysis(parquet_path, window_sizes)
-    result = {}
-    for w in window_sizes:
-        arr = analysis["compressibility"][w]
-        valid = arr[~np.isnan(arr)]
-        result[w] = float(valid.mean()) if len(valid) > 0 else np.nan
-    return result
+    return {w: comp_stats(analysis, w)["mean"] for w in window_sizes}
 
 
 def load_summary(parquet_path: Path, window_sizes: list[int]) -> dict:
@@ -278,8 +273,7 @@ def main() -> None:
             for p, pr in groups[(l, t)]:
                 mc = load_mean_compressibility(p, STANDARD_WINDOWS)
                 for w in STANDARD_WINDOWS:
-                    if w <= l:
-                        seed_means[w].append(mc[w])
+                    seed_means[w].append(mc[w])
 
             ws_valid = sorted(seed_means.keys())
             y_vals = [np.mean(seed_means[w]) for w in ws_valid]
@@ -310,8 +304,7 @@ def main() -> None:
             for p, pr in groups[(l, t)]:
                 mc = load_mean_compressibility(p, STANDARD_WINDOWS)
                 for w_idx, w in enumerate(STANDARD_WINDOWS):
-                    if w <= l:
-                        seed_vals_per_w[w_idx].append(mc[w])
+                    seed_vals_per_w[w_idx].append(mc[w])
             for w_idx, vals in seed_vals_per_w.items():
                 grid[w_idx, l_idx] = np.mean(vals)
 

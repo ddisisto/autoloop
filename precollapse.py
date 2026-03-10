@@ -26,14 +26,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analyze import analyze_run, sliding_compressibility
+from analyze import analyze_run, default_window_sizes, sliding_compressibility
 from analyze.metrics import decorrelation_lag
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 RUNS_DIR = Path("data/runs")
-STANDARD_W = [16, 32, 64, 128, 256]
+STANDARD_W = default_window_sizes(0)
 
 
 # ---------------------------------------------------------------------------

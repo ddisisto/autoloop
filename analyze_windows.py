@@ -12,11 +12,11 @@ import argparse
 import logging
 from pathlib import Path
 
-from analyze import analyze_run
+from analyze import analyze_run, default_window_sizes
 
 log = logging.getLogger(__name__)
 
-STANDARD_WINDOWS = [16, 32, 64, 128, 256]
+STANDARD_WINDOWS = default_window_sizes(0)
 
 
 def main() -> None:

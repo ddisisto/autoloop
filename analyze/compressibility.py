@@ -11,7 +11,10 @@ AUTOCORR_MAX_LAG = 2000
 def sliding_compressibility(decoded_texts: pd.Series, window_size: int) -> np.ndarray:
     """Compute compressibility over a sliding window of tokens.
 
-    Returns one value per step starting from index window_size-1.
+    Returns array of length len(decoded_texts). Positions 0..window_size-2 are
+    NaN (insufficient tokens for a full window). Use comp_stats() from
+    analyze.summary to get NaN-safe scalar summaries; use the raw array only
+    for time-series plotting or slicing where positional alignment matters.
     """
     texts = decoded_texts.to_numpy()
     n = len(texts)

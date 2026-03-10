@@ -17,7 +17,11 @@ def default_window_sizes(L: int) -> list[int]:
 def comp_stats(cache: dict, W: int) -> dict[str, float]:
     """Extract compressibility summary stats for window size W from analysis cache.
 
-    Returns dict with mean, std, min, max (NaN-safe). Returns all-NaN dict if W missing.
+    This is the correct interface for scalar compressibility values. Raw
+    compressibility arrays have leading NaN (first W-1 positions lack a full
+    window) — this function filters those before computing stats.
+
+    Returns dict with mean, std, min, max. Returns all-NaN dict if W missing.
     """
     nan_result = {"mean": float("nan"), "std": float("nan"), "min": float("nan"), "max": float("nan")}
     comp = cache.get("compressibility", {}).get(W)
