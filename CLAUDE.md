@@ -7,7 +7,7 @@ Multi-scale complexity control in closed-loop autoregressive generation. See `do
 ## Repository Layout
 
 ```
-generate.py          # Core generation loop, CLI entry point (with checkpoint/resume)
+generate.py          # Core generation loop, CLI entry point (schedule, prefill, checkpoint/resume)
 analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries; incremental .analysis.pkl cache)
 plot.py              # Visualization (5 plot types + EOS markers, CLI with --runs and --plots)
 utils.py             # Shared primitives (compressibility, eos_ema, fix_decoded_texts)
@@ -57,10 +57,11 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 
 ### Data
 - All generated data goes under `data/` (gitignored except `data/figures/`)
-- One Parquet file per run, named `L{L:04d}_T{T:.2f}_S{seed}.parquet`
-- Each run includes a JSON sidecar with full metadata (parameters, model revision, torch version, timing)
+- One Parquet file per run, named `L{L:04d}_T{T:.2f}_S{seed}.parquet` (fixed-param) or `sched_S{seed}_{hash8}` (schedule) or `--run-name`
+- Per-step `temperature` and `context_length` columns in parquet (vary per-step in scheduled runs)
+- Each run includes a JSON sidecar with full metadata (schedule, prefill_text, model revision, torch version, timing)
 - Analysis cache: single `.analysis.pkl` per parquet, incremental (new window sizes merged in), invalidated by parquet mtime
-- Checkpoints: `L{L:04d}_T{T:.2f}_S{seed}.ckpt` — kept after run completion for extension
+- Checkpoints: same stem as parquet `.ckpt` — kept after run completion for extension; stores schedule spec for resume validation
 - Model weights: `data/model/SmolLM-135M/` (local, not fetched at runtime)
 
 ### Git
@@ -78,7 +79,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 ## Current State (Phase 0 complete, Phase 1 in progress)
 
 ### What's Built
-- `generate.py`: generation loop with pre-fill, checkpoint/resume, per-1k-step logging, decoded_text fix for multi-byte UTF-8
+- `generate.py`: generation loop with schedule support (per-segment L/T), pre-seeded context (`--prefill-text`), checkpoint/resume with schedule validation, per-1k-step logging, decoded_text fix for multi-byte UTF-8
 - `analyze.py`: modular metric computation (compressibility, stationarity, summaries); single incremental `.analysis.pkl` cache per run; accepts pre-loaded DataFrames; canonical home for `default_window_sizes()`
 - `analyze_windows.py`: recompute analysis at standard W grid [16,32,64,128,256]
 - `plot.py`: entropy time series (EOS rate EMA overlay), compressibility, phase portraits (EOS diamonds), temporal phase portraits (cividis), split violin
@@ -126,10 +127,20 @@ python sweep.py --status                         # grid table from disk
 python sweep.py --list                           # list presets
 python sweep.py crossover --dry-run              # preview without running
 
-# Single generation run
+# Single generation run (fixed parameters)
 python generate.py --context-length 64 --temperature 1.0 --seed 42 \
   --num-tokens 100000 --model-dir data/model/SmolLM-135M \
   --output-dir data/runs --device cuda
+
+# Scheduled run (L/T vary per segment)
+python generate.py --schedule "50000:L256:T0.60,10000:L64:T0.60,40000:L256:T0.60" \
+  --seed 42 --model-dir data/model/SmolLM-135M \
+  --output-dir data/runs --device cuda
+
+# Pre-seeded context (repeat text to fill L, skip generative prefill)
+python generate.py --context-length 256 --temperature 0.60 --seed 42 \
+  --num-tokens 100000 --prefill-text " Star Wars" \
+  --model-dir data/model/SmolLM-135M --output-dir data/runs --device cuda
 
 # Interactive explorer
 uvicorn explorer:app --reload --port 8000   # then open http://localhost:8000
