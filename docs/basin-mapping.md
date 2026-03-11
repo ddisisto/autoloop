@@ -237,7 +237,7 @@ Three tiers of increasing sophistication:
 
 **Tier B — Learned policy (next):** Train a small model on (sensor_state → action) pairs from existing controller runs. The input space is ~10D, output is 2D (ΔT, ΔL). A linear model or small MLP may suffice — the state space is well-structured.
 
-Training data is already being generated: every controller run produces a `.decisions.json` with sensor readings and actions at each segment boundary. The 1M-step drift run alone has 1000 decision points. Combined with the 5 shorter controller runs, that's >1050 labeled examples for free.
+Training data comes from per-step sensor readings in parquet files. Controller and survey runs record temperature, context_length, entropy, and other signals at every token.
 
 Candidate objectives:
 - **β-tracking:** minimize |β − target| over time (supervised, regression on existing data)
@@ -273,7 +273,7 @@ Frontier models with tool use: action space grows beyond (T, L). State space gai
 - Domain seeds at selected L values to probe seeded basins
 
 ### Phase 3 — Learned Controller
-- Train β-tracking model on existing decisions.json data (~1050 examples)
+- Train β-tracking model on sensor data from existing runs
 - Compare to rule-based BetaController on held-out runs
 - If effective: train exploration-objective model on survey data (maximize novel basins per unit time)
 - Plug learned controller into experiment.py as a new controller type

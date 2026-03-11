@@ -133,7 +133,7 @@ A structured catalogue (SQLite) stores basin records with compression identity, 
 
 Three tiers:
 - **Tier A (built):** Rule-based `BetaController` and `StateMachine` in experiment.py
-- **Tier B (next):** Small model trained on existing decisions.json data (~1050 examples). 10D input (sensor state), 2D output (delta-T, delta-L). Beta-tracking objective first; exploration objective once survey data exists
+- **Tier B (next):** Small model trained on sensor data from parquet runs. 10D input (sensor state), 2D output (delta-T, delta-L). Beta-tracking objective first; exploration objective once survey data exists
 - **Tier C (future):** Online learning during generation, bandit-style exploration/exploitation over the basin landscape
 
 ## 6. Roadmap
@@ -150,7 +150,7 @@ Three tiers:
 - L=8-32 "skeleton" survey: what survives extreme context compression?
 
 ### Phase 3 -- Learned Controller
-- Train beta-tracking model on existing decisions.json data
+- Train beta-tracking model on sensor data from existing runs
 - Compare to rule-based BetaController on held-out runs
 - If effective: train exploration-objective model on survey data
 - Plug learned controller into experiment.py as a new controller type

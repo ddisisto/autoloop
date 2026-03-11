@@ -94,12 +94,6 @@ class RunInfo:
 
         self.tokens = self.meta.get("num_tokens", self.meta.get("total_steps", 0))
 
-        # Decision log path for controller runs
-        self.decisions_path: Path | None = None
-        if self.run_type == "controller":
-            dp = parquet_path.with_suffix(".decisions.json")
-            if dp.exists():
-                self.decisions_path = dp
 
     def _classify(self) -> str:
         """Infer run type from filename prefix and metadata."""
@@ -712,11 +706,7 @@ def get_ngrams(
 def get_events(
     run: str = Query(..., description="Run ID"),
 ) -> JSONResponse:
-    """Return event markers for a run (controller decisions, schedule transitions).
-
-    For controller runs, reads the .decisions.json sidecar.
-    For schedule/anneal runs, detects L/T transitions from the parquet data.
-    """
+    """Return event markers for a run (L/T transitions from parquet data)."""
     assert run_index is not None
     assert run_cache is not None
 
@@ -726,56 +716,41 @@ def get_events(
     info = run_index.runs[run]
     events: list[dict] = []
 
-    # Controller runs: read decision log
-    if info.decisions_path is not None:
-        with open(info.decisions_path) as f:
-            decisions = json.load(f)
-        for d in decisions:
+    # Detect L/T transitions from parquet columns
+    exp = run_cache.get_experiment_df(info)
+    if "context_length" in exp.columns:
+        L_col = exp["context_length"]
+        changes = L_col.ne(L_col.shift())
+        for idx in exp.index[changes][1:]:  # skip first row
+            row = exp.iloc[idx]
             events.append({
-                "step": d["step"],
-                "type": d.get("action", "decision"),
-                "L": d.get("L"),
-                "T": d.get("T"),
-                "beta": d.get("beta"),
-                "entropy": d.get("entropy"),
-                "reason": d.get("reason", ""),
+                "step": int(idx),
+                "type": "L_change",
+                "L": int(row["context_length"]),
+                "T": float(row["temperature"]) if "temperature" in exp.columns else None,
+                "reason": f"L→{int(row['context_length'])}",
             })
-    else:
-        # Detect L/T transitions from parquet columns
-        exp = run_cache.get_experiment_df(info)
-        if "context_length" in exp.columns:
-            L_col = exp["context_length"]
-            changes = L_col.ne(L_col.shift())
-            for idx in exp.index[changes][1:]:  # skip first row
-                row = exp.iloc[idx]
+    if "temperature" in exp.columns:
+        T_col = exp["temperature"].round(4)
+        changes = T_col.ne(T_col.shift())
+        for idx in exp.index[changes][1:]:
+            row = exp.iloc[idx]
+            # Avoid duplicate if L also changed at same step
+            if not any(e["step"] == int(idx) for e in events):
                 events.append({
                     "step": int(idx),
-                    "type": "L_change",
-                    "L": int(row["context_length"]),
-                    "T": float(row["temperature"]) if "temperature" in exp.columns else None,
-                    "reason": f"L→{int(row['context_length'])}",
+                    "type": "T_change",
+                    "L": int(row["context_length"]) if "context_length" in exp.columns else None,
+                    "T": float(row["temperature"]),
+                    "reason": f"T→{float(row['temperature']):.2f}",
                 })
-        if "temperature" in exp.columns:
-            T_col = exp["temperature"].round(4)
-            changes = T_col.ne(T_col.shift())
-            for idx in exp.index[changes][1:]:
-                row = exp.iloc[idx]
-                # Avoid duplicate if L also changed at same step
-                if not any(e["step"] == int(idx) for e in events):
-                    events.append({
-                        "step": int(idx),
-                        "type": "T_change",
-                        "L": int(row["context_length"]) if "context_length" in exp.columns else None,
-                        "T": float(row["temperature"]),
-                        "reason": f"T→{float(row['temperature']):.2f}",
-                    })
-                else:
-                    # Augment existing event
-                    for e in events:
-                        if e["step"] == int(idx):
-                            e["type"] = "LT_change"
-                            e["T"] = float(row["temperature"])
-                            e["reason"] += f", T→{float(row['temperature']):.2f}"
+            else:
+                # Augment existing event
+                for e in events:
+                    if e["step"] == int(idx):
+                        e["type"] = "LT_change"
+                        e["T"] = float(row["temperature"])
+                        e["reason"] += f", T→{float(row['temperature']):.2f}"
 
     events.sort(key=lambda e: e["step"])
     return JSONResponse(content={

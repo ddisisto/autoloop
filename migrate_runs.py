@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 SKIP_NAMES: set[str] = {"_old_caches", "index.db"}
 
 # Known sidecar extensions (including .parquet itself)
-SIDECAR_EXTS: set[str] = {".parquet", ".meta.json", ".analysis.pkl", ".ckpt", ".decisions.json"}
+SIDECAR_EXTS: set[str] = {".parquet", ".meta.json", ".analysis.pkl", ".ckpt"}
 
 
 def extract_stem(path: Path) -> str | None:

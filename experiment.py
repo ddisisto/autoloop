@@ -281,8 +281,6 @@ def run_experiment(
     parquet_path = output_dir / f"{run_name}.parquet"
     meta_path = output_dir / f"{run_name}.meta.json"
     checkpoint_path = output_dir / f"{run_name}.ckpt"
-    decisions_path = output_dir / f"{run_name}.decisions.json"
-
     log.info("Experiment: %s | %d steps, %d/segment", run_name, total_steps, segment_steps)
 
     current_L = start_L
@@ -302,7 +300,6 @@ def run_experiment(
         engine.run_segment(start_L, start_T, start_L, phase="prefill")
 
     sensor_history: list[SensorReading] = []
-    decision_log: list[dict] = []
     n_rollbacks = 0
     experiment_steps = 0
 
@@ -339,25 +336,7 @@ def run_experiment(
             sensor_history.pop()
             n_rollbacks += 1
             current_L, current_T = action.L, action.T
-            decision_log.append({
-                "step": engine.current_step,
-                "action": "rollback",
-                "L": action.L, "T": action.T,
-                "reason": action.reason,
-            })
             continue
-
-        # Log decision
-        decision_log.append({
-            "step": engine.current_step,
-            "action": "continue",
-            "L": action.L, "T": action.T,
-            "prev_L": current_L, "prev_T": current_T,
-            "beta": sensors.heaps_beta,
-            "entropy": sensors.entropy_mean,
-            "comp": sensors.comp_W64,
-            "reason": action.reason,
-        })
 
         pct = 100 * experiment_steps / total_steps
         log.info(
@@ -377,7 +356,7 @@ def run_experiment(
             engine.save_checkpoint(checkpoint_path, parquet_path)
         if n_seg % save_every == 0:
             _write_outputs(
-                engine, decision_log, parquet_path, decisions_path, meta_path,
+                engine, parquet_path, meta_path,
                 run_name, total_steps, segment_steps, start_L, start_T,
                 current_L, current_T, experiment_steps, n_rollbacks,
                 sensor_history, t_start, dry_run, extra_meta,
@@ -386,7 +365,7 @@ def run_experiment(
     # Final save
     engine.fix_texts()
     _write_outputs(
-        engine, decision_log, parquet_path, decisions_path, meta_path,
+        engine, parquet_path, meta_path,
         run_name, total_steps, segment_steps, start_L, start_T,
         current_L, current_T, experiment_steps, n_rollbacks,
         sensor_history, t_start, dry_run, extra_meta, final=True,
@@ -406,9 +385,7 @@ def run_experiment(
 
 def _write_outputs(
     engine: StepEngine,
-    decision_log: list[dict],
     parquet_path: Path,
-    decisions_path: Path,
     meta_path: Path,
     run_name: str,
     total_steps: int,
@@ -425,9 +402,8 @@ def _write_outputs(
     extra_meta: dict | None,
     final: bool = False,
 ) -> None:
-    """Write parquet, decisions, and metadata."""
+    """Write parquet and metadata."""
     engine.save_parquet(parquet_path)
-    decisions_path.write_text(json.dumps(decision_log, indent=2) + "\n")
 
     elapsed = time.monotonic() - t_start
     metadata = {
@@ -457,8 +433,8 @@ def _write_outputs(
     meta_path.write_text(json.dumps(metadata, indent=2) + "\n")
 
     label = "Final" if final else "Snapshot"
-    log.info("%s save: %s (%d records, %d decisions)",
-             label, parquet_path.name, len(engine.records), len(decision_log))
+    log.info("%s save: %s (%d records)",
+             label, parquet_path.name, len(engine.records))
 
 
 # ---------------------------------------------------------------------------

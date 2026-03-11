@@ -355,7 +355,7 @@ def run_controller(
     context = torch.tensor([[tokenizer.bos_token_id]], dtype=torch.long, device=DEVICE)
     records: list[dict] = []
     sensor_history: list[SensorReading] = []
-    decision_log: list[dict] = []
+
 
     current_L = start_L
     current_T = start_T
@@ -365,7 +365,7 @@ def run_controller(
     SAVE_EVERY = 50  # ~50k steps at default segment_steps=1000
 
     def save_snapshot(final: bool = False) -> None:
-        """Write parquet, decisions, and metadata to disk."""
+        """Write parquet and metadata to disk."""
         all_ids = [r["token_id"] for r in records]
         all_texts = [r["decoded_text"] for r in records]
         fixed = fix_decoded_texts(tokenizer, all_ids, all_texts)
@@ -375,9 +375,6 @@ def run_controller(
 
         snap_df = pd.DataFrame(snap_records)
         snap_df.to_parquet(parquet_path, index=False)
-
-        decision_path = OUTPUT_DIR / f"{run_name}.decisions.json"
-        decision_path.write_text(json.dumps(decision_log, indent=2) + "\n")
 
         elapsed = time.monotonic() - t_start if t_start else 0
         metadata = {
@@ -404,13 +401,13 @@ def run_controller(
             "tokens_per_second": round(len(records) / elapsed, 1) if elapsed > 0 else 0,
             "num_tokens": experiment_steps,
             "complete": final,
-            "decision_log": decision_log,
+
         }
         meta_path.write_text(json.dumps(metadata, indent=2) + "\n")
 
         label = "Final" if final else "Snapshot"
-        log.info("%s save: %s (%d records, %d decisions)",
-                 label, parquet_path.name, len(records), len(decision_log))
+        log.info("%s save: %s (%d records)",
+                 label, parquet_path.name, len(records))
 
     # Prefill: generate L tokens at current T to fill the context
     log.info("Prefill: %d tokens at L=%d T=%.2f", start_L, start_L, start_T)
@@ -478,12 +475,6 @@ def run_controller(
             # After rollback: more aggressive T increase
             current_T = min(current_T + T_STEP * 2, max(T_OPTIONS))
             reason = f"rollback, T→{current_T:.2f}"
-            decision_log.append({
-                "step": current_step,
-                "action": "rollback",
-                "L": current_L, "T": current_T,
-                "reason": reason,
-            })
             log.info("  → %s", reason)
             continue
 
@@ -494,17 +485,6 @@ def run_controller(
             new_L, new_T, reason = decide_next(
                 current_L, current_T, sensors, sensor_history, drift=drift
             )
-
-        decision_log.append({
-            "step": current_step,
-            "action": "continue",
-            "L": new_L, "T": new_T,
-            "prev_L": current_L, "prev_T": current_T,
-            "beta": sensors.heaps_beta,
-            "entropy": sensors.entropy_mean,
-            "comp": sensors.comp_W64,
-            "reason": reason,
-        })
 
         pct = 100 * experiment_steps / total_steps
         log.info(
