@@ -41,6 +41,7 @@ Scripts, not a package. Flat layout (except `analyze/` which is a package).
 | `cli.py` | Unified CLI (`loop`): all subcommands below |
 | `engine.py` | Token generation engine: `StepEngine` with step, sensors, comp_spectrum, embed_context, snapshot/rollback, checkpoint |
 | `experiment.py` | Experiment framework: controllers (`Fixed`, `Schedule`, `Beta`), `StateMachine`, universal run loop |
+| `survey.py` | Basin survey: `SurveyController` state machine (COOLING/CAPTURED/HEATING/TRANSIT), `CentroidCatalogue` for online novelty detection |
 | `sweep.py` | Sweep runner: named presets, ad-hoc grids |
 | `runlib.py` | Run discovery, path constants, classification |
 | `runindex.py` | SQLite index builder and query interface |
@@ -75,6 +76,10 @@ The `loop` command is the unified entry point. Install with `uv sync`, then use 
 loop run fixed --seed 42 -L 64 -T 0.50 --total-steps 100000
 loop run schedule --seed 42 --spec "50000:L256:T0.60,50000:L64:T0.80"
 loop run beta --seed 42 --start-L 8 --start-T 1.00 --drift --total-steps 1000000
+
+# Basin survey
+loop survey --seed 42 -L 8 --total-steps 100000
+loop survey --seed 42 -L 64 --T-survey 0.50 --T-heat 0.80
 
 # Sweeps (named preset or ad-hoc grid)
 loop sweep pilot
@@ -119,7 +124,7 @@ Most subcommands accept run IDs (parquet stems like `L0064_T0.50_S42`) or filter
 
 **Phase 1 (complete):** Closed-loop control. BetaController finds beta~0.90 equilibrium. Balance T tracks T_escape(L). Drift mode grows L over time. Sensor framework validated: entropy and Heaps' beta are the right control signals.
 
-**Current work -- basin cartography:** A survey protocol (COOLING -> CAPTURED -> CHARACTERISING -> HEATING -> TRANSIT) implemented as a `StateMachine` experiment will systematically cool the system to capture basins, fingerprint them via gzip compression spectra, heat to escape, and repeat. The compression dictionary at optimal W *is* the basin's identity. Goal: a catalog of all recoverable basins across the (T, L) parameter space. See [docs/basin-mapping.md](docs/basin-mapping.md).
+**Current work -- basin cartography:** Survey protocol (COOLING -> CAPTURED -> HEATING -> TRANSIT) implemented in `survey.py` as a `StateMachine` experiment. Systematically cools to capture basins, fingerprints them via compression spectra + embeddings, heats to escape, and repeats. Online novelty detection via cosine distance to centroid catalogue. Smoke-tested at L=8; capture detection thresholds being tuned before full L-ladder runs. See [docs/basin-mapping.md](docs/basin-mapping.md).
 
 **Next -- learned controller:** Train a small model on existing controller decision data (~1050 examples). 10D sensor input, 2D output (delta-T, delta-L). Beta-tracking first, then exploration objective once basin survey generates training data.
 

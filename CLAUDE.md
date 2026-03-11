@@ -42,7 +42,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 
 ## Current state
 
-**What's built:** engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), cli.py (unified `loop` CLI), analyze/ package, plot.py, explorer.py, precollapse.py, semantic.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
+**What's built:** engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController state machine + CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI), analyze/ package, plot.py, explorer.py, precollapse.py, semantic.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
 
 **Data collected:** ~70 runs. Run `loop index query` for the live catalog.
 
