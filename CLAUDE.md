@@ -2,7 +2,7 @@
 
 ## Project
 
-Multi-scale complexity control in closed-loop autoregressive generation. See `docs/project-brief.md` for full design, `observations.md` for findings log.
+Basin topography and learnable steering in autoregressive self-play. See `docs/project-brief.md` for full design, `observations.md` for findings log.
 
 ## Repository Layout
 
@@ -24,6 +24,9 @@ semantic.py          # Semantic analysis (theme search, attractor catalog, Heaps
 grep_text.py         # CLI grep for decoded text in parquet runs (regex, context, step/L/T display)
 anneal.py            # Annealing experiment runner (phased: probes, tier1-5, --check, --dry-run)
 sweep.py             # Unified sweep runner (presets, ad-hoc grids, --status)
+runlib.py            # Run discovery and classification (path constants, classify_run, discover_runs)
+schema.py            # SQLite schema definitions (versioned, inspectable column defs for runs + basins)
+runindex.py          # SQLite index builder/query CLI (data/runs/index.db)
 explorer.py          # Interactive web explorer backend (FastAPI)
 static/              # Explorer frontend
   index.html         # HTML shell
@@ -45,7 +48,14 @@ docs/                # Longer-form documents + observation archives
   interaction-topology.md  # Speculative framing: generative dynamics as interaction paradigm
 data/                # Gitignored except figures
   model/SmolLM-135M/ # Local model weights (pre-downloaded)
-  runs/              # Parquet files + JSON sidecars + checkpoints + analysis cache (.analysis.pkl)
+  runs/              # Organized by experiment type (see Data conventions below)
+    sweep/           # L{LLLL}_T{T.TT}_S{seed}.*
+    controller/      # ctrl_*, ctrld_*
+    anneal/          # anneal_*
+    probe/           # probe_*
+    survey/          # survey_* (future)
+    schedule/        # sched_*
+    index.db         # SQLite index (schema.py defines, runindex.py manages)
   figures/           # Plot outputs (tracked in git)
 ```
 
@@ -65,7 +75,9 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 
 ### Data
 - All generated data goes under `data/` (gitignored except `data/figures/`)
-- One Parquet file per run, named `L{L:04d}_T{T:.2f}_S{seed}.parquet` (fixed-param) or `sched_S{seed}_{hash8}` (schedule) or `--run-name`
+- Runs organized into subdirectories by experiment type under `data/runs/`: `sweep/` (fixed-param), `controller/` (ctrl/ctrld), `anneal/`, `probe/`, `schedule/` (sched), `survey/` (future). `runlib.py` provides path constants, classification, and discovery
+- `data/runs/index.db`: SQLite index of all runs — canonical way to query what data exists. Built by `runindex.py build`, queried by `runindex.py query` or programmatically via `schema.py` + `runindex.py`
+- One Parquet file per run, named `L{L:04d}_T{T:.2f}_S{seed}.parquet` (sweep/) or `sched_S{seed}_{hash8}` (schedule/) or `ctrl[d]_S{seed}_{L}_{T}` (controller/) or `--run-name`
 - Per-step `temperature` and `context_length` columns in parquet (vary per-step in scheduled runs)
 - Each run includes a JSON sidecar with full metadata (schedule, prefill_text, model revision, torch version, timing)
 - Analysis cache: single `.analysis.pkl` per parquet, incremental (new window sizes merged in), invalidated by parquet mtime
@@ -102,7 +114,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `sweep.py`: unified sweep runner with presets (pilot, crossover, seed, ldense, l256-crossover) and ad-hoc grids
 - `grep_text.py`: CLI grep for decoded text in parquet runs — regex, case-insensitive, match counts, step/L/T context display
 
-### Data Collected (run `sweep.py --status` for live grid)
+### Data Collected (run `runindex.py query` or `sweep.py --status` for live grid)
 - Pilot: L={64,128,192,256} × T={0.50,1.00,1.50} × S=42 (12 runs)
 - Crossover: L={64,128,192} × T={0.60,0.70,0.80,0.90} × S=42 (12 runs)
 - Seed replication at T=0.50: L={64,128,192} × S={42,123,7} (9 runs)
@@ -208,6 +220,12 @@ python semantic.py --runs data/runs/L0256*.parquet  # specific runs
 python grep_text.py "Star Wars" --runs data/runs/*.parquet --count
 python grep_text.py "education" -i --runs data/runs/ctrld_S42_8_1.00.parquet --max 10
 python grep_text.py "young|old" --regex -C 30 --runs data/runs/L0064*.parquet
+
+# Run index
+python runindex.py build                           # full reindex
+python runindex.py query                           # list all runs
+python runindex.py query --type sweep --T 0.50     # filtered query
+python runindex.py query --json                    # JSON output
 
 # Cross-condition summary table
 python summary_table.py                         # print to stdout

@@ -1,297 +1,183 @@
 # autoloop — Project Brief
 
-**Working paper title:** *Multi-Scale Complexity Control in Closed-Loop Autoregressive Generation*
+**Title:** *Basin Topography and Taxonomy in Autoregressive Self-Play*
 
-**Status:** Active — Phase 0 complete, Phase 1 in progress
-**Date:** March 2026 (started), updated March 2026
+**Status:** Phase 0-1 complete (phase structure mapped, controller proven), pivoting to basin mapping
+**Date:** March 2026 (started), revised March 2026
 
 ---
 
 ## 1. Motivation
 
-When an autoregressive language model generates tokens indefinitely — with old tokens rolling out of a fixed-length context window as new tokens enter — the system becomes a discrete stochastic dynamical system operating on its own output. After the original prompt exits the window, the model is conditioning entirely on self-generated text. The resulting dynamics are a property of the model itself: its learned weights, the context length, and the sampling temperature.
+A frozen language model generating tokens into a fixed-length sliding window is a discrete stochastic dynamical system operating on its own output. After the initial seed exits the window, the model conditions entirely on self-generated text. The dynamics are a property of the model's learned weights, the context length L, and the sampling temperature T.
 
-Despite the simplicity of this setup, the resulting system has received almost no formal study. Basic questions remain open: What attractors does the system converge to? Is there a crossover between repetitive collapse and incoherent noise? How sharp is that crossover, and what structural modes persist near it?
+This project began as a study of multi-scale complexity control -- could we use compression-based feedback to steer generation between collapse and noise? That question has been answered. The phase structure is mapped: four regimes (collapse, suppressed dynamics, rich dynamics, noise) with sharp boundaries and a saturating escape curve T_escape(L). Closed-loop control works: a simple controller holds Heaps' beta near 0.90 regardless of starting conditions.
 
-**Central insight:** Output compressibility measured at different window sizes probes structure at different scales. Short-range compression (W << L) detects local repetitive collapse. Long-range compression (W ≥ L) detects coherence across the model's full memory horizon. The ratio between these signals defines a multi-dimensional characterization of the output regime — and offers a natural sensor array for closed-loop control.
+The more interesting discovery is what happens *inside* the collapse regime. Each attractor basin is a mode the model "knows how to do" -- a topic, register, format, or genre strong enough to capture the system at a given operating point. The set of recoverable basins is an empirical map of the model's behavioral repertoire, extracted from output dynamics without inspecting weights. Attractor content is not random: it systematically features tautologies, incomplete predicates, self-perpetuating conditions, and confinement -- eigenstates where content, structure, and prediction align into zero-gradient fixed points.
 
-**Second insight:** Temperature and context length act as orthogonal actuators on fundamentally different axes. Temperature controls the *noise floor* — randomness of each individual sample. Context length controls the *memory horizon* — how much self-generated history the model conditions on, and therefore how deep and sticky attractor basins are. At T=0.50, L=64 shows persistent escape episodes from collapse attractors while L=256 locks in permanently. At T=1.00, L=256 shifts the system to a different operating point (higher entropy, lower compressibility) without causing collapse. This orthogonality suggests a two-actuator controller: T for fast corrections and L for structural regime selection — including using L-reduction as an escape mechanism from stuck attractors, analogous to simulated annealing but for memory depth ("memory-depth annealing").
-
-**Third insight:** Three independent sensors are needed to characterize the system: entropy (model uncertainty about the next token), compressibility (observer-assessed output structure), and EOS rate (model-assessed sequence coherence). Each probes a different aspect of the dynamics and they are not redundant — EOS rate peaks at the collapse-escape boundary, not at the entropy peak.
-
-This project systematically characterizes the dynamical landscape of autoregressive self-play, develops multi-scale compression as a diagnostic framework, and builds toward closed-loop complexity control with joint T+L actuation.
+The project now focuses on basin topography: what basins exist, how deep they are, how they connect, and whether a learned controller can navigate between them. The compression spectrum at the basin's characteristic scale W* is its mechanistic identity -- the gzip dictionary *is* the attractor's constituent structure.
 
 ## 2. Research Questions
 
-**RQ1 — Phase structure.** Is there a crossover between an ordered regime (repetitive collapse) and a disordered regime (incoherent generation)? How sharp is this crossover, and where does it occur in temperature space? *Status: answered. Three regimes identified (collapse, rich dynamics, noise). Crossover at T~0.70 is sharp — all L values jump above entropy 1.0. Collapse boundary is L-dependent: extends to higher T for longer contexts.*
+### Answered
 
-**RQ2 — Attractor characterization.** What structural modes does the system visit at and near the crossover? What are their dwell time distributions and transition dynamics? *Status: partially answered. Attractor structure at T=0.50 is a staircase (each L has a distinct entropy floor). L-densification showed jagged non-monotonic L-profile rather than clean phase transition. Dwell time distributions not yet formally analyzed.*
+**RQ1 -- Phase structure.** Four regimes identified: collapse (T below T_escape), suppressed dynamics (structure but slow mixing), rich dynamics (T well above T_escape), noise (T >= 1.50). Crossover is sharp. T_escape(L) increases then saturates: L=64 at 0.55, L=128 at 0.57, L=192 at 0.67, L=256 at 0.87, L=512 at ~0.90. Coupling weakens above L ~ 256.
 
-**RQ3 — Multi-scale structure.** How do compressibility signals at different window sizes (W = L/4, L, 2L, 4L) relate to each other? Where do they decouple — i.e., where does local structure exist without global repetition? This decoupling zone is the regime of maximal complexity. *Status: partially answered. W is confirmed as a significant third dimension. Standard grid W ∈ {16,32,64,128,256} computed for all runs. Gzip overhead confound identified and characterized (20B header inflates small windows). Cross-W decoupling analysis ongoing.*
+**RQ3 -- Multi-scale structure.** Answered differently than expected. Compressibility is a collapse detector, not a rich-dynamics discriminator. W > L signal is only ~0.03 below the noise floor at T=1.00. The in-context contribution at supra-L scales is minimal. Entropy and Heaps' beta are the right control signals, not multi-scale compression ratios.
 
-**RQ4 — Context length as control parameter.** How does context length L modulate attractor basin depth, crossover location, and multi-scale structure? Is there a critical L above which collapse attractors become inescapable at a given T? *Status: substantially answered. L deepens collapse and extends the collapse regime to higher T. No single critical L — the L-profile is a jagged continuum, not a bifurcation. Slope-flip: compressibility decreases with L in collapse (T≤0.60) but increases with L in rich dynamics (T=1.00), sign flip at T~0.70-0.80. T=1.50 is a universal noise floor regardless of L.*
+**RQ4 -- Context length as control parameter.** L deepens collapse and extends the collapse regime to higher T. No single critical L -- the L-profile is a jagged continuum. Slope-flip: compressibility decreases with L in collapse, increases in rich dynamics, sign flip at T ~ 0.70-0.80. T=1.50 is a universal noise floor regardless of L. Saturation above L ~ 256.
 
-**RQ5 — Path dependence.** Does the system's behavior at a given temperature depend on how that temperature was reached? Do temperature ramps in opposite directions reveal hysteresis, indicating multistability or genuine attractor structure? *Status: not yet tested. Planned for Phase 2.*
+**RQ5 -- Path dependence.** Basin escape hysteresis confirmed: exiting a pre-existing attractor requires ~0.4T more than avoiding it from BOS. Escape by semantic mutation: period-doubling route to chaos (attractor period expands until mutual-prediction lock breaks). Pre-collapse trajectories trace paths through connected semantic basins.
 
-**RQ6 — Closed-loop complexity control.** Can temperature and context length be dynamically adjusted using multi-scale compression as a feedback signal to maintain the system in a target complexity regime? T for fast corrections (raise when short-range compression drops, lower when entropy spikes), L for structural regime selection (shorten to escape stuck attractors, lengthen to deepen coherence). Can this sustain coherent generation that neither collapses nor becomes noise? *Status: not yet tested. Planned for Phase 3. Three-sensor framework (entropy, compressibility, EOS rate) now established as the feedback signal design.*
+**RQ6 -- Closed-loop control.** Controller finds beta ~ 0.90 equilibrium regardless of starting L or T. Balance T tracks T_escape(L): T=0.70 for L=8, T=0.75 for L=16, T=0.90-0.95 for L=128/256. Small L has wide beta basin; large L oscillates at the escape boundary.
 
-## 3. Experimental Design
+### Partially Answered
 
-### 3.1 System Architecture
+**RQ2 -- Attractor characterization.** Attractor structure is a staircase (each L has a distinct entropy floor). Basin depth depends on mutual information between cycle positions -- multi-token cycles are far deeper than single-token repeats. 21 unique attractors found across 3 seeds x 7 L values at T=0.50. Content clusters into semantic families (medical, political, social, self-referential). Dwell time distributions not yet formally analyzed.
 
-The core system consists of:
+### Open
 
-- A frozen pretrained language model (inference only, no weight updates)
-- A sliding context window of configurable length $L$
-- Per-step measurement of softmax entropy and sampled token log-probability
-- A comprehensive logging pipeline capturing tokens, decoded text, and per-step measurements
+**RQ7 -- Basin topography.** What basins exist across the (L, T) parameter space? How many unique basins can be recovered at each L? Does count scale with L, saturate, or peak? What is the transition graph -- which basins connect to which, and are there hubs and dead ends? Can basin depth be predicted from the compression spectrum alone?
 
-All windowed and derived measurements (output compressibility, smoothed entropy, spectral analysis) are computed post-hoc from the logged data, not during generation. This keeps the collection pipeline minimal and parameter-free, and allows exploration of different analysis choices without rerunning generation.
+**RQ8 -- Learned steering.** Can a small model learn the sensor-to-action mapping from existing controller data (~1050 decision points)? Can it outperform rule-based control for beta-tracking? With survey data: can it learn to maximize basin discovery rate or navigate to target basins?
 
-### 3.2 Model
+**RQ9 -- Semantic topology.** Do basin transition paths reveal structure in the model's learned representation? Pre-collapse trajectories walk through connected semantic basins (education -> violence -> apocalypse -> cataloging -> imprisonment -> Star Wars). Is this connectivity an artifact of T=0.50 dynamics or a property of the model's semantic organization?
 
-**SmolLM-135M (HuggingFace).** Small enough for rapid iteration and dense sweeps, while being recent and well-trained for its size class.
+## 3. Key Results
 
-### 3.3 Initialization: Self-Consistent Pre-Fill
+For full evidence trail, see `observations.md`. Summary of principal findings:
 
-The context window is pre-filled before the experiment begins, avoiding a non-stationary growth phase where the effective context length would be changing.
+**Phase structure.** Four regimes with sharp boundaries. T_escape(L) saturates above L ~ 256. The suppressed-dynamics zone (L=256 at T=0.70-0.80) has the strongest multi-scale decoupling and longest decorrelation lags (253-356 steps).
 
-**Pre-fill procedure:**
-1. Begin with BOS token
-2. Generate $L$ tokens from the model at the experimental temperature $T$
-3. The experimental phase begins at step $L + 1$, once the context window is full
+**Basin escape hysteresis.** Pre-seeded attractors survive ~0.4T above T_escape measured from BOS. Basin depth is a smooth function of L with a sharp lock-in transition at 4-8 copies of the cycle in context.
 
-This produces a self-consistent initial state: the context consists entirely of model-generated output at the same temperature used for the experiment, eliminating both the prompt-washout transient and any adjustment transient from a mismatched pre-fill temperature. The pre-fill is fully determined by model, temperature, and PRNG seed.
+**Semantic eigenstates.** Attractor content describes its own dynamics: tautologies, confinement, recursive structures, incomplete predicates. These are zero-gradient fixed points where content and prediction align.
 
-### 3.4 Measurements
+**Period-doubling escape.** At threshold L, the model escapes by mutating the attractor ("Star Wars" -> "Star Wars 2000" -> "The Old Republic" -> freedom). Period expansion dilutes mutual prediction until the lock breaks.
 
-**Logged per step during generation:**
+**Scale invariance.** Suppressed dynamics at L=16/T=0.60 (pre-seeded) matches L=256/T=0.70 (natural) in coherence and TTR. The regime depends on basin-depth / thermal-energy ratio, not absolute parameters.
 
-- **Token ID** — the sampled token
-- **Decoded text** — the token decoded to its text representation (cached to avoid needing the model/tokenizer at analysis time)
-- **Softmax entropy** — Shannon entropy of the model's output probability distribution: $H_t = -\sum_i p_i \log p_i$. A property of the model's internal state (how uncertain it is about the next token), computationally free since logits are already available, deterministic (independent of which token is sampled)
-- **Log-probability of sampled token** — how likely the actually-chosen token was under the distribution. The gap between distribution entropy and negative log-probability indicates how "typical" each sample was
-- **Temperature** — current $T_t$ (fixed per run in Phase 1, varying in Phase 2+)
-- **EOS flag** — whether the sampled token was the end-of-sequence token
+**Vocabulary as regime diagnostic.** TTR spans 100x across regimes. Heaps' beta cleanly separates collapse (0.17-0.38), rich dynamics (0.75-0.85), and escape events (> 1.0).
 
-**Derived in post-hoc analysis (not computed during generation):**
+**Controller equilibrium.** Beta ~ 0.90 is a natural equilibrium for SmolLM-135M. Balance-point texture is L-dependent: short L = topic soup through forgetting, long L = thematic orbits through within-basin exploration.
 
-- Output compressibility over sliding windows at standard grid $W \in \{16, 32, 64, 128, 256\}$
-  - Gzip overhead (~20B header) inflates small windows; W≥64 for quantitative work, W≥32 qualitative
-  - Correction possible by normalizing against incompressible baseline at matched byte length
-- Multi-scale compression ratio: relationship between compressibility at different W values
-- Smoothed entropy (EMA or other filters at various timescales)
-- Autocorrelation and spectral density of entropy and compressibility time series
-- 2D phase portraits: softmax entropy vs. output compressibility
-- Distribution evolution: per-time-block violin plots of entropy and compressibility
-- Dwell time distributions in identified regimes
-- EOS rate statistics: trailing EOS rate over sliding window, mean inter-EOS interval, variability, trends. EOS is a model-internal coherence signal — the model's assessment of sequence completeness — distinct from entropy (local uncertainty) and compressibility (observer-assessed structure). Finding: EOS peak shifts with L, tracking the escape-from-collapse boundary (T=0.90 for L=64/128, T=0.70 for L=192).
-- Transfer functions: $T \to C$ and $T \to H$ curves
-- Hysteresis plots: system state vs. instantaneous $T$ for opposing ramp directions (Phase 2)
+## 4. Experimental Infrastructure
 
-### 3.5 Generation Loop
+### Generation
+
+- `engine.py`: `StepEngine` class -- single token loop (`step(L, T)`), trailing-window sensors (entropy, Heaps' beta, compressibility), `snapshot()`/`restore()` rollback, checkpoint persistence
+- `experiment.py`: universal run loop + controllers -- `FixedController`, `ScheduleController`, `BetaController`, `StateMachine` (composable state graph with sensor-driven transitions)
+- CLI: `experiment.py fixed|schedule|beta`
+- `sweep.py`: unified sweep runner with named presets, ad-hoc grids, `--status`, `--list`
+
+### Analysis
+
+- `analyze/`: package with incremental `.analysis.pkl` cache per run; `default_window_sizes()`, `comp_stats()` interface
+- `precollapse.py`: regime classification, basin transition detection, W/L convergence profiles
+- `semantic.py`: theme discovery, attractor catalog, Heaps' law, coherence, morphology analysis
+- `grep_text.py`: CLI grep for decoded text in parquet runs (regex, context display)
+- `metrics.py`: scalar metric extraction (surprisal stats, EOS interarrival, decorrelation lag)
+- `summary_table.py`: cross-condition summary CSV
+
+### Visualization
+
+- `plot.py`: entropy time series, compressibility, phase portraits, temporal phase portraits, violin plots
+- `plot_window_scaling.py`: window scaling plots (comp vs L, comp vs W, heatmaps)
+- `reproduce_plots.py`: one-command regen of all standard plots with mtime caching
+- `explorer.py` + `static/`: interactive web explorer (FastAPI + Plotly.js), buffered context viewer with scroll sync, token search
+
+### Data
+
+- 70 runs total: ~53 sweep + 7 controller + anneal + probes, ~1.1 GB
+- One Parquet file per run + JSON sidecar + checkpoint + analysis cache
+- Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
+- Compute: local GPU (GTX 1070), ~24-38 tok/s at L=64
+
+### Parameters Explored
+
+| Parameter | Values |
+|---|---|
+| Context length L | 8, 16, 32, 64, 128, 160, 176, 192, 208, 224, 256, 512 |
+| Temperature T | 0.50, 0.55, 0.60, 0.70, 0.75, 0.80, 0.90, 0.95, 1.00, 1.10, 1.20, 1.50 |
+| Seeds | 42 (all), 123 and 7 (T=0.50 + L-dense conditions) |
+| Tokens per run | 100,000 (sweep), up to 1,000,000 (controller drift) |
+| Sampling | Pure temperature scaling, no top-k/top-p |
+
+## 5. Current Phase: Basin Mapping
+
+See `docs/basin-mapping.md` for full survey design and roadmap.
+
+### Survey Protocol
+
+A `StateMachine` experiment cycles through states:
 
 ```
-# Pre-fill
-initialize context with BOS token
-for t = 1 to L:
-    forward pass: context → logits
-    sample token from softmax(logits / T)
-    append token to context
-    log: {t, token_id, decoded_text, H_t, log_p_t, T, eos_flag, phase="prefill"}
-
-# Experimental self-play
-for t = L+1 to L+N:
-    forward pass: context → logits
-    compute softmax entropy H_t from logits
-    sample token from softmax(logits / T_t)
-    compute log-probability of sampled token
-    append token to context, truncate to length L
-    log: {t, token_id, decoded_text, H_t, log_p_t, T_t, eos_flag, phase="experiment"}
+COOLING  --[basin_detected]-->  CAPTURED
+CAPTURED --[characterised]--->  HEATING
+HEATING  --[escaped]--------->  TRANSIT
+HEATING  --[deeper_basin]---->  CAPTURED
+TRANSIT  --[context_flushed]->  COOLING
 ```
 
-No KV cache across steps — the sliding window drops the oldest token each step, invalidating the entire positional structure of any cached keys/values. A full forward pass over the L-token context is required each step. At 135M parameters this is fast even at L=1024.
+Each cycle yields one basin record: compression spectrum, sensor profile, depth score (via checkpoint forking), and transition metadata (escape temperature, steps, dictionary overlap with previous basin).
 
-EOS tokens are retained in the generation stream.
+### Compression as Identity
 
-Sampling uses pure temperature scaling only — no top-k or nucleus (top-p) filtering — to keep a single, interpretable control parameter.
+The gzip dictionary at the window size of best compression (W*) is the basin's mechanistic fingerprint. Two captures represent the same basin iff they produce the same dictionary content at the same W*. The compressibility-vs-W spectrum is the basin's continuous signature -- clusterable without human labeling.
 
-Checkpoints saved every 1k steps (context tensor, RNG state, accumulated records). Runs can be interrupted and resumed, or extended to longer N by re-running with higher --num-tokens.
+### Basin Catalogue
 
-### 3.6 Independent Variables
+A structured catalogue (SQLite) stores basin records with compression identity, sensor profiles, depth scores, and transition edges. Analysis targets: basin census by L, type clustering by compression spectrum, transition graph topology, depth prediction from spectrum, cross-L correspondence (minimum L to express a mode), and residue network (dictionary overlap across transitions).
 
-**Phase 0–1 (fixed temperature):**
+### Learned Controller
 
-| Variable | Values | Notes |
-|---|---|---|
-| Context length $L$ | 64, 128, 160, 176, 192, 208, 224, 256 | Core grid: 64–256. L-densification points (160–224) at T=0.50 only |
-| Temperature $T$ | 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50 | Dense coverage through crossover region (0.60–0.90) |
-| PRNG seed | 42, 123, 7 | 42 for all conditions; 123, 7 for T=0.50 and L-densification points |
+Three tiers:
+- **Tier A (built):** Rule-based `BetaController` and `StateMachine` in experiment.py
+- **Tier B (next):** Small model trained on existing decisions.json data (~1050 examples). 10D input (sensor state), 2D output (delta-T, delta-L). Beta-tracking objective first; exploration objective once survey data exists
+- **Tier C (future):** Online learning during generation, bandit-style exploration/exploitation over the basin landscape
 
-**Phase 2 (temperature ramps):** Design determined by Phase 1 results. Anticipated variables are ramp direction (increasing / decreasing), ramp rate, and temperature range (spanning the crossover region identified in Phase 1).
+## 6. Roadmap
 
-**Phase 3 (closed-loop control):** Temperature adjusted dynamically using multi-scale compression feedback. Design determined by Phase 1–2 results.
+### Phase 1 -- Pilot Survey
+- Implement basin survey as `StateMachine` experiment
+- L=64 null seed, 100k tokens -- shake down the protocol
+- Validate compression-spectrum clustering
+- Extract gzip dictionaries (new analysis capability)
 
-### 3.7 Run Parameters
+### Phase 2 -- Systematic Survey
+- L in {8, 16, 32, 64, 128, 256}, null + domain seeds
+- Build basin catalogue, transition graph
+- L=8-32 "skeleton" survey: what survives extreme context compression?
 
-- **Tokens per run:** 100,000 post-pre-fill tokens (absolute, not scaled by $L$)
-- **Run length rationale:** Absolute token count gives approximately linear cost scaling with $L$. At $L = 1024$, this provides ~98 full context turnovers; at $L = 64$, ~1,562. If L=1024 runs show non-stationarity at 100k tokens, run length may be extended for that condition.
-- **Stationarity assessment:** Each run is split into 5 non-overlapping blocks of 20k tokens. Per-block means and variances of entropy and compressibility are compared. Classification: *stationary* (no trend in block statistics), *transient* (monotonic drift — system still equilibrating), or *structured non-stationarity* (block statistics fluctuate without trend — suggests mode-switching on timescales comparable to run length). Visual inspection plus simple linear regression for drift in Phase 0; may be formalized in Phase 1.
-- **Replicates:** 3 seeds at T=0.50 and L-densification conditions; seed=42 for all other conditions. ~45 runs complete as of March 2026
-- **Storage estimate:** ~25 MB total for the full grid (100k decoded tokens per run ≈ few hundred KB)
+### Phase 3 -- Learned Controller
+- Train beta-tracking model on existing decisions.json data
+- Compare to rule-based BetaController on held-out runs
+- If effective: train exploration-objective model on survey data
+- Plug learned controller into experiment.py as a new controller type
 
-## 4. Implementation Plan
+### Phase 4 -- Topology
+- Basin census analysis: count, depth, spectrum clustering
+- Transition graph: hubs, dead ends, connected components
+- Cross-L correspondence: basin minimum context requirements
+- Residue network: semantic bleed between basins
 
-### Phase 0 — Infrastructure and Pilot ✓ COMPLETE
+### Phase 5 -- Scaling and Writing
+- Model scaling experiments (1B, 8B): do basin types and transition topology persist?
+- Paper draft, figures, supplementary materials, code and data release
 
-Build core generation loop. Run the pilot grid. Develop analysis and visualization tooling.
-
-**Deliverables:**
-- Working generation loop with pre-fill procedure and checkpoint/resume ✓
-- Per-step logging to Parquet with JSON metadata sidecar ✓
-- End-to-end validation on SmolLM-135M ✓
-- Post-hoc analysis: compressibility (multi-W), stationarity assessment ✓
-- Visualization: entropy/compressibility time series, phase portraits, temporal phase portraits, violin distribution plots ✓
-- Plot reproduction script with mtime caching ✓
-- Pilot grid runs (L={64,128,192,256} × T={0.50,1.00,1.50} × S=42): 12 runs complete ✓
-- Unified sweep runner with named presets and auto-status ✓
-- Assessment: T and L are both significant; crossover region at T=0.60–0.90; L=64–256 is the interesting range ✓
-
-**Key findings:**
-- Three distinct regimes: collapse (T≤0.60), rich dynamics (T~0.80–1.00), noise (T≥1.50)
-- T and L are orthogonal actuators: T = noise floor, L = memory depth / attractor stickiness
-- L=256 locks into collapse at T=0.50; L=64 keeps escaping — attractor depth scales with L
-- At T=1.00, L=256 shifts operating point without collapse — different equilibrium, not deeper trap
-
-### Phase 1 — Fixed-Temperature Characterization + Multi-Scale Analysis ← CURRENT
-
-Expand the pilot grid based on Phase 0 findings. Dense temperature spacing through crossover region. L-densification and seed replication at key conditions.
-
-**Deliverables:**
-- Crossover T-densification: L={64,128,192} × T={0.60,0.70,0.80,0.90}: 12 runs complete ✓
-- L-densification at T=0.50: L={160,176,208,224} × S={42,123,7}: 15 runs complete ✓
-- Seed replication at T=0.50: L={64,128,192} × S={42,123,7}: 9 runs complete ✓
-- L=256 crossover fill: T={0.60,0.70,0.80,0.90}: 4 runs in progress
-- Multi-window analysis at standard W grid {16,32,64,128,256} ✓
-- Window scaling plots (comp vs L, comp vs W, heatmaps) ✓
-- Interactive web explorer (FastAPI + Plotly.js) with context inspection ✓
-- Transfer functions: $T \to C$ and $T \to H$ curves at each $L$ — partially available from existing data
-- Identification of the "decoupling zone" where local structure exists without global repetition — in progress
-- Complete fixed-temperature phase map — in progress (L=256 gap filling)
-
-**Key findings:**
-- Collapse boundary is L-dependent: L=192 collapsed at T=0.60 while L=64/128 escaped. Sharp universal escape at T=0.70
-- L-densification at T=0.50: jagged non-monotonic L-profile, not a clean phase transition. Seed variance comparable to inter-L differences. "Critical L" hypothesis falsified
-- Slope-flip: compressibility decreases with L at T≤0.60, increases at T=1.00; sign flip at T~0.70–0.80 — this is the phase boundary in the L dimension
-- EOS peak shifts with L, tracking the escape-from-collapse boundary
-- T=1.50 is a universal noise floor: comp ~0.705, entropy ~8.0 regardless of L
-- Three-sensor framework established: entropy, compressibility, EOS rate
-- Gzip overhead confound identified and characterized; useful range W≥64 quantitative, W≥32 qualitative
-
-### Phase 2 — Temperature Ramp Experiments
-
-Controlled temperature ramps through the crossover region identified in Phase 1.
-
-**Design (informed by Phase 1 results):**
-- Linear ramps from high $T$ to low $T$, and low $T$ to high $T$, through the crossover region
-- Multiple ramp rates
-- Multiple seeds per condition
-
-**Deliverables:**
-- Hysteresis plots: system state (compressibility, softmax entropy) vs. instantaneous $T$ for opposing ramp directions
-- Evidence for or against path dependence and multistability
-- Characterization of transition dynamics: does the system snap between modes, or drift smoothly?
-- Comparison to fixed-temperature baselines: do ramp experiments visit states not seen in fixed-$T$ runs?
-
-### Phase 3 — Closed-Loop Complexity Control
-
-Use multi-scale compression as a feedback signal to dynamically control temperature and context length, maintaining the system in a target complexity regime.
-
-**Design (informed by Phase 1–2 results):**
-- Controller using three-sensor framework: entropy (uncertainty), compressibility (structure), EOS rate (model-assessed coherence)
-- **T actuator (fast):** Raises T when short-range compression drops too low (approaching loop collapse); lowers T when long-range compression gets too high (approaching noise)
-- **L actuator (structural):** Shortens L to escape stuck attractors (reducing memory depth makes attractor basins shallower); lengthens L to deepen coherence when the system is in a productive regime. L-reduction is an escape mechanism analogous to simulated annealing for memory depth
-- Target: sustain the system in the "decoupling zone" — local structure without global repetition
-- Explore different target points in (short-compression, long-compression) space
-- Explore the edge-of-chaos overlap zones visible in phase portraits where collapse and rich-dynamics regions share (entropy, compressibility) space
-
-**Deliverables:**
-- Working closed-loop controller with joint T+L actuation
-- Demonstration that dynamic T+L control can maintain the system at criticality
-- Characterization of achievable operating points in multi-scale compression space
-- Comparison to fixed-T/fixed-L baselines: does controlled generation produce qualitatively different output?
-- Analysis of whether structure can be maintained at scales beyond L (emergent long-range order from limited-memory system)
-- Characterization of L-escape dynamics: how quickly does shortening L allow escape from collapse attractors?
-
-### Phase 4 — Targeted Extensions
-
-Limited extensions guided by findings from Phases 1–3. Possible directions include:
-- Extended runs at conditions showing slow-timescale dynamics
-- Finer parameter spacing in regions of particular interest
-- Pre-fill temperature sensitivity checks
-- Model scaling experiments (1B, 8B)
-
-### Phase 5 — Writing
-
-Paper draft, figures, supplementary materials, code and data release.
-
-## 5. Expected Contributions
-
-1. **A systematic characterization** of attractor behavior, repetition dynamics, and phase structure in autoregressive self-play as a function of sampling temperature and context length.
-2. **Multi-scale compression as a diagnostic framework** for characterizing the complexity of autoregressive output — probing structure at local (W << L), context-scale (W = L), and emergent (W >> L) scales.
-3. **Hysteresis and path-dependence analysis** revealing multistability and attractor structure through temperature ramp experiments.
-4. **Closed-loop complexity control** demonstrating that joint temperature and context-length modulation ("memory-depth annealing"), guided by multi-scale compression and EOS-rate feedback, can maintain a language model at a target operating point in complexity space.
-5. **A reusable experimental framework** (`autoloop`) for studying closed-loop autoregressive dynamics.
-
-## 6. Risks and Mitigations
+## 7. Risks and Mitigations
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Degenerate collapse dominates at most temperatures | Low-Medium | Dense sweep will locate any non-trivial region if it exists; documenting the collapse boundary is itself a result |
-| No clear crossover — gradual, featureless transition | Low | Crossover sharpness and its characterization are themselves a finding; methodology contribution stands regardless |
-| Compressibility too noisy at small $W$ | Low-Medium | W is an analysis parameter, not baked into collection; can explore multiple window sizes post-hoc |
-| Pilot grid misses interesting region | Low | Pilot spans a wide range; Phase 1 fills in based on findings |
-| Multi-scale compression signals are too correlated to decouple | Medium | Even high correlation with scale-dependent offsets is informative; the existence or absence of a decoupling zone is itself a finding |
-| Closed-loop controller is unstable or oscillates | Medium | Phase 1–2 provide the static characterization needed to design a stable controller; can start with conservative gain and simple proportional control |
+| Basin count too low for meaningful taxonomy | Low | Even 10-20 distinct basins at L=64 would be informative; L=8-32 skeleton survey tests the floor |
+| Gzip dictionary extraction too noisy for fingerprinting | Medium | Compression spectrum shape is a fallback identity; dictionary content is a bonus |
+| Learned controller no better than rule-based | Medium | Rule-based controller already works; learned version is an efficiency gain, not a prerequisite |
+| Basin topology trivial (fully connected or fully disconnected) | Low-Medium | Pre-collapse trajectories already show structured paths; even a negative result constrains the model's semantic organization |
+| Results are SmolLM-135M-specific | High | This is expected and acceptable. The framework transfers; the specific basins do not. Scaling experiments (Phase 5) test generality |
 
-## 7. Open Questions
+## 8. References
 
-**Resolved:**
-- ~~Per-run timing~~ → ~24–38 tok/s at L=64, scales with L
-- ~~Additional L/T values needed?~~ → densified L=64–256, T=0.50–1.50 with 0.10 spacing through crossover
-- ~~Is there a critical L?~~ → no clean bifurcation; L-profile is a jagged continuum
-- ~~EOS rate at intermediate L?~~ → EOS peak shifts with L, tracking escape-from-collapse boundary
-
-**Still open:**
-- Compressor choice: gzip vs. zlib (gzip overhead confound characterized but not compared to alternatives)
-- Appropriate smoothing timescales for entropy (EMA alpha or alternative filters)
-- L=192 exact escape temperature — somewhere in T=0.60–0.70 (T-densification at T={0.62,0.65,0.68} planned)
-- Does L=256 extend collapse further into T? (In-progress: L=256 × T={0.60–0.90} sweep running)
-- Is the T=1.00 compressibility increase with L robust across seeds?
-- Dwell time distributions in identified regimes — not yet formally analyzed
-
-## 8. Future Directions
-
-Natural extensions beyond this study include:
-
-- **Model scaling:** Replication at 1B, 8B, and beyond — do phase boundaries and multi-scale structure persist?
-- **Architecture comparison:** Models with different training regimes, tokenizers, or architectural choices
-- **Extended context lengths:** Larger $L$ values, potentially up to native context window limits
-- **Alternative measurements:** Embedding-space analysis, n-gram statistics, alternative compressors
-- **Initial condition sensitivity:** Systematic variation of pre-fill temperature, alternative pre-fill strategies
-- **Alternative sampling strategies:** Top-k, top-p (nucleus) sampling as additional control variables (this study uses pure temperature scaling only)
-- **Multi-dimensional control:** Using multiple actuators (T, L, top-k, top-p) simultaneously, guided by multi-scale compression feedback, to navigate a higher-dimensional control space. Joint T+L control is the primary focus of Phase 3; additional actuators are future extensions
-- **Practical applications:** Compression-guided decoding strategies for production language model inference
-
-## 9. Tools and Dependencies
-
-- **Model:** SmolLM-135M (HuggingFace), pre-downloaded to `data/model/SmolLM-135M/`
-- **Model loading / tokenization:** HuggingFace Transformers
-- **Inference / generation loop:** PyTorch (custom), CUDA 12.6
-- **Logging:** Parquet per run, JSON metadata sidecar
-- **Analysis:** NumPy, SciPy, scikit-learn, matplotlib, Python gzip module
-- **Interactive explorer:** FastAPI + Plotly.js (single-page app with context inspection)
-- **Sweep management:** Unified sweep runner (`sweep.py`) with named presets and auto-status
-- **Package management:** uv
-- **Compute:** Local GPU (GTX 1070, single consumer GPU sufficient for 135M model)
-- **Throughput:** ~24–38 tok/s at L=64, scaling inversely with L
+- `observations.md` -- current model summary and evidence log index
+- `docs/basin-mapping.md` -- basin survey design and roadmap
+- `docs/project-brief-v1.md` -- archived original brief (Phase 0 framing)
+- `docs/observations-2026-03-*.md` -- dated observation archives

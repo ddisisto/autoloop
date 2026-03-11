@@ -1,103 +1,129 @@
 # autoloop
 
-Multi-scale complexity control in closed-loop autoregressive generation.
+Basin topography and learnable steering in autoregressive generation.
 
-A small language model (SmolLM-135M) generates tokens indefinitely into a fixed-length sliding context window, conditioning entirely on its own output. The resulting system is a discrete stochastic dynamical system — and it has surprisingly rich structure.
+A small language model (SmolLM-135M) generates tokens indefinitely into a fixed-length sliding context window, conditioning entirely on its own output. The resulting system is a discrete stochastic dynamical system with surprisingly rich structure: attractor basins, phase transitions, escape dynamics, and semantic eigenstates. This project maps the basin landscape, builds closed-loop controllers that navigate it, and works toward learned steering across the full topology.
 
-This project systematically maps the dynamical landscape across temperature (T) and context length (L), develops multi-scale compression as a diagnostic framework, and works toward closed-loop complexity control.
-
-> **Status:** Active research, very early. Phase 0 pilot data collection and analysis. Under very active development — expect breaking changes. Not currently taking contributions, but forks and discussion are always welcome.
+> **Status:** Active research. Phase 0 (landscape mapping) and Phase 1 (closed-loop control) complete. Currently building basin cartography infrastructure. Not taking contributions, but forks and discussion are welcome.
 
 ## What we're finding
 
-**Three regimes** emerge at any fixed context length: repetitive collapse (low T), rich structured dynamics (mid T), and incoherent noise (high T). The crossover between collapse and rich dynamics is sharp and occurs around T=0.70-0.80 for SmolLM-135M.
+**Four regimes** emerge across temperature (T) and context length (L): repetitive collapse, suppressed dynamics (structure but slow mixing), rich dynamics, and incoherent noise. The boundary between collapse and escape is sharp and L-dependent.
 
-**Temperature and context length are orthogonal actuators.** T controls the per-step noise floor. L controls memory depth and attractor stickiness. At T=0.50, L=64 shows persistent escape episodes from collapse attractors while L=256 locks in permanently. At T=1.00, longer context shifts the operating point without causing collapse.
+**The escape boundary T_escape(L) saturates.** L=64 escapes at T~0.55, L=192 at T~0.67, L=256 at T~0.87, L=512 at T~0.90. The steep rise from L=128 to L=256 flattens out -- above L~256, context is "sufficient" and temperature alone determines the regime.
 
-**Collapse is a staircase, not a binary.** At T=0.50, each context length settles onto a distinct entropy floor. L=256 hits the true zero-entropy floor by ~15k steps. L=128 sits on a meta-stable false floor for ~45k steps before dropping. L=64 stays on a higher basin for the full 100k-step run. Collapse appears to be a timescale phenomenon — L sets how fast you descend through a hierarchy of attractor basins.
+**Collapse is a staircase of attractor basins.** At T=0.50, each L settles onto a distinct entropy floor. L=256 hits zero entropy by 15k steps. L=128 sits on a meta-stable false floor for 45k steps before dropping. L=64 stays on a higher basin for the full 100k-step run. Collapse is a timescale phenomenon -- L sets how fast you descend through a hierarchy of basins.
 
 ![Entropy time series at T=0.50 showing staircase of attractor basins](data/figures/Lmulti_T0.50_S42_entropy.png)
 
-**Measurement window size (W) is a third dimension.** Gzip compressibility depends strongly on the window over which it's computed. We use a standard grid of W values ({16, 32, 64, 128, 256}) to probe structure at multiple scales simultaneously. At low T, the L-curves separate dramatically across W scales. At T >= 0.90, L barely matters at any W.
+**Attractor content describes its own dynamics.** Across 21 collapsed runs, every attractor features tautologies, incomplete predicates, self-perpetuating conditions, and confinement. These are eigenstates: configurations where content, structure, and prediction align into zero-gradient fixed points.
 
-![Attractor depth at fixed measurement scale](data/figures/scaling_comp_vs_L_W64.png)
+**Escape by semantic mutation.** At threshold L, the model doesn't jump out of an attractor -- it tunnels out by mutating it. "Star Wars" becomes "Star Wars 2000" becomes "Star Wars: The Old Republic" becomes freedom. Period-doubling as a route to chaos.
 
-**EOS signal meaning is regime-dependent.** At T=1.00 (rich dynamics), EOS tokens fire from the interior of the phase-space cloud — the model tries to end during its richest dynamics. At T=0.50 (collapse), EOS fires during escape attempts from attractors. Same signal, different meaning depending on regime.
+**Basin escape hysteresis.** Exiting an occupied attractor requires ~0.4T more than avoiding it from a cold start. Basin depth depends on mutual information between cycle positions -- multi-token cycles lock harder than single-token repeats.
+
+**Closed-loop control works.** A simple controller (adjust T per segment, adjust L when T saturates) holds Heaps' beta near a target of 0.90 -- a natural equilibrium regardless of L or starting T. Balance T tracks T_escape(L): T=0.70 for L=8, T=0.75 for L=16, T=0.90-0.95 for L=128 and L=256. Small L has a wide stability basin; large L oscillates at the escape boundary.
 
 ![Phase portrait at T=1.00 showing EOS in cloud interior](data/figures/Lmulti_T1.00_S42_phase.png)
+
+**Suppressed dynamics is scale-invariant.** A shallow basin at low temperature behaves like a deep basin at moderate temperature. The regime is defined by the ratio of basin depth to thermal energy, not absolute L or T.
+
+**Vocabulary richness cleanly separates regimes.** Type-token ratio spans 100x across conditions. Heaps' law exponent beta separates collapse (0.17), rich dynamics (0.80), and escape events (>1.0).
 
 See [observations.md](observations.md) for the full findings log with reproduction commands.
 
 ## Architecture
 
-Scripts, not a package. Flat layout.
+Scripts, not a package. Flat layout (except `analyze/` which is a package).
 
 | Script | Purpose |
 |--------|---------|
-| `generate.py` | Core generation loop with checkpoint/resume |
-| `analyze.py` | Post-hoc analysis: sliding-window gzip compressibility, stationarity |
-| `plot.py` | Visualization: entropy time series, compressibility, phase portraits, violins |
-| `analyze_windows.py` | Recompute analysis at standard W grid |
-| `plot_window_scaling.py` | Window scaling exploration plots |
-| `pilot_sweep.py` | Batch runner for pilot grid |
-| `seed_sweep.py` | Batch runner for seed replication |
-| `explorer.py` | Interactive web explorer (FastAPI backend) |
-| `static/index.html` | Explorer frontend (Plotly.js) |
+| `engine.py` | Token generation engine: `StepEngine` with step, sensors, snapshot/rollback, checkpoint |
+| `experiment.py` | Experiment framework: controllers (`Fixed`, `Schedule`, `Beta`), `StateMachine`, universal run loop |
+| `sweep.py` | Unified sweep runner: named presets, ad-hoc grids, `--status`, `--list` |
+| `analyze/` | Analysis package: compressibility, stationarity, summaries; incremental `.analysis.pkl` cache |
+| `plot.py` | Visualization: entropy, compressibility, phase portraits, temporal portraits, violins |
+| `plot_window_scaling.py` | Window scaling plots: comp vs L, comp vs W, heatmaps |
+| `precollapse.py` | Pre-collapse trajectory analysis: regime classification, basin transitions, W/L convergence |
+| `semantic.py` | Semantic analysis: theme discovery, attractor catalog, Heaps' law, coherence |
+| `grep_text.py` | CLI grep for decoded text in parquet runs: regex, context, step/L/T display |
+| `anneal.py` | Annealing experiment runner: phased probes and tiers |
+| `explorer.py` + `static/` | Interactive web explorer: FastAPI + Plotly.js, buffered context viewer, token search |
+| `runlib.py` | Run discovery and path utilities |
+| `runindex.py` | SQLite index for cross-run metadata queries |
+| `schema.py` | Data schema definitions |
+| `summary_table.py` | Cross-condition summary CSV |
+| `reproduce_plots.py` | One-command regeneration of all standard figures (with caching) |
+| `utils.py` | Shared primitives: compressibility, EOS EMA |
+| `generate.py` | Legacy generation CLI (superseded by `experiment.py`) |
+| `controller.py` | Legacy closed-loop controller (superseded by `experiment.py beta`) |
 
 ## Data
 
-24 completed runs (seed=42): L={64, 128, 192, 256} x T={0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.50}. Seed replication (seeds 123, 7) in progress.
+~70 runs across sweeps, controller experiments, annealing, and probes. ~1.1GB total.
 
-Each run: 100,000 tokens of pure autoregressive generation on a GTX 1070. Per-token entropy, log-probability, EOS flag, and decoded text stored in Parquet files. Gzip compressibility computed post-hoc at multiple window sizes.
+- **Sweep runs:** L={64..512} x T={0.50..1.50} x seeds {42, 123, 7}
+- **Controller runs:** closed-loop beta-tracking at various (L, T) starting points, including a 1M-step drift run
+- **Annealing runs:** tiered cooling/heating experiments
+- **Probes:** quick feasibility checks (5k tokens)
 
-Raw data is not included in the repo (too large). Figures are tracked in `data/figures/`. Run the generation and analysis scripts to reproduce from scratch, or see [run-index.md](run-index.md) for the full grid status.
+Each run produces a Parquet file (per-token entropy, log-probability, EOS flag, decoded text, per-step T and L), a JSON sidecar with full metadata, and an incremental analysis cache. Checkpoints enable resume and extension.
+
+Data directory is organized into subdirectories by experiment type (`sweep/`, `controller/`, `anneal/`, `probe/`, `survey/`, `schedule/`) with a SQLite index for cross-run queries. Raw data is not included in the repo. Figures are tracked in `data/figures/`.
 
 ## Quick start
 
 ```bash
-# Dependencies (uv)
+# Dependencies
 uv sync
 
-# Single generation run
-python generate.py --context-length 64 --temperature 1.0 --seed 42 \
-  --num-tokens 100000 --model-dir data/model/SmolLM-135M \
-  --output-dir data/runs --device cuda
+# Fixed-parameter run (new framework)
+python experiment.py fixed --seed 42 -L 64 -T 0.50 --total-steps 100000
 
-# Analysis at standard window sizes
-python analyze_windows.py
+# Closed-loop controller with drift
+python experiment.py beta --seed 42 --start-L 8 --start-T 1.00 --drift --total-steps 1000000
+
+# Sweep a grid
+python sweep.py --L 64 128 256 --T 0.50 0.70 1.00 --seed 42
+python sweep.py --status    # grid table from disk
+python sweep.py --list      # named presets
 
 # Interactive explorer
 uvicorn explorer:app --reload --port 8000
 
 # Plots
-python plot.py --runs data/runs/L0064_T*_S42.parquet
-python plot_window_scaling.py
-
-# Reproduce all standard figures
+python plot.py --runs data/runs/sweep/L0064_T*_S42.parquet
 python reproduce_plots.py
+
+# Semantic analysis
+python semantic.py --clouds
+python grep_text.py "Star Wars" --runs data/runs/sweep/*.parquet --count
+
+# Pre-collapse analysis
+python precollapse.py --detail L0256_T0.80_S42
 ```
 
 Requires a local copy of SmolLM-135M weights at `data/model/SmolLM-135M/`.
 
-## Project documents
-
-- [observations.md](observations.md) — Findings log with current model summary
-- [run-index.md](run-index.md) — Grid status, phase planning
-- [docs/project-brief.md](docs/project-brief.md) — Full research design
-- [docs/explorer-wireframes.md](docs/explorer-wireframes.md) — Explorer layout design (right drawer recommendation)
-- [docs/interaction-topology.md](docs/interaction-topology.md) — Speculative framing: generative dynamics as interaction paradigm
-
 ## Where this is headed
 
-**Phase 0 (current):** Map the T x L landscape. Identify regimes, transitions, and anomalies. Build instrumentation.
+**Phase 0 (complete):** Mapped the T x L landscape. Four regimes identified. T_escape(L) curve measured. Multi-scale compression framework built.
 
-**Phase 1:** Fixed-temperature characterization. Transfer functions. Multi-scale compression analysis. Complete the phase map.
+**Phase 1 (complete):** Closed-loop control. BetaController finds beta~0.90 equilibrium. Balance T tracks T_escape(L). Drift mode grows L over time. Sensor framework validated: entropy and Heaps' beta are the right control signals.
 
-**Phase 2:** Temperature and context-length ramps. Hysteresis tests. Path dependence.
+**Current work -- basin cartography:** A survey protocol (COOLING -> CAPTURED -> CHARACTERISING -> HEATING -> TRANSIT) implemented as a `StateMachine` experiment will systematically cool the system to capture basins, fingerprint them via gzip compression spectra, heat to escape, and repeat. The compression dictionary at optimal W *is* the basin's identity. Goal: a catalog of all recoverable basins across the (T, L) parameter space. See [docs/basin-mapping.md](docs/basin-mapping.md).
 
-**Phase 3:** Closed-loop control. Joint T+L controller using multi-scale compression feedback. Target: sustain the system in the structured-dynamics regime indefinitely.
+**Next -- learned controller:** Train a small model on existing controller decision data (~1050 examples). 10D sensor input, 2D output (delta-T, delta-L). Beta-tracking first, then exploration objective once basin survey generates training data.
 
-The longer-term question: what if the dynamical structure we're mapping here — phase spaces, attractor basins, measurement scales — is the right vocabulary for thinking about AI interaction in general? See [docs/interaction-topology.md](docs/interaction-topology.md) for early thinking on this.
+**Longer term -- semantic topology:** Basin transition paths form a graph of the model's semantic space. Pre-collapse trajectories already show connected descent paths (education -> violence -> apocalypse -> cataloging -> imprisonment -> Star Wars). The full topology -- which basins connect to which, and what the transition costs are -- is a map of the model's behavioral repertoire extracted purely from output dynamics.
+
+## Project documents
+
+- [observations.md](observations.md) -- Findings log with current model summary
+- [run-index.md](run-index.md) -- Grid status and phase planning
+- [docs/project-brief.md](docs/project-brief.md) -- Full research design
+- [docs/basin-mapping.md](docs/basin-mapping.md) -- Basin survey protocol and roadmap
+- [docs/interaction-topology.md](docs/interaction-topology.md) -- Speculative framing: generative dynamics as interaction paradigm
 
 ## License
 
