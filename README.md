@@ -36,27 +36,22 @@ See [observations.md](observations.md) for the full findings log with reproducti
 
 Scripts, not a package. Flat layout (except `analyze/` which is a package).
 
-| Script | Purpose |
+| Module | Purpose |
 |--------|---------|
+| `cli.py` | Unified CLI (`loop`): all subcommands below |
 | `engine.py` | Token generation engine: `StepEngine` with step, sensors, snapshot/rollback, checkpoint |
 | `experiment.py` | Experiment framework: controllers (`Fixed`, `Schedule`, `Beta`), `StateMachine`, universal run loop |
-| `sweep.py` | Unified sweep runner: named presets, ad-hoc grids, `--status`, `--list` |
-| `analyze/` | Analysis package: compressibility, stationarity, summaries; incremental `.analysis.pkl` cache |
+| `sweep.py` | Sweep runner: named presets, ad-hoc grids |
+| `runlib.py` | Run discovery, path constants, classification |
+| `runindex.py` | SQLite index builder and query interface |
+| `schema.py` | Data schema definitions (versioned column defs for runs + basins) |
+| `analyze/` | Analysis package: compressibility, stationarity, summaries; incremental cache |
 | `plot.py` | Visualization: entropy, compressibility, phase portraits, temporal portraits, violins |
-| `plot_window_scaling.py` | Window scaling plots: comp vs L, comp vs W, heatmaps |
-| `precollapse.py` | Pre-collapse trajectory analysis: regime classification, basin transitions, W/L convergence |
+| `precollapse.py` | Pre-collapse trajectory analysis: regime classification, basin transitions |
 | `semantic.py` | Semantic analysis: theme discovery, attractor catalog, Heaps' law, coherence |
-| `grep_text.py` | CLI grep for decoded text in parquet runs: regex, context, step/L/T display |
-| `anneal.py` | Annealing experiment runner: phased probes and tiers |
-| `explorer.py` + `static/` | Interactive web explorer: FastAPI + Plotly.js, buffered context viewer, token search |
-| `runlib.py` | Run discovery and path utilities |
-| `runindex.py` | SQLite index for cross-run metadata queries |
-| `schema.py` | Data schema definitions |
-| `summary_table.py` | Cross-condition summary CSV |
-| `reproduce_plots.py` | One-command regeneration of all standard figures (with caching) |
+| `grep_text.py` | Grep for decoded text in parquet runs: regex, context, step/L/T display |
+| `explorer.py` + `static/` | Interactive web explorer: FastAPI + Plotly.js, buffered context viewer |
 | `utils.py` | Shared primitives: compressibility, EOS EMA |
-| `generate.py` | Legacy generation CLI (superseded by `experiment.py`) |
-| `controller.py` | Legacy closed-loop controller (superseded by `experiment.py beta`) |
 
 ## Data
 
@@ -71,39 +66,52 @@ Each run produces a Parquet file (per-token entropy, log-probability, EOS flag, 
 
 Data directory is organized into subdirectories by experiment type (`sweep/`, `controller/`, `anneal/`, `probe/`, `survey/`, `schedule/`) with a SQLite index for cross-run queries. Raw data is not included in the repo. Figures are tracked in `data/figures/`.
 
-## Quick start
+## CLI reference
+
+The `loop` command is the unified entry point. Install with `uv sync`, then use directly.
 
 ```bash
-# Dependencies
-uv sync
+# Run experiments
+loop run fixed --seed 42 -L 64 -T 0.50 --total-steps 100000
+loop run schedule --seed 42 --spec "50000:L256:T0.60,50000:L64:T0.80"
+loop run beta --seed 42 --start-L 8 --start-T 1.00 --drift --total-steps 1000000
 
-# Fixed-parameter run (new framework)
-python experiment.py fixed --seed 42 -L 64 -T 0.50 --total-steps 100000
+# Sweeps (named preset or ad-hoc grid)
+loop sweep pilot
+loop sweep --L 64 128 256 --T 0.50 0.70 1.00 --seed 42
+loop sweep --status                        # grid table from index
+loop sweep --list                          # list presets
 
-# Closed-loop controller with drift
-python experiment.py beta --seed 42 --start-L 8 --start-T 1.00 --drift --total-steps 1000000
-
-# Sweep a grid
-python sweep.py --L 64 128 256 --T 0.50 0.70 1.00 --seed 42
-python sweep.py --status    # grid table from disk
-python sweep.py --list      # named presets
+# Run index (SQLite)
+loop index build                           # full reindex
+loop index query                           # list all runs
+loop index query --type sweep --T 0.50     # filtered
+loop index query --json                    # JSON output
 
 # Interactive explorer
-uvicorn explorer:app --reload --port 8000
+loop explore                               # starts on port 8000
 
-# Plots
-python plot.py --runs data/runs/sweep/L0064_T*_S42.parquet
-python reproduce_plots.py
+# Plots (runs resolved by ID or filters)
+loop plot L0064_T0.50_S42 L0064_T1.00_S42 --plots entropy phase
+loop plot --type sweep --T 0.50 --plots violin
+
+# Analysis and diagnostics
+loop analyze --type sweep --L 64           # recompute analysis caches
+loop precollapse --detail L0256_T0.80_S42  # basin transition report
+loop precollapse --csv data/precollapse.csv
+loop summary --out data/summary.csv        # cross-condition summary
 
 # Semantic analysis
-python semantic.py --clouds
-python grep_text.py "Star Wars" --runs data/runs/sweep/*.parquet --count
+loop semantic --clouds                     # auto-discover themes, map basins
+loop semantic --themes water book food     # multi-theme density report
 
-# Pre-collapse analysis
-python precollapse.py --detail L0256_T0.80_S42
+# Text search
+loop grep "Star Wars" --type sweep --count
+loop grep "education" -i --type controller -C 30
+loop grep "young|old" --regex --L 64
 ```
 
-Requires a local copy of SmolLM-135M weights at `data/model/SmolLM-135M/`.
+Most subcommands accept run IDs (parquet stems like `L0064_T0.50_S42`) or filter flags (`--type`, `--L`, `--T`, `--seed`, `--regime`). Requires SmolLM-135M weights at `data/model/SmolLM-135M/`.
 
 ## Where this is headed
 

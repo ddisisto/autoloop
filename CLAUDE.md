@@ -1,236 +1,60 @@
-# CLAUDE.md — autoloop
+# CLAUDE.md -- autoloop
+
+@README.md
 
 ## Project
 
 Basin topography and learnable steering in autoregressive self-play. See `docs/project-brief.md` for full design, `observations.md` for findings log.
 
-## Repository Layout
+## Code style
 
-```
-engine.py            # Token generation engine (StepEngine: step, sensors, snapshot/rollback, checkpoint)
-experiment.py        # Experiment framework (controllers, state machine, universal run loop)
-generate.py          # Legacy CLI entry point (schedule, prefill, checkpoint/resume) — being replaced by experiment.py
-controller.py        # Legacy closed-loop controller — being replaced by experiment.py beta mode
-analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries; incremental .analysis.pkl cache)
-plot.py              # Visualization (5 plot types + EOS markers, CLI with --runs and --plots)
-utils.py             # Shared primitives (compressibility, eos_ema, fix_decoded_texts)
-metrics.py           # Scalar metric extraction (surprisal stats, EOS interarrival, decorrelation lag)
-summary_table.py     # Cross-condition summary CSV from all runs
-reproduce_plots.py   # Regenerate all standard plots from available data (with caching)
-analyze_windows.py   # Recompute analysis at standard W grid (from default_window_sizes)
-plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
-precollapse.py       # Pre-collapse trajectory analysis (regime classification, basin transitions, W/L convergence)
-semantic.py          # Semantic analysis (theme search, attractor catalog, Heaps' law, repetition onset, coherence)
-grep_text.py         # CLI grep for decoded text in parquet runs (regex, context, step/L/T display)
-anneal.py            # Annealing experiment runner (phased: probes, tier1-5, --check, --dry-run)
-sweep.py             # Unified sweep runner (presets, ad-hoc grids, --status)
-runlib.py            # Run discovery and classification (path constants, classify_run, discover_runs)
-schema.py            # SQLite schema definitions (versioned, inspectable column defs for runs + basins)
-runindex.py          # SQLite index builder/query CLI (data/runs/index.db)
-explorer.py          # Interactive web explorer backend (FastAPI)
-static/              # Explorer frontend
-  index.html         # HTML shell
-  css/explorer.css   # Styles (panels, right drawer, zoom-synced overview)
-  js/app.js          # Init, event wiring, hash state, presets
-  js/panels.js       # Composable chart strips, Plotly rendering, zoom sync
-  js/presets.js      # Hardcoded + user-saved chart layouts
-  js/context.js      # Context drawer, buffered token view, scroll sync, search, word cloud
-  js/sidebar.js      # Run list, favorites
-  js/state.js        # App state, color-by system, API helpers
-explorer.md          # Explorer design doc
-run-index.md         # Run tracker, grid overview, phase planning
-observations.md      # Current model summary + evidence log index
-docs/                # Longer-form documents + observation archives
-  annealing-experiment.md    # Annealing experiment design (tiered, probe-first)
-  observations-2026-03-*.md  # Dated observation archives (from observations.md)
-  project-brief.md   # Research design document
-  share.md           # Draft post/article for sharing findings
-  interaction-topology.md  # Speculative framing: generative dynamics as interaction paradigm
-data/                # Gitignored except figures
-  model/SmolLM-135M/ # Local model weights (pre-downloaded)
-  runs/              # Organized by experiment type (see Data conventions below)
-    sweep/           # L{LLLL}_T{T.TT}_S{seed}.*
-    controller/      # ctrl_*, ctrld_*
-    anneal/          # anneal_*
-    probe/           # probe_*
-    survey/          # survey_* (future)
-    schedule/        # sched_*
-    index.db         # SQLite index (schema.py defines, runindex.py manages)
-  figures/           # Plot outputs (tracked in git)
-```
-
-Scripts, not a package. No `src/` layout. Add modules only when genuinely needed.
-
-## Conventions
-
-### Code Style
 - Type hints on all function signatures
-- `logging` module, not print — DEBUG for per-step, INFO for run progress
-- No default params for per-run configuration — explicit or fail
+- `logging` module, not print -- DEBUG for per-step, INFO for run progress
+- No default params for per-run configuration -- explicit or fail
 - No hidden logic, no silent fallbacks
-- No pre-emptive exception handling — let runtime errors surface naturally
-- No TODOs in code — use `raise NotImplementedError` where appropriate
+- No pre-emptive exception handling -- let runtime errors surface naturally
+- No TODOs in code -- use `raise NotImplementedError` where appropriate
 - Single responsibility, DRY, YAGNI, KISS
 - Modules expose clean interfaces; internals stay internal
+- Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
+- Files should stay under ~500 lines; split when natural seams emerge
 
-### Data
-- All generated data goes under `data/` (gitignored except `data/figures/`)
-- Runs organized into subdirectories by experiment type under `data/runs/`: `sweep/` (fixed-param), `controller/` (ctrl/ctrld), `anneal/`, `probe/`, `schedule/` (sched), `survey/` (future). `runlib.py` provides path constants, classification, and discovery
-- `data/runs/index.db`: SQLite index of all runs — canonical way to query what data exists. Built by `runindex.py build`, queried by `runindex.py query` or programmatically via `schema.py` + `runindex.py`
-- One Parquet file per run, named `L{L:04d}_T{T:.2f}_S{seed}.parquet` (sweep/) or `sched_S{seed}_{hash8}` (schedule/) or `ctrl[d]_S{seed}_{L}_{T}` (controller/) or `--run-name`
-- Per-step `temperature` and `context_length` columns in parquet (vary per-step in scheduled runs)
-- Each run includes a JSON sidecar with full metadata (schedule, prefill_text, model revision, torch version, timing)
+## Data internals
+
+- All generated data under `data/` (gitignored except `data/figures/`)
+- Runs organized by type under `data/runs/`: `sweep/`, `controller/`, `anneal/`, `probe/`, `schedule/`, `survey/`. `runlib.py` has path constants and classification
+- `data/runs/index.db`: SQLite index -- canonical way to query runs. Built by `loop index build`
+- Naming: `L{L:04d}_T{T:.2f}_S{seed}` (sweep), `sched_S{seed}_{hash8}` (schedule), `ctrl[d]_S{seed}_{L}_{T}` (controller)
+- Each run: one Parquet + JSON sidecar + `.analysis.pkl` cache + `.ckpt` checkpoint
+- Per-step `temperature` and `context_length` columns in parquet (vary per-step in scheduled/controller runs)
+- Compressibility arrays have leading NaN (first W-1 positions). Use `comp_stats(cache, W)` for scalar summaries; raw arrays only for time-series
 - Analysis cache: single `.analysis.pkl` per parquet, incremental (new window sizes merged in), invalidated by parquet mtime
-- Compressibility arrays have leading NaN (first W-1 positions). Use `comp_stats(cache, W)` for scalar summaries; access raw arrays only for time-series work
-- Checkpoints: same stem as parquet `.ckpt` — kept after run completion for extension; stores schedule spec for resume validation
-- Model weights: `data/model/SmolLM-135M/` (local, not fetched at runtime)
+- `default_window_sizes()` returns [32,64,128,256] (floor at 32, always includes W>L)
+- Checkpoints: same stem as parquet `.ckpt` -- kept after completion for extension
 
-### Git
-- `data/figures/` tracked in git; all other data gitignored
-- `uv.lock` stays committed
-- Small, logical commits
+## Sweep conventions
 
-### Sweeps
-- `sweep.py`: unified runner with named presets and ad-hoc `--L`/`--T`/`--seed` grids
-- `sweep.py --status`: auto-generated grid table from parquet files on disk (replaces manual tracking)
-- `sweep.py --list`: show presets with completion counts
+- Each condition runs as a subprocess (crash isolation)
 - Presets record historical sweeps with rationale; new sweeps can use ad-hoc grids
-- Each condition runs as a subprocess of `generate.py` (crash isolation)
+- `data/figures/` tracked in git; all other data gitignored
+- `uv.lock` stays committed; small, logical commits
 
-## Current State (Phase 0 complete, Phase 1 in progress)
+## Current state
 
-### What's Built
-- `engine.py`: `StepEngine` class — single token loop (`step(L, T)`), trailing-window sensors (entropy, β, comp), `snapshot()`/`restore()` rollback, checkpoint persistence. `load_model()` and `compute_entropy()` shared utilities
-- `experiment.py`: universal run loop + controllers — `FixedController`, `ScheduleController`, `BetaController` (replaces controller.py logic), `StateMachine` (composable state graph with sensor-driven transitions). CLI: `experiment.py fixed|schedule|beta`
-- `generate.py`: legacy generation loop with schedule support — still works, being replaced by experiment.py
-- `analyze/`: analysis package (compressibility, stationarity, summaries); single incremental `.analysis.pkl` cache per run; accepts pre-loaded DataFrames; `default_window_sizes()` returns [32,64,128,256] (floor at 32, always includes W>L)
-- `analyze_windows.py`: recompute analysis at standard W grid (defers to `default_window_sizes()`)
-- `plot.py`: entropy time series (EOS rate EMA overlay), compressibility, phase portraits (EOS diamonds), temporal phase portraits (cividis), split violin
-- `plot_window_scaling.py`: window scaling plots (comp vs L, comp vs W, heatmaps)
-- `utils.py`: shared primitives — `compressibility()`, `eos_ema()`
-- `reproduce_plots.py`: one-command regen of all standard plot slices (analysis + figure mtime caching)
-- `explorer.py` + `static/index.html`: interactive web explorer (FastAPI + Plotly.js), buffered context viewer with scroll sync, infinite scroll, L-window visual, token search (case/word/regex)
-- `precollapse.py`: pre-collapse trajectory analysis — regime classification (escaped/oscillating/collapsed/deep_collapsed), basin transition detection (escape spike vs landing depth), W/L convergence profiles, attractor content extraction
-- `sweep.py`: unified sweep runner with presets (pilot, crossover, seed, ldense, l256-crossover) and ad-hoc grids
-- `grep_text.py`: CLI grep for decoded text in parquet runs — regex, case-insensitive, match counts, step/L/T context display
+**What's built:** engine.py (StepEngine with sensors, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), cli.py (unified `loop` CLI), analyze/ package, plot.py, explorer.py, precollapse.py, semantic.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index).
 
-### Data Collected (run `runindex.py query` or `sweep.py --status` for live grid)
-- Pilot: L={64,128,192,256} × T={0.50,1.00,1.50} × S=42 (12 runs)
-- Crossover: L={64,128,192} × T={0.60,0.70,0.80,0.90} × S=42 (12 runs)
-- Seed replication at T=0.50: L={64,128,192} × S={42,123,7} (9 runs)
-- L-densification at T=0.50: L={160,176,208,224} × S={42,123,7} (15 runs)
-- L=256 crossover: T={0.60,0.70,0.80,0.90} × S=42 (4 runs, complete)
-- L=512 escape boundary: T={0.90,1.00,1.10,1.20} × S=42 (4 runs, complete)
-- Total: ~53 runs across all conditions
+**Data collected:** ~70 runs. Run `loop index query` for the live catalog.
 
-### Key Findings (see observations.md)
+**Key findings** (see observations.md for full log):
 - Four regimes: collapse, suppressed dynamics, rich dynamics, noise
-- T_escape(L) increases then saturates: L=64→0.55, L=128→0.57, L=192→0.67, L=256→0.87, L=512→~0.90
-- T and L are coupled but coupling weakens at large L (saturation above L≈256)
-- Suppressed zone: L=256 at T=0.70–0.80 has structure but slow mixing (decorrelation lag 253–356)
-- Slope-flip pivot shifts with L: comp crossover at T≈0.75 for L=192, T≈0.95 for L=256
-- Multi-scale decoupling peaks in suppressed zone (|comp_W256−comp_W64| up to 0.35)
-- Concept fragmentation: temperature controls expression fidelity, not concept activation
-- L-densification at T=0.50: jagged non-monotonic profile, no clean phase transition
-- "Memory-depth annealing": L-reduction as escape mechanism — bounded by T_escape saturation
-- Basin escape hysteresis: pre-seeded attractor at L=64/T=0.80 stays stuck (BOS T_escape=0.55). Basin exit requires ~0.4T more than basin avoidance
-- L-titration of basin depth: " Star Wars" (2-token cycle) locks in at 4-8 copies (L=8 escapes, L=16 stuck). Sharp transition, not gradual
-- Single-token attractors (" young") much shallower than multi-token mutual-prediction cycles — basin depth depends on mutual information between cycle positions
-- Basin transitions: escape spikes >6 nats always reach shallower basins; <1 nat leads deeper 67% of time (L=256 T=0.80)
-- Progressive basin deepening: floors cascade from 0.05→0.014 over a run's lifetime
-- Attractor content is semantically diverse and L-dependent (shorter periods at higher L)
-- W/L convergence: slope divergence fingerprints attractor approach (local compression + global expansion)
-- Attractor content describes its own dynamics: tautologies, incomplete predicates, self-perpetuating conditions, confinement
-- Pre-collapse trajectories trace paths through connected semantic basins (education → violence → apocalypse → cataloging → imprisonment → Star Wars)
-- Vocabulary richness (TTR) spans 100x across regimes; Heaps' β cleanly separates collapse (0.17) from rich dynamics (0.80) from escape events (>1.0)
-- Collapse is deterministic (all seeds collapse at T=0.50) but content is seed-dependent — 21 unique attractors across 3 seeds × 7 L values
-- Escape by semantic mutation: at L=16 (threshold lock-in), attractor period expands ("Star Wars" → "Star Wars 2000" → "The Old Republic" → escape). Period-doubling route to chaos
-- Suppressed dynamics is scale-invariant: L=16/T=0.60 pre-seeded ≈ L=256/T=0.70 natural (same coherence, TTR). Regime depends on basin-depth/thermal-energy ratio, not absolute L or T
-- Closed-loop control works: controller finds balance points at β≈0.90 (L=8/T=0.70, L=16/T=0.75, L=128/T=0.90-0.95). Balance T tracks T_escape(L). Small L has wide β basin; L=128 oscillates at the escape boundary.
-- Compressibility is a collapse detector, not a rich-dynamics discriminator. W>L signal is weak (~0.03 below noise floor). Entropy and Heaps' β are the right control signals.
+- T_escape(L) saturates: L=64->0.55, L=128->0.57, L=192->0.67, L=256->0.87, L=512->~0.90
+- Basin escape hysteresis: exit requires ~0.4T more than avoidance
+- Escape by semantic mutation: period-doubling route to chaos
+- Closed-loop control finds beta~0.90 equilibrium. Balance T tracks T_escape(L)
+- Compressibility is a collapse detector, not a rich-dynamics discriminator. Entropy and Heaps' beta are the right control signals
+- Suppressed dynamics is scale-invariant: regime depends on basin-depth/thermal-energy ratio
 
-### Key Parameters
-- Model: SmolLM-135M (local at `data/model/SmolLM-135M/`)
-- Context lengths L: 64, 128, 160, 176, 192, 208, 224, 256, 512
-- Temperatures T: 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.50
-- Seeds: 42 (all conditions); 123, 7 (T=0.50 + L-dense conditions)
-- Tokens per run: 100,000 (post-pre-fill)
-- Sampling: pure temperature scaling, no top-k/top-p
-
-## CLI Reference
-
-```bash
-# Sweeps
-python sweep.py pilot                           # run a named preset
-python sweep.py --L 256 --T 0.60 0.70 --seed 42 # ad-hoc grid
-python sweep.py --status                         # grid table from disk
-python sweep.py --list                           # list presets
-python sweep.py crossover --dry-run              # preview without running
-
-# Experiment framework (new unified interface)
-python experiment.py fixed --seed 42 -L 64 -T 0.50 --total-steps 100000
-python experiment.py schedule --seed 42 --spec "50000:L256:T0.60,50000:L64:T0.80"
-python experiment.py beta --seed 42 --start-L 8 --start-T 1.00 --drift --total-steps 1000000
-python experiment.py beta --seed 42 --start-L 64 --start-T 0.70 --dry-run
-
-# Legacy: single generation run (fixed parameters)
-python generate.py --context-length 64 --temperature 1.0 --seed 42 \
-  --num-tokens 100000 --model-dir data/model/SmolLM-135M \
-  --output-dir data/runs --device cuda
-
-# Legacy: closed-loop controller
-python controller.py --seed 42 --total-steps 10000 --drift
-
-# Interactive explorer
-uvicorn explorer:app --reload --port 8000   # then open http://localhost:8000
-
-# Plots (all types by default, or select with --plots)
-python plot.py --runs data/runs/L0064_T*_S42.parquet
-python plot.py --runs data/runs/L*_T0.50_S42.parquet --plots violin temporal
-python plot.py --runs data/runs/L0064_T*_S42.parquet --downsample 50
-
-# Reproduce all standard plots (skips up-to-date slices)
-python reproduce_plots.py
-python reproduce_plots.py --force          # bypass cache
-python reproduce_plots.py --plots entropy  # only specific plot types
-
-# Pre-collapse analysis
-python precollapse.py                              # summary by regime (all T<=1.2)
-python precollapse.py --detail L0256_T0.80_S42     # detailed report with basin transitions
-python precollapse.py --csv data/precollapse.csv   # all metrics to CSV
-python precollapse.py --runs data/runs/L0256*.parquet  # specific runs
-
-# Annealing experiments
-python anneal.py probes              # Phase 0: quick feasibility (5k tokens)
-python anneal.py probes --check      # analyze probe results
-python anneal.py tier1               # Phase A: escape threshold (100k tokens)
-python anneal.py tier2               # Phase B: return dynamics (100k tokens)
-python anneal.py tier5               # Phase B: T vs L comparison (100k tokens)
-python anneal.py tier1 --dry-run     # preview without running
-
-# Semantic analysis
-python semantic.py --clouds                         # auto-discover themes, map basins, co-occurrence
-python semantic.py --clouds --csv data/basins.csv   # export basin fingerprints
-python semantic.py --themes water book food          # multi-theme compact density report
-python semantic.py --theme "the" --seed 42          # single theme full analysis (legacy)
-python semantic.py --csv data/semantic.csv          # export all metrics (single-theme mode)
-python semantic.py --runs data/runs/L0256*.parquet  # specific runs
-
-# Grep decoded text in runs
-python grep_text.py "Star Wars" --runs data/runs/*.parquet --count
-python grep_text.py "education" -i --runs data/runs/ctrld_S42_8_1.00.parquet --max 10
-python grep_text.py "young|old" --regex -C 30 --runs data/runs/L0064*.parquet
-
-# Run index
-python runindex.py build                           # full reindex
-python runindex.py query                           # list all runs
-python runindex.py query --type sweep --T 0.50     # filtered query
-python runindex.py query --json                    # JSON output
-
-# Cross-condition summary table
-python summary_table.py                         # print to stdout
-python summary_table.py --out data/summary.csv  # write to file
-```
+**Key parameters:** SmolLM-135M, L in {64..512}, T in {0.50..1.50}, seeds {42,123,7}, 100k tokens/run, pure temperature scaling (no top-k/top-p).
 
 ## Dependencies
 
