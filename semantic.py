@@ -173,6 +173,21 @@ def vocab_stats(run: RunInfo) -> dict:
     return result
 
 
+def _is_content_token(tok: str) -> bool:
+    """Check if a token carries semantic content (not punctuation/fragment)."""
+    stripped = tok.strip()
+    if not stripped:
+        return False
+    # Pure punctuation or digits
+    if re.fullmatch(r"[^a-zA-Z]+", stripped):
+        return False
+    # Single character (after stripping)
+    alpha = re.sub(r"[^a-zA-Z]", "", stripped)
+    if len(alpha) < 2:
+        return False
+    return True
+
+
 def neighbor_profile(
     hits: list[ThemeHit], all_runs: dict[str, RunInfo], token_radius: int = 10
 ) -> dict[float, Counter]:
@@ -184,44 +199,80 @@ def neighbor_profile(
         end = min(len(run.tokens), hit.token_idx + token_radius + 1)
         neighbors = run.tokens[start:end]
         by_t.setdefault(hit.T, Counter()).update(
-            tok.strip().lower() for tok in neighbors if tok.strip()
+            tok.strip().lower() for tok in neighbors if _is_content_token(tok)
         )
     return by_t
 
 
+def _shares_morph_root(word: str, theme: str, min_prefix: int = 4) -> bool:
+    """Check if word shares a morphological root with theme via shared prefix."""
+    if len(word) < min_prefix or len(theme) < min_prefix:
+        return False
+    shared = 0
+    for i in range(min(len(word), len(theme))):
+        if word[i] != theme[i]:
+            break
+        shared += 1
+    return shared >= min_prefix
+
+
+def neighbor_morphology(
+    hits: list[ThemeHit],
+    all_runs: dict[str, RunInfo],
+    theme: str,
+    token_radius: int = 10,
+    top_k: int = 15,
+) -> dict[float, tuple[float, float, int]]:
+    """Per T: (morph_rank_ratio, subword_ratio, n_content_neighbors).
+
+    morph_rank_ratio: fraction of top-K most frequent content neighbors that
+        share morphological root with theme. Captures rank-based crossover
+        (morph variants rise to top at high T).
+    subword_ratio: fraction of all non-empty neighbor tokens that are subword
+        continuations (no leading space).
+    """
+    theme_clean = re.sub(r"[^a-z]", "", theme.lower())
+    by_t_content: dict[float, Counter] = {}
+    by_t_subword: dict[float, list[int]] = {}
+
+    for hit in hits:
+        run = all_runs[hit.run_name]
+        start = max(0, hit.token_idx - token_radius)
+        end = min(len(run.tokens), hit.token_idx + token_radius + 1)
+
+        for tok in run.tokens[start:end]:
+            if not tok:
+                continue
+            is_subword = not tok[0].isspace()
+            by_t_subword.setdefault(hit.T, []).append(1 if is_subword else 0)
+
+            if not _is_content_token(tok):
+                continue
+            word = re.sub(r"[^a-z]", "", tok.strip().lower())
+            if word == theme_clean:
+                continue
+            by_t_content.setdefault(hit.T, Counter())[word] += 1
+
+    result = {}
+    for t_val in sorted(set(by_t_content) | set(by_t_subword)):
+        content = by_t_content.get(t_val, Counter())
+        sub_list = by_t_subword.get(t_val, [])
+        # Morph ratio among top-K most frequent neighbors
+        top_words = [w for w, _ in content.most_common(top_k)]
+        n_morph = sum(1 for w in top_words if _shares_morph_root(w, theme_clean))
+        morph_r = n_morph / len(top_words) if top_words else 0.0
+        sub_r = sum(sub_list) / len(sub_list) if sub_list else 0.0
+        result[t_val] = (morph_r, sub_r, sum(content.values()))
+    return result
+
+
 ## ── Analysis 6: Theme clouds ─────────────────────────────────────
 
-# Functional words filtered from theme discovery
-STOPWORDS = frozenset({
-    "the", "and", "for", "that", "this", "with", "from", "are", "was", "were",
-    "has", "have", "had", "not", "but", "you", "your", "they", "their", "them",
-    "its", "his", "her", "she", "will", "can", "could", "would", "should", "may",
-    "might", "been", "being", "also", "more", "most", "than", "then", "when",
-    "where", "which", "what", "who", "how", "all", "each", "every", "both", "few",
-    "many", "much", "some", "any", "other", "such", "only", "very", "just", "about",
-    "into", "over", "after", "before", "between", "through", "during", "without",
-    "within", "against", "along", "among", "around", "because", "since", "until",
-    "while", "these", "those", "here", "there", "our", "out", "own", "same",
-    "still", "even", "back", "well", "like", "made", "make", "does", "did", "get",
-    "got", "new", "one", "two", "first", "last", "long", "great", "little",
-    "right", "old", "big", "high", "end", "part", "know", "take", "come", "see",
-    "look", "way", "use", "used", "using", "said", "says", "find", "give", "tell",
-    "help", "put", "need", "try", "called", "year", "years", "time", "people",
-    "world", "day", "work", "life", "however", "including", "according", "often",
-    "based", "known", "different", "important", "include", "number", "several",
-    "whether", "possible", "likely", "provide", "process", "available", "general",
-    "specific", "common", "certain", "able", "small", "large", "early", "late",
-    "best", "good", "better", "example", "form", "type", "types", "per", "set",
-    "three", "four", "five", "now", "let", "say", "thing", "things", "fact",
-    "case", "point", "another", "going", "must", "goes", "want", "keep", "given",
-    "show", "down", "start", "name", "line", "hand", "move", "play", "home",
-    "state", "mean", "means", "turn", "real", "away", "next", "second", "full",
-    "level", "order", "place", "open", "close", "left", "done", "body", "become",
-    "above", "below", "area", "side", "kind", "system", "group", "began", "begin",
-    "today", "less", "power", "under", "though", "call", "hold", "head", "word",
-    "words", "making", "info", "bring", "read", "write", "free", "true", "data",
-    "note", "human",
-})
+# No curated stopwords — let spikiness and distribution do the filtering.
+# Interesting words ("state", "power", "order", "set", "in") were previously
+# hidden by a hand-curated list. Now we filter only mechanical noise:
+# punctuation, single chars, subword fragments.
+STOPWORDS = frozenset()
 
 
 @dataclass
@@ -257,13 +308,13 @@ class RunBasin:
 
 
 def _clean_words(tokens: list[str]) -> list[str]:
-    """Extract content words from token list."""
+    """Extract content words from token list, filtering mechanical noise."""
     text = "".join(tokens)
     words = text.lower().split()
     cleaned = []
     for w in words:
         w = re.sub(r"[^a-z]", "", w)
-        if len(w) > 3 and w not in STOPWORDS:
+        if len(w) >= 2 and w not in STOPWORDS:
             cleaned.append(w)
     return cleaned
 
@@ -914,6 +965,17 @@ def run_themes(
             top = neighbors[t_val].most_common(15)
             top_str = ", ".join(f"{w}({c})" for w, c in top)
             print(f"\n  Neighbors (T={t_val:.2f}): {top_str}")
+
+        # Morphological crossover
+        morph = neighbor_morphology(all_hits, all_runs, theme)
+        if morph:
+            print(f"\n  Morphological crossover ('{theme}'):")
+            print(f"    {'T':>5s}  {'morph':>6s}  {'subword':>7s}  {'n':>5s}")
+            for t_val in sorted(morph):
+                mr, sr, n = morph[t_val]
+                bar_m = "#" * int(mr * 40)
+                bar_s = ":" * int(sr * 40)
+                print(f"    {t_val:>5.2f}  {mr:>6.3f}  {sr:>7.3f}  {n:>5d}  {bar_m}{bar_s}")
 
 
 def run_full_analysis(

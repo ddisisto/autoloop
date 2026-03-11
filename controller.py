@@ -50,14 +50,18 @@ DEFAULT_START_T = 0.70
 
 # L/T search grid
 L_MIN = 16
-L_MAX = 256
+L_MAX = 1024
 L_STEP = 16
 T_MIN = 0.55
-T_MAX = 1.00
+T_MAX = 1.25
 T_STEP = 0.05
 
 # Target
-BETA_TARGET = 1.0
+BETA_TARGET = 0.9
+
+# Drift: slow pressure toward the edge when β is in the dead zone
+DRIFT_T_STEP = 0.005   # cool T by this much per segment
+DRIFT_L_STEP = 2       # grow L by this much per segment
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +163,7 @@ def decide_next(
     current_T: float,
     sensors: SensorReading,
     history: list[SensorReading],
+    drift: bool = False,
 ) -> tuple[int, float, str]:
     """Decide next L/T based on sensor readings. Returns (L, T, reason).
 
@@ -167,13 +172,38 @@ def decide_next(
 
     β < target → need more novelty → raise T, then raise L if T-capped
     β > target → too much novelty → lower T, then lower L if T-floored
+
+    With drift=True: when β is in the dead zone, apply slow pressure toward
+    the edge. Entropy relative to its rolling mean decides which lever:
+      high entropy → grow L (system has thermal energy, give it more memory)
+      low entropy  → cool T (system is already structured, tighten further)
     """
     beta = sensors.heaps_beta
     err = beta - BETA_TARGET  # negative = need more novelty
 
-    # Dead zone: hold if β is within ±0.15 of target
+    # Dead zone: β within ±0.15 of target
     if abs(err) < 0.15:
-        return current_L, current_T, f"β={beta:.2f} in zone, hold"
+        if not drift or len(history) < 3:
+            return current_L, current_T, f"β={beta:.2f} in zone, hold"
+
+        # Drift: compare current entropy to recent rolling mean (last 20 segments)
+        recent = history[-20:]
+        ent_mean = sum(h.entropy_mean for h in recent) / len(recent)
+        if sensors.entropy_mean >= ent_mean:
+            # High entropy → system has energy → grow L
+            new_L = min(current_L + DRIFT_L_STEP, L_MAX)
+            if new_L != current_L:
+                return new_L, current_T, (
+                    f"β={beta:.2f} in zone, drift L↑{new_L} "
+                    f"(ent={sensors.entropy_mean:.2f}≥avg={ent_mean:.2f})")
+            # L maxed — fall through to cool T
+        # Low entropy (or L maxed) → cool T
+        new_T = max(current_T - DRIFT_T_STEP, T_MIN)
+        if abs(new_T - current_T) > 1e-6:
+            return current_L, new_T, (
+                f"β={beta:.2f} in zone, drift T↓{new_T:.3f} "
+                f"(ent={sensors.entropy_mean:.2f}<avg={ent_mean:.2f})")
+        return current_L, current_T, f"β={beta:.2f} in zone, drift stalled (T@min)"
 
     new_T = current_T
     new_L = current_L
@@ -294,16 +324,18 @@ def run_controller(
     start_L: int,
     start_T: float,
     dry_run: bool = False,
+    drift: bool = False,
 ) -> None:
-    run_name = f"ctrl_S{seed}_{start_L}_{start_T:.2f}"
+    suffix = "d" if drift else ""
+    run_name = f"ctrl{suffix}_S{seed}_{start_L}_{start_T:.2f}"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     parquet_path = OUTPUT_DIR / f"{run_name}.parquet"
     meta_path = OUTPUT_DIR / f"{run_name}.meta.json"
     checkpoint_path = OUTPUT_DIR / f"{run_name}.ckpt"
 
     log.info("Controller run: %s", run_name)
-    log.info("Target: β ≈ %.1f | Segments: %d steps | Total: %d steps",
-             BETA_TARGET, segment_steps, total_steps)
+    log.info("Target: β ≈ %.1f | Segments: %d steps | Total: %d steps | Drift: %s",
+             BETA_TARGET, segment_steps, total_steps, drift)
 
     # Load model
     log.info("Loading model from %s", MODEL_DIR)
@@ -327,6 +359,57 @@ def run_controller(
     current_L = start_L
     current_T = start_T
     current_step = 1
+
+    # Periodic save interval (in segments)
+    SAVE_EVERY = 50  # ~50k steps at default segment_steps=1000
+
+    def save_snapshot(final: bool = False) -> None:
+        """Write parquet, decisions, and metadata to disk."""
+        all_ids = [r["token_id"] for r in records]
+        all_texts = [r["decoded_text"] for r in records]
+        fixed = fix_decoded_texts(tokenizer, all_ids, all_texts)
+        snap_records = [dict(r) for r in records]
+        for r, txt in zip(snap_records, fixed):
+            r["decoded_text"] = txt
+
+        snap_df = pd.DataFrame(snap_records)
+        snap_df.to_parquet(parquet_path, index=False)
+
+        decision_path = OUTPUT_DIR / f"{run_name}.decisions.json"
+        decision_path.write_text(json.dumps(decision_log, indent=2) + "\n")
+
+        elapsed = time.monotonic() - t_start if t_start else 0
+        metadata = {
+            "run_name": run_name,
+            "controller": True,
+            "seed": seed,
+            "total_steps": total_steps,
+            "segment_steps": segment_steps,
+            "start_L": start_L,
+            "start_T": start_T,
+            "beta_target": BETA_TARGET,
+            "drift": drift,
+            "n_segments": len(sensor_history),
+            "n_rollbacks": n_rollbacks,
+            "dry_run": dry_run,
+            "final_L": current_L,
+            "final_T": current_T,
+            "final_beta": sensor_history[-1].heaps_beta if sensor_history else None,
+            "final_entropy": sensor_history[-1].entropy_mean if sensor_history else None,
+            "device": DEVICE,
+            "model_dir": MODEL_DIR,
+            "torch_version": torch.__version__,
+            "elapsed_seconds": round(elapsed, 2),
+            "tokens_per_second": round(len(records) / elapsed, 1) if elapsed > 0 else 0,
+            "num_tokens": experiment_steps,
+            "complete": final,
+            "decision_log": decision_log,
+        }
+        meta_path.write_text(json.dumps(metadata, indent=2) + "\n")
+
+        label = "Final" if final else "Snapshot"
+        log.info("%s save: %s (%d records, %d decisions)",
+                 label, parquet_path.name, len(records), len(decision_log))
 
     # Prefill: generate L tokens at current T to fill the context
     log.info("Prefill: %d tokens at L=%d T=%.2f", start_L, start_L, start_T)
@@ -408,7 +491,7 @@ def run_controller(
             new_L, new_T, reason = current_L, current_T, "dry-run, no adjustment"
         else:
             new_L, new_T, reason = decide_next(
-                current_L, current_T, sensors, sensor_history
+                current_L, current_T, sensors, sensor_history, drift=drift
             )
 
         decision_log.append({
@@ -435,62 +518,26 @@ def run_controller(
         current_L = new_L
         current_T = new_T
 
-        # Checkpoint every 10 segments
-        if len(sensor_history) % 10 == 0:
+        # Checkpoint every 10 segments, snapshot every SAVE_EVERY segments
+        n_seg = len(sensor_history)
+        if n_seg % 10 == 0:
             save_checkpoint(
                 checkpoint_path, parquet_path,
                 current_step, context, records,
                 f"controller:{run_name}",
             )
+        if n_seg % SAVE_EVERY == 0:
+            save_snapshot()
 
-    # Finalize
+    # Final save
+    save_snapshot(final=True)
     elapsed = time.monotonic() - t_start
-    all_ids = [r["token_id"] for r in records]
-    all_texts = [r["decoded_text"] for r in records]
-    fixed = fix_decoded_texts(tokenizer, all_ids, all_texts)
-    for r, txt in zip(records, fixed):
-        r["decoded_text"] = txt
-
-    df = pd.DataFrame(records)
-    df.to_parquet(parquet_path, index=False)
-
-    # Decision log as separate JSON
-    decision_path = OUTPUT_DIR / f"{run_name}.decisions.json"
-    decision_path.write_text(json.dumps(decision_log, indent=2) + "\n")
-
-    # Metadata
-    metadata = {
-        "run_name": run_name,
-        "controller": True,
-        "seed": seed,
-        "total_steps": total_steps,
-        "segment_steps": segment_steps,
-        "start_L": start_L,
-        "start_T": start_T,
-        "beta_target": BETA_TARGET,
-        "n_segments": len(sensor_history),
-        "n_rollbacks": n_rollbacks,
-        "dry_run": dry_run,
-        "final_L": current_L,
-        "final_T": current_T,
-        "final_beta": sensor_history[-1].heaps_beta if sensor_history else None,
-        "final_entropy": sensor_history[-1].entropy_mean if sensor_history else None,
-        "device": DEVICE,
-        "model_dir": MODEL_DIR,
-        "torch_version": torch.__version__,
-        "elapsed_seconds": round(elapsed, 2),
-        "tokens_per_second": round(len(records) / elapsed, 1),
-        "decision_log": decision_log,
-    }
-    meta_path.write_text(json.dumps(metadata, indent=2) + "\n")
-
     log.info("Done: %d steps in %.1fs (%.1f tok/s), %d rollbacks",
              len(records), elapsed, len(records) / elapsed, n_rollbacks)
     log.info("Final: L=%d T=%.2f β=%.2f ent=%.2f",
              current_L, current_T,
              sensor_history[-1].heaps_beta, sensor_history[-1].entropy_mean)
     log.info("Output: %s", parquet_path)
-    log.info("Decisions: %s", decision_path)
 
 
 # ---------------------------------------------------------------------------
@@ -506,6 +553,8 @@ def main() -> None:
     parser.add_argument("--start-T", type=float, default=DEFAULT_START_T)
     parser.add_argument("--dry-run", action="store_true",
                         help="Run sensors but don't adjust L/T")
+    parser.add_argument("--drift", action="store_true",
+                        help="Slow pressure when in dead zone: grow L (high entropy) or cool T (low entropy)")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -521,6 +570,7 @@ def main() -> None:
         start_L=args.start_L,
         start_T=args.start_T,
         dry_run=args.dry_run,
+        drift=args.drift,
     )
 
 
