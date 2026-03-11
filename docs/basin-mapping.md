@@ -163,36 +163,53 @@ Initial context determines which basin neighborhood the system enters first:
 
 ## Basin Catalogue Schema
 
+Two-level structure: **types** (the taxonomy) and **captures** (observations).
+
+### basin_types (SQLite)
+Each row is a distinct attractor type. Centroid embedding stored externally in `data/basins/centroids.npy` (row-aligned by type_id).
+
 ```
-basin_id           # run_id + capture_step
-run_id             # survey run identifier
-seed_type          # null / domain / cross-domain
+type_id            # integer PK, aligns with centroids.npy row
+hit_count          # number of captures assigned to this type
+first_seen_run/step, last_seen_run/step
+min_L, max_L       # L range where this type appears
+comp_W{16,32,64,128,256}  # centroid compression spectrum
+W_star             # characteristic window size
+entropy_mean/std/floor, heaps_beta
+representative_text # from most typical capture
+label              # optional human-readable name
+```
 
-# Operating point
-L, T_survey        # context length and temperature at capture
-capture_step       # step when capture detected
-record_step        # step of basin record point (PRNG checkpoint)
+### basin_captures (SQLite)
+Every observation of the system in a basin. Multiple captures of the same type are valuable — each is a new depth measurement, operating point, and transition edge.
 
-# Compression identity (primary)
-comp_spectrum      # float[5] at W = {16, 32, 64, 128, 256}
-W_star             # window of best compression
-fingerprint        # hash of gzip dictionary at W*
-
-# Sensor profile
-entropy_mean, entropy_std, entropy_floor
-heaps_beta
-decorrelation_lag
-eos_rate
-
-# Depth
+```
+capture_id         # run_id:capture_step
+run_id             # parent survey run (FK → runs)
+type_id            # assigned basin type (FK → basin_types)
+capture_step, record_step
+L, T_survey
+comp_W{16,32,64,128,256}, W_star
+entropy_mean/std/floor, heaps_beta, decorrelation_lag, eos_rate
 depth_score        # mean elaboration steps under perturbation
-
-# Transitions
-escape_T           # temperature that triggered escape
-escape_steps       # steps from T_heat to escape
-residue_overlap    # gzip dictionary overlap with previous basin
-prev_basin_id, next_basin_id
+escape_T, escape_steps
+attractor_text, attractor_period
+novelty_distance   # cosine distance to nearest type at capture time
+prev_capture_id, next_capture_id
 ```
+
+### Storage tiers
+| What | Where | Why |
+|------|-------|-----|
+| Per-capture embeddings (576-dim) | `.basins.pkl` per survey run | Full fidelity, reanalysis |
+| Type centroids (N_types × 576) | `data/basins/centroids.npy` + `.json` | Fast load at survey startup |
+| Scalar summaries | SQLite `basin_types` + `basin_captures` | Queryable via `loop index` |
+
+### Implementation
+- `engine.comp_spectrum()`: point-in-time compression at W={16,32,64,128,256}
+- `engine.embed_context()`: mean-pooled last-layer hidden state (576-dim)
+- `runindex.py`: `index_basin_types()` ingests `centroids.json`, `index_basin_captures()` ingests `.basins.pkl`
+- `loop index build` runs both automatically
 
 ## Analysis Targets
 

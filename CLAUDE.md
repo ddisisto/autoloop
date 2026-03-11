@@ -23,14 +23,15 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 
 - All generated data under `data/` (gitignored except `data/figures/`)
 - Runs organized by type under `data/runs/`: `sweep/`, `controller/`, `anneal/`, `probe/`, `schedule/`, `survey/`. `runlib.py` has path constants and classification
-- `data/runs/index.db`: SQLite index -- canonical way to query runs. Built by `loop index build`
+- `data/runs/index.db`: SQLite index (schema v2) -- `runs`, `basin_types`, `basin_captures` tables. Built by `loop index build`
 - Naming: `L{L:04d}_T{T:.2f}_S{seed}` (sweep), `sched_S{seed}_{hash8}` (schedule), `ctrl[d]_S{seed}_{L}_{T}` (controller)
-- Each run: one Parquet + JSON sidecar + `.analysis.pkl` cache + `.ckpt` checkpoint
+- Each run: one Parquet + JSON sidecar + `.analysis.pkl` cache + `.ckpt` checkpoint. Survey runs also produce `.basins.pkl` (captures with 576-dim embeddings)
 - Per-step `temperature` and `context_length` columns in parquet (vary per-step in scheduled/controller runs)
 - Compressibility arrays have leading NaN (first W-1 positions). Use `comp_stats(cache, W)` for scalar summaries; raw arrays only for time-series
 - Analysis cache: single `.analysis.pkl` per parquet, incremental (new window sizes merged in), invalidated by parquet mtime
 - `default_window_sizes()` returns [32,64,128,256] (floor at 32, always includes W>L)
 - Checkpoints: same stem as parquet `.ckpt` -- kept after completion for extension
+- Basin data: three-tier storage. Embeddings in `.basins.pkl`, type centroids in `data/basins/centroids.npy` + `.json`, scalar summaries in SQLite. `loop index build` ingests pkl/json into DB
 
 ## Sweep conventions
 
@@ -41,7 +42,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 
 ## Current state
 
-**What's built:** engine.py (StepEngine with sensors, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), cli.py (unified `loop` CLI), analyze/ package, plot.py, explorer.py, precollapse.py, semantic.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index).
+**What's built:** engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), cli.py (unified `loop` CLI), analyze/ package, plot.py, explorer.py, precollapse.py, semantic.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
 
 **Data collected:** ~70 runs. Run `loop index query` for the live catalog.
 

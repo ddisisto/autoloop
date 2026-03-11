@@ -39,12 +39,12 @@ Scripts, not a package. Flat layout (except `analyze/` which is a package).
 | Module | Purpose |
 |--------|---------|
 | `cli.py` | Unified CLI (`loop`): all subcommands below |
-| `engine.py` | Token generation engine: `StepEngine` with step, sensors, snapshot/rollback, checkpoint |
+| `engine.py` | Token generation engine: `StepEngine` with step, sensors, comp_spectrum, embed_context, snapshot/rollback, checkpoint |
 | `experiment.py` | Experiment framework: controllers (`Fixed`, `Schedule`, `Beta`), `StateMachine`, universal run loop |
 | `sweep.py` | Sweep runner: named presets, ad-hoc grids |
 | `runlib.py` | Run discovery, path constants, classification |
 | `runindex.py` | SQLite index builder and query interface |
-| `schema.py` | Data schema definitions (versioned column defs for runs + basins) |
+| `schema.py` | Data schema definitions v2 (runs + basin_types + basin_captures) |
 | `analyze/` | Analysis package: compressibility, stationarity, summaries; incremental cache |
 | `plot.py` | Visualization: entropy, compressibility, phase portraits, temporal portraits, violins |
 | `precollapse.py` | Pre-collapse trajectory analysis: regime classification, basin transitions |
@@ -62,9 +62,9 @@ Scripts, not a package. Flat layout (except `analyze/` which is a package).
 - **Annealing runs:** tiered cooling/heating experiments
 - **Probes:** quick feasibility checks (5k tokens)
 
-Each run produces a Parquet file (per-token entropy, log-probability, EOS flag, decoded text, per-step T and L), a JSON sidecar with full metadata, and an incremental analysis cache. Checkpoints enable resume and extension.
+Each run produces a Parquet file (per-token entropy, log-probability, EOS flag, decoded text, per-step T and L), a JSON sidecar with full metadata, and an incremental analysis cache. Checkpoints enable resume and extension. Survey runs additionally produce `.basins.pkl` sidecars containing basin captures with 576-dim embeddings.
 
-Data directory is organized into subdirectories by experiment type (`sweep/`, `controller/`, `anneal/`, `probe/`, `survey/`, `schedule/`) with a SQLite index for cross-run queries. Raw data is not included in the repo. Figures are tracked in `data/figures/`.
+Data directory is organized into subdirectories by experiment type (`sweep/`, `controller/`, `anneal/`, `probe/`, `survey/`, `schedule/`) with a SQLite index for cross-run queries. Basin data uses three-tier storage: embeddings in `.basins.pkl` per run, type centroids in `data/basins/centroids.npy`, and scalar summaries in SQLite (`basin_types` + `basin_captures` tables). Raw data is not included in the repo. Figures are tracked in `data/figures/`.
 
 ## CLI reference
 
