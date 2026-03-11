@@ -446,6 +446,28 @@ def cmd_precollapse(args: argparse.Namespace) -> None:
         print_summary(df)
 
 
+def cmd_survey(args: argparse.Namespace) -> None:
+    """Run a basin survey."""
+    from survey import run_survey
+
+    output_dir = Path(args.output_dir) if args.output_dir else None
+    parquet_path = run_survey(
+        seed=args.seed,
+        L=args.L,
+        total_steps=args.total_steps,
+        T_survey=args.T_survey,
+        T_heat=args.T_heat,
+        segment_steps=args.segment_steps,
+        model_dir=args.model_dir,
+        device=args.device,
+        run_name=args.run_name,
+        output_dir=output_dir,
+        save_every=args.save_every,
+        novelty_threshold=args.novelty_threshold,
+    )
+    _auto_index_run(parquet_path)
+
+
 def cmd_summary(args: argparse.Namespace) -> None:
     """Generate cross-condition summary table."""
     from summary_table import build_summary
@@ -551,6 +573,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_query.add_argument("--json", action="store_true", dest="as_json",
                          help="Output as JSON")
 
+    # ── survey ────────────────────────────────────────────────────
+    p_survey = sub.add_parser("survey", help="Run basin survey at fixed L")
+    p_survey.add_argument("--seed", type=int, required=True)
+    p_survey.add_argument("-L", type=int, required=True, help="Context length")
+    p_survey.add_argument("--total-steps", type=int, default=100_000)
+    p_survey.add_argument("--T-survey", type=float, default=None,
+                          help="Cooling temperature (default: L-dependent)")
+    p_survey.add_argument("--T-heat", type=float, default=None,
+                          help="Heating temperature (default: L-dependent)")
+    p_survey.add_argument("--segment-steps", type=int, default=None,
+                          help="Steps per segment (default: max(L, 50))")
+    p_survey.add_argument("--model-dir", type=str, default="data/model/SmolLM-135M")
+    p_survey.add_argument("--device", type=str, default="cuda")
+    p_survey.add_argument("--run-name", type=str, default=None)
+    p_survey.add_argument("--output-dir", type=str, default=None)
+    p_survey.add_argument("--save-every", type=int, default=50)
+    p_survey.add_argument("--novelty-threshold", type=float, default=0.3,
+                          help="Cosine distance threshold for novel basins")
+
     # ── explore ───────────────────────────────────────────────────
     p_explore = sub.add_parser("explore", help="Start the interactive explorer")
     p_explore.add_argument("--port", type=int, default=8000,
@@ -622,6 +663,7 @@ def build_parser() -> argparse.ArgumentParser:
 _DISPATCH: dict[str, callable] = {
     "run": cmd_run,
     "sweep": cmd_sweep,
+    "survey": cmd_survey,
     "index": cmd_index,
     "explore": cmd_explore,
     "plot": cmd_plot,
