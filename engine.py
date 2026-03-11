@@ -241,6 +241,53 @@ class StepEngine:
             n_unique=n_unique,
         )
 
+    def comp_spectrum(
+        self, window_sizes: list[int] | None = None,
+    ) -> dict[int, float]:
+        """Compression ratio at multiple window sizes from trailing records.
+
+        Uses the last W decoded texts for each window size W. Returns
+        {W: compressibility_ratio} dict. Useful for point-in-time basin
+        fingerprinting during survey runs.
+
+        Args:
+            window_sizes: Window sizes to measure. Default: [16, 32, 64, 128, 256].
+
+        Returns:
+            Dict mapping W to compression ratio (lower = more compressible).
+        """
+        if window_sizes is None:
+            window_sizes = [16, 32, 64, 128, 256]
+        exp_records = [r for r in self.records if r["phase"] == "experiment"]
+        texts = [r["decoded_text"] for r in exp_records]
+        result: dict[int, float] = {}
+        for w in window_sizes:
+            chunk = "".join(texts[-w:]) if len(texts) >= w else "".join(texts)
+            raw = chunk.encode("utf-8")
+            result[w] = compressibility(raw) if len(raw) > 10 else float("nan")
+        return result
+
+    def embed_context(self) -> np.ndarray:
+        """Mean-pooled hidden state of the current context window.
+
+        Runs a forward pass through the model with output_hidden_states=True,
+        takes the last transformer layer, and mean-pools across positions.
+        Returns a 1-D numpy array (hidden_dim,).
+
+        The model is already loaded for generation, so this is essentially
+        free — just one extra forward pass on tokens already in memory.
+        """
+        with torch.no_grad():
+            outputs = self.model(
+                input_ids=self.context,
+                output_hidden_states=True,
+            )
+        # Last transformer layer hidden states, shape (1, seq_len, hidden_dim)
+        last_hidden = outputs.hidden_states[-1]
+        # Mean-pool across sequence positions
+        embedding = last_hidden[0].mean(dim=0)
+        return embedding.cpu().numpy()
+
     # -- Rollback -----------------------------------------------------------
 
     def snapshot(self) -> Snapshot:
