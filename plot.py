@@ -434,23 +434,30 @@ def plot_violin(
     return out
 
 
-def main() -> None:
-    args = parse_args()
+def plot_runs(
+    paths: list[Path],
+    plots: list[str] | None = None,
+    downsample: int = 100,
+    suffix: str = "",
+) -> None:
+    """Load runs from parquet paths and generate requested plots.
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    Args:
+        paths: Parquet file paths to plot.
+        plots: Plot types to generate (default: all PLOT_TYPES).
+        downsample: Downsample factor for time series.
+        suffix: Optional suffix for output filenames.
+    """
+    if not plots:
+        plots = list(PLOT_TYPES)
 
-    paths = sorted(Path(p) for p in args.runs)
     for p in paths:
         if not p.exists():
             raise FileNotFoundError(f"Run file not found: {p}")
 
     all_params = [parse_run_name(p) for p in paths]
     labels = [make_label(p, all_params) for p in all_params]
-    prefix = make_output_prefix(all_params, args.suffix)
+    prefix = make_output_prefix(all_params, suffix)
 
     # Build title from varying dimensions
     fixed_parts = []
@@ -468,7 +475,7 @@ def main() -> None:
     log.info("Plotting %d runs: %s", len(paths), [p.stem for p in paths])
 
     # Determine whether any requested plot needs analysis
-    needs_analysis = bool(set(args.plots) & NEEDS_ANALYSIS)
+    needs_analysis = bool(set(plots) & NEEDS_ANALYSIS)
 
     # Pre-load all run data: parquet once, analyze_run once (if needed)
     runs: list[RunBundle] = []
@@ -487,45 +494,58 @@ def main() -> None:
             path=path, params=params, label=label, exp=exp, analysis=analysis,
         ))
 
-    if "entropy" in args.plots:
+    if "entropy" in plots:
         plot_entropy_timeseries(
             runs,
             title=f"Entropy over time ({title_ctx})",
             output_name=f"{prefix}_entropy.png",
-            downsample=args.downsample,
+            downsample=downsample,
         )
 
-    if "compressibility" in args.plots:
+    if "compressibility" in plots:
         plot_compressibility_timeseries(
             runs,
             title=f"Compressibility over time ({title_ctx})",
             output_name=f"{prefix}_compressibility.png",
-            downsample=args.downsample,
+            downsample=downsample,
         )
 
-    if "phase" in args.plots:
+    if "phase" in plots:
         plot_phase_portrait(
             runs,
             title=f"Phase portrait ({title_ctx})",
             output_name=f"{prefix}_phase.png",
-            downsample=args.downsample,
+            downsample=downsample,
         )
 
-    if "temporal" in args.plots:
+    if "temporal" in plots:
         plot_temporal_phase(
             runs,
             title=f"Temporal phase portrait ({title_ctx})",
             output_name=f"{prefix}_temporal.png",
-            downsample=args.downsample,
+            downsample=downsample,
         )
 
-    if "violin" in args.plots:
+    if "violin" in plots:
         plot_violin(
             runs,
             title=f"Distribution over time ({title_ctx})",
             output_name=f"{prefix}_violin.png",
-            downsample=args.downsample,
+            downsample=downsample,
         )
+
+
+def main() -> None:
+    args = parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    paths = sorted(Path(p) for p in args.runs)
+    plot_runs(paths, plots=args.plots, downsample=args.downsample, suffix=args.suffix)
 
 
 if __name__ == "__main__":

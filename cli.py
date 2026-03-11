@@ -302,10 +302,165 @@ def cmd_explore(args: argparse.Namespace) -> None:
     uvicorn.run("explorer:app", host="0.0.0.0", port=args.port, reload=True)
 
 
-def _stub(args: argparse.Namespace) -> None:
-    """Placeholder for not-yet-implemented consumer commands."""
-    print("Not yet implemented")
-    sys.exit(0)
+def cmd_plot(args: argparse.Namespace) -> None:
+    """Generate plots for resolved runs."""
+    from plot import plot_runs
+
+    paths = _resolve_from_args(args)
+    log.info("Plotting %d runs", len(paths))
+    plot_runs(
+        paths,
+        plots=args.plots,
+        downsample=getattr(args, "downsample", 100),
+    )
+
+
+def cmd_analyze(args: argparse.Namespace) -> None:
+    """Recompute analysis caches for resolved runs."""
+    from analyze import analyze_run, default_window_sizes
+
+    paths = _resolve_from_args(args)
+    window_sizes = default_window_sizes(0)
+    log.info("Analyzing %d runs at W=%s", len(paths), window_sizes)
+
+    for path in paths:
+        log.info("Processing %s", path.stem)
+        analyze_run(path, window_sizes)
+
+    log.info("Done — analyzed %d runs.", len(paths))
+
+
+def cmd_grep(args: argparse.Namespace) -> None:
+    """Search decoded text in resolved runs."""
+    import re
+    from grep_text import grep_run, format_match
+
+    paths = _resolve_from_args(args)
+    log.info("Searching %d runs for '%s'", len(paths), args.pattern)
+
+    flags = re.IGNORECASE if args.ignore_case else 0
+    if getattr(args, "regex", False):
+        pat = re.compile(args.pattern, flags)
+    else:
+        pat = re.compile(re.escape(args.pattern), flags)
+
+    context_tokens = args.context if args.context > 0 else 20
+
+    total = 0
+    for path in paths:
+        run_name = path.stem
+        matches = grep_run(path, pat, context_tokens=context_tokens)
+        total += len(matches)
+
+        if args.count:
+            if matches:
+                print(f"{run_name}: {len(matches)}")
+            continue
+
+        if matches:
+            print(f"\n\033[1m{run_name}\033[0m  ({len(matches)} matches)")
+            for m in matches:
+                print(format_match(m, run_name))
+
+    if args.count:
+        print(f"\nTotal: {total}")
+    elif total == 0:
+        print("No matches found.")
+
+
+def cmd_semantic(args: argparse.Namespace) -> None:
+    """Run semantic analysis (clouds or themes)."""
+    from semantic import _load_runs, run_clouds, run_themes
+
+    # Semantic analysis uses its own run loading (needs full text).
+    # Convert resolved paths to string file list for _load_runs.
+    if hasattr(args, "run_ids") and args.run_ids:
+        paths = _resolve_from_args(args)
+        files = [str(p) for p in paths]
+    else:
+        # No run IDs specified — use all runs via semantic's own discovery
+        from semantic import _discover_run_files
+        files = _discover_run_files(None)
+
+    if not files:
+        log.error("No parquet files found")
+        sys.exit(1)
+
+    log.info("Loading %d runs...", len(files))
+    all_runs = _load_runs(files)
+    log.info("Loaded %d runs", len(all_runs))
+
+    if args.clouds:
+        csv_path = getattr(args, "csv", None)
+        run_clouds(all_runs, csv_path=csv_path)
+    elif args.themes:
+        run_themes(
+            all_runs,
+            args.themes,
+            context_radius=getattr(args, "context_radius", 80),
+            entropy_window=getattr(args, "entropy_window", 20),
+        )
+
+
+def cmd_precollapse(args: argparse.Namespace) -> None:
+    """Run pre-collapse trajectory analysis."""
+    import pandas as pd
+    from precollapse import (
+        analyze_precollapse,
+        detail_report,
+        print_summary,
+        summary_row,
+    )
+
+    # If no run IDs or filters provided, fall back to sweep type
+    ids = args.run_ids if args.run_ids else None
+    has_filters = any(
+        getattr(args, f, None) is not None
+        for f in ("run_type", "filter_L", "filter_T", "filter_seed", "filter_regime")
+    )
+    if ids or has_filters:
+        paths = _resolve_from_args(args)
+    else:
+        # Default: resolve all sweep runs
+        paths = resolve_runs(run_type="sweep")
+
+    log.info("Analyzing %d runs", len(paths))
+
+    results = []
+    for p in paths:
+        log.info("Processing %s", p.stem)
+        ra = analyze_precollapse(p)
+        results.append(ra)
+
+        if args.detail and args.detail in ra.run_id:
+            print(detail_report(ra))
+
+    rows = [summary_row(ra) for ra in results]
+    df = pd.DataFrame(rows)
+    df = df.sort_values(["L", "T", "seed"]).reset_index(drop=True)
+
+    if args.csv:
+        df.to_csv(args.csv, index=False)
+        log.info("Wrote %s", args.csv)
+    elif not args.detail:
+        print_summary(df)
+
+
+def cmd_summary(args: argparse.Namespace) -> None:
+    """Generate cross-condition summary table."""
+    from summary_table import build_summary
+
+    runs_dir = Path(getattr(args, "runs_dir", "data/runs"))
+    df = build_summary(runs_dir)
+
+    out = getattr(args, "out", None)
+    if out:
+        out_path = Path(out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(out_path, index=False)
+        log.info("Wrote %d rows to %s", len(df), out_path)
+    else:
+        sys.stdout.write(df.to_csv(index=False))
 
 
 def _add_run_common_args(parser: argparse.ArgumentParser) -> None:
@@ -401,18 +556,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_explore.add_argument("--port", type=int, default=8000,
                            help="Port to serve on (default: 8000)")
 
-    # ── plot (stub) ───────────────────────────────────────────────
-    p_plot = sub.add_parser("plot", help="Plot runs (not yet implemented)")
+    # ── plot ──────────────────────────────────────────────────────
+    p_plot = sub.add_parser("plot", help="Generate plots for runs")
     _add_filter_args(p_plot)
     p_plot.add_argument("--plots", nargs="+",
-                        help="Plot types to generate")
+                        help="Plot types to generate (entropy, compressibility, "
+                             "phase, temporal, violin)")
+    p_plot.add_argument("--downsample", type=int, default=100,
+                        help="Downsample factor for time series (default: 100)")
 
-    # ── analyze (stub) ────────────────────────────────────────────
-    p_analyze = sub.add_parser("analyze", help="Analyze runs (not yet implemented)")
+    # ── analyze ──────────────────────────────────────────────────
+    p_analyze = sub.add_parser("analyze",
+                               help="Recompute analysis caches for runs")
     _add_filter_args(p_analyze)
 
-    # ── grep (stub) ───────────────────────────────────────────────
-    p_grep = sub.add_parser("grep", help="Grep decoded text (not yet implemented)")
+    # ── grep ─────────────────────────────────────────────────────
+    p_grep = sub.add_parser("grep", help="Search decoded text in runs")
     p_grep.add_argument("pattern", help="Search pattern")
     _add_filter_args(p_grep)
     p_grep.add_argument("--count", action="store_true",
@@ -420,29 +579,42 @@ def build_parser() -> argparse.ArgumentParser:
     p_grep.add_argument("-i", action="store_true", dest="ignore_case",
                         help="Case-insensitive search")
     p_grep.add_argument("-C", type=int, default=0, dest="context",
-                        help="Context lines around matches")
+                        help="Context tokens around matches")
+    p_grep.add_argument("--regex", action="store_true",
+                        help="Treat pattern as regex")
 
-    # ── semantic (stub) ───────────────────────────────────────────
+    # ── semantic ─────────────────────────────────────────────────
     p_semantic = sub.add_parser("semantic",
-                                help="Semantic analysis (not yet implemented)")
+                                help="Semantic analysis (clouds or themes)")
+    _add_filter_args(p_semantic)
     sem_group = p_semantic.add_mutually_exclusive_group(required=True)
     sem_group.add_argument("--clouds", action="store_true",
                            help="Auto-discover themes and map basins")
     sem_group.add_argument("--themes", nargs="+", metavar="WORD",
                            help="Multi-theme density report")
+    p_semantic.add_argument("--csv", type=str, default=None,
+                            help="Export basin fingerprints to CSV (--clouds mode)")
+    p_semantic.add_argument("--context-radius", type=int, default=80,
+                            help="Characters of context around hits (default: 80)")
+    p_semantic.add_argument("--entropy-window", type=int, default=20,
+                            help="Token window for local entropy (default: 20)")
 
-    # ── precollapse (stub) ────────────────────────────────────────
+    # ── precollapse ──────────────────────────────────────────────
     p_pre = sub.add_parser("precollapse",
-                           help="Pre-collapse analysis (not yet implemented)")
+                           help="Pre-collapse trajectory analysis")
     _add_filter_args(p_pre)
     p_pre.add_argument("--detail", type=str, metavar="RUN_ID",
                        help="Detailed report for a specific run")
     p_pre.add_argument("--csv", type=str, metavar="PATH",
                        help="Export metrics to CSV")
 
-    # ── summary (stub) ───────────────────────────────────────────
-    sub.add_parser("summary",
-                   help="Cross-condition summary table (not yet implemented)")
+    # ── summary ──────────────────────────────────────────────────
+    p_summary = sub.add_parser("summary",
+                               help="Cross-condition summary table")
+    p_summary.add_argument("--out", type=str, default=None,
+                           help="Output CSV path (default: print to stdout)")
+    p_summary.add_argument("--runs-dir", type=str, default="data/runs",
+                           help="Runs directory (default: data/runs)")
 
     return parser
 
@@ -452,12 +624,12 @@ _DISPATCH: dict[str, callable] = {
     "sweep": cmd_sweep,
     "index": cmd_index,
     "explore": cmd_explore,
-    "plot": _stub,
-    "analyze": _stub,
-    "grep": _stub,
-    "semantic": _stub,
-    "precollapse": _stub,
-    "summary": _stub,
+    "plot": cmd_plot,
+    "analyze": cmd_analyze,
+    "grep": cmd_grep,
+    "semantic": cmd_semantic,
+    "precollapse": cmd_precollapse,
+    "summary": cmd_summary,
 }
 
 

@@ -634,6 +634,43 @@ def detail_report(ra: RunAnalysis) -> str:
     return "\n".join(lines)
 
 
+def print_summary(df: pd.DataFrame, results: list[RunAnalysis] | None = None) -> None:
+    """Print regime-grouped summary table to stdout.
+
+    Args:
+        df: DataFrame of summary_row dicts (columns: run_id, regime, etc.).
+        results: Optional list of RunAnalysis (unused, kept for API compat).
+    """
+    print(f"\n{'='*80}")
+    print(f"Pre-Collapse Summary: {len(df)} runs analyzed")
+    print(f"{'='*80}")
+
+    for regime in ["deep_collapsed", "collapsed", "oscillating", "escaped"]:
+        regime_df = df[df["regime"] == regime]
+        if len(regime_df) == 0:
+            continue
+        print(f"\n--- {regime.upper()} ({len(regime_df)} runs) ---")
+
+        if regime in ("deep_collapsed", "collapsed"):
+            print(f"{'Run':<22s} {'Intens':>6s} {'Onset':>7s} {'Frac':>6s} {'Pre-H':>6s} "
+                  f"{'Slope':>10s} {'Spread':>6s} {'Per':>4s} Attractor")
+            for _, row in regime_df.iterrows():
+                onset = row["first_collapse_step"]
+                onset_str = f"{int(onset):>7d}" if onset is not None else "    N/A"
+                pre_h = f"{row['pre_entropy_mean']:.3f}" if row["pre_entropy_mean"] is not None else "  N/A"
+                slope = row["pre_entropy_slope"] if row["pre_entropy_slope"] is not None else "       N/A"
+                spread = f"{row['pre_comp_spread']:.3f}" if row["pre_comp_spread"] is not None else " N/A"
+                attractor = (row["dominant_attractor"] or "")[:30]
+                print(f"{row['run_id']:<22s} {row['collapse_intensity']:>6.3f} {onset_str} "
+                      f"{row['collapse_fraction']:>6.2f} {pre_h:>6s} {slope:>10s} "
+                      f"{spread:>6s} {row['dominant_period']:>4d} {attractor}")
+        else:
+            print(f"{'Run':<22s} {'Intens':>6s} {'Entropy':>8s}")
+            for _, row in regime_df.iterrows():
+                e_mean = f"{row.get('pre_entropy_mean', 'N/A')}" if row.get("pre_entropy_mean") is not None else "N/A"
+                print(f"{row['run_id']:<22s} {row['collapse_intensity']:>6.3f} {e_mean:>8s}")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -692,36 +729,7 @@ def main() -> None:
         df.to_csv(args.csv, index=False)
         log.info("Wrote %s", args.csv)
     else:
-        # Print summary to stdout
-        print(f"\n{'='*80}")
-        print(f"Pre-Collapse Summary: {len(results)} runs analyzed")
-        print(f"{'='*80}")
-
-        # Group by regime
-        for regime in ["deep_collapsed", "collapsed", "oscillating", "escaped"]:
-            regime_df = df[df["regime"] == regime]
-            if len(regime_df) == 0:
-                continue
-            print(f"\n--- {regime.upper()} ({len(regime_df)} runs) ---")
-
-            if regime in ("deep_collapsed", "collapsed"):
-                print(f"{'Run':<22s} {'Intens':>6s} {'Onset':>7s} {'Frac':>6s} {'Pre-H':>6s} "
-                      f"{'Slope':>10s} {'Spread':>6s} {'Per':>4s} Attractor")
-                for _, row in regime_df.iterrows():
-                    onset = row["first_collapse_step"]
-                    onset_str = f"{int(onset):>7d}" if onset is not None else "    N/A"
-                    pre_h = f"{row['pre_entropy_mean']:.3f}" if row["pre_entropy_mean"] is not None else "  N/A"
-                    slope = row["pre_entropy_slope"] if row["pre_entropy_slope"] is not None else "       N/A"
-                    spread = f"{row['pre_comp_spread']:.3f}" if row["pre_comp_spread"] is not None else " N/A"
-                    attractor = (row["dominant_attractor"] or "")[:30]
-                    print(f"{row['run_id']:<22s} {row['collapse_intensity']:>6.3f} {onset_str} "
-                          f"{row['collapse_fraction']:>6.2f} {pre_h:>6s} {slope:>10s} "
-                          f"{spread:>6s} {row['dominant_period']:>4d} {attractor}")
-            else:
-                print(f"{'Run':<22s} {'Intens':>6s} {'Entropy':>8s}")
-                for _, row in regime_df.iterrows():
-                    e_mean = f"{row.get('pre_entropy_mean', 'N/A')}" if row.get("pre_entropy_mean") is not None else "N/A"
-                    print(f"{row['run_id']:<22s} {row['collapse_intensity']:>6.3f} {e_mean:>8s}")
+        print_summary(df, results)
 
     # If no --detail given but --csv also not given, print detailed reports for interesting cases
     if not args.detail and not args.csv:
