@@ -7,7 +7,10 @@ Multi-scale complexity control in closed-loop autoregressive generation. See `do
 ## Repository Layout
 
 ```
-generate.py          # Core generation loop, CLI entry point (schedule, prefill, checkpoint/resume)
+engine.py            # Token generation engine (StepEngine: step, sensors, snapshot/rollback, checkpoint)
+experiment.py        # Experiment framework (controllers, state machine, universal run loop)
+generate.py          # Legacy CLI entry point (schedule, prefill, checkpoint/resume) — being replaced by experiment.py
+controller.py        # Legacy closed-loop controller — being replaced by experiment.py beta mode
 analyze.py           # Post-hoc analysis (compressibility, stationarity, summaries; incremental .analysis.pkl cache)
 plot.py              # Visualization (5 plot types + EOS markers, CLI with --runs and --plots)
 utils.py             # Shared primitives (compressibility, eos_ema, fix_decoded_texts)
@@ -18,7 +21,7 @@ analyze_windows.py   # Recompute analysis at standard W grid (from default_windo
 plot_window_scaling.py # Window scaling plots (comp vs L, comp vs W, heatmaps)
 precollapse.py       # Pre-collapse trajectory analysis (regime classification, basin transitions, W/L convergence)
 semantic.py          # Semantic analysis (theme search, attractor catalog, Heaps' law, repetition onset, coherence)
-controller.py        # Closed-loop controller (hill-climb β toward target, adjust L/T per segment)
+grep_text.py         # CLI grep for decoded text in parquet runs (regex, context, step/L/T display)
 anneal.py            # Annealing experiment runner (phased: probes, tier1-5, --check, --dry-run)
 sweep.py             # Unified sweep runner (presets, ad-hoc grids, --status)
 explorer.py          # Interactive web explorer backend (FastAPI)
@@ -85,7 +88,9 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 ## Current State (Phase 0 complete, Phase 1 in progress)
 
 ### What's Built
-- `generate.py`: generation loop with schedule support (per-segment L/T), pre-seeded context (`--prefill-text`), checkpoint/resume with schedule validation, per-1k-step logging, decoded_text fix for multi-byte UTF-8
+- `engine.py`: `StepEngine` class — single token loop (`step(L, T)`), trailing-window sensors (entropy, β, comp), `snapshot()`/`restore()` rollback, checkpoint persistence. `load_model()` and `compute_entropy()` shared utilities
+- `experiment.py`: universal run loop + controllers — `FixedController`, `ScheduleController`, `BetaController` (replaces controller.py logic), `StateMachine` (composable state graph with sensor-driven transitions). CLI: `experiment.py fixed|schedule|beta`
+- `generate.py`: legacy generation loop with schedule support — still works, being replaced by experiment.py
 - `analyze/`: analysis package (compressibility, stationarity, summaries); single incremental `.analysis.pkl` cache per run; accepts pre-loaded DataFrames; `default_window_sizes()` returns [32,64,128,256] (floor at 32, always includes W>L)
 - `analyze_windows.py`: recompute analysis at standard W grid (defers to `default_window_sizes()`)
 - `plot.py`: entropy time series (EOS rate EMA overlay), compressibility, phase portraits (EOS diamonds), temporal phase portraits (cividis), split violin
@@ -95,6 +100,7 @@ Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
 - `explorer.py` + `static/index.html`: interactive web explorer (FastAPI + Plotly.js), buffered context viewer with scroll sync, infinite scroll, L-window visual, token search (case/word/regex)
 - `precollapse.py`: pre-collapse trajectory analysis — regime classification (escaped/oscillating/collapsed/deep_collapsed), basin transition detection (escape spike vs landing depth), W/L convergence profiles, attractor content extraction
 - `sweep.py`: unified sweep runner with presets (pilot, crossover, seed, ldense, l256-crossover) and ad-hoc grids
+- `grep_text.py`: CLI grep for decoded text in parquet runs — regex, case-insensitive, match counts, step/L/T context display
 
 ### Data Collected (run `sweep.py --status` for live grid)
 - Pilot: L={64,128,192,256} × T={0.50,1.00,1.50} × S=42 (12 runs)
@@ -149,25 +155,19 @@ python sweep.py --status                         # grid table from disk
 python sweep.py --list                           # list presets
 python sweep.py crossover --dry-run              # preview without running
 
-# Single generation run (fixed parameters)
+# Experiment framework (new unified interface)
+python experiment.py fixed --seed 42 -L 64 -T 0.50 --total-steps 100000
+python experiment.py schedule --seed 42 --spec "50000:L256:T0.60,50000:L64:T0.80"
+python experiment.py beta --seed 42 --start-L 8 --start-T 1.00 --drift --total-steps 1000000
+python experiment.py beta --seed 42 --start-L 64 --start-T 0.70 --dry-run
+
+# Legacy: single generation run (fixed parameters)
 python generate.py --context-length 64 --temperature 1.0 --seed 42 \
   --num-tokens 100000 --model-dir data/model/SmolLM-135M \
   --output-dir data/runs --device cuda
 
-# Scheduled run (L/T vary per segment)
-python generate.py --schedule "50000:L256:T0.60,10000:L64:T0.60,40000:L256:T0.60" \
-  --seed 42 --model-dir data/model/SmolLM-135M \
-  --output-dir data/runs --device cuda
-
-# Pre-seeded context (repeat text to fill L, skip generative prefill)
-python generate.py --context-length 256 --temperature 0.60 --seed 42 \
-  --num-tokens 100000 --prefill-text " Star Wars" \
-  --model-dir data/model/SmolLM-135M --output-dir data/runs --device cuda
-
-# Closed-loop controller (hill-climb β toward 1.0)
-python controller.py --seed 42 --total-steps 10000               # default L=64, T=0.70
-python controller.py --seed 42 --total-steps 3000 --segment-steps 160 --start-L 16 --start-T 0.55
-python controller.py --seed 42 --total-steps 3000 --start-L 8 --start-T 0.60 --dry-run
+# Legacy: closed-loop controller
+python controller.py --seed 42 --total-steps 10000 --drift
 
 # Interactive explorer
 uvicorn explorer:app --reload --port 8000   # then open http://localhost:8000
@@ -203,6 +203,11 @@ python semantic.py --themes water book food          # multi-theme compact densi
 python semantic.py --theme "the" --seed 42          # single theme full analysis (legacy)
 python semantic.py --csv data/semantic.csv          # export all metrics (single-theme mode)
 python semantic.py --runs data/runs/L0256*.parquet  # specific runs
+
+# Grep decoded text in runs
+python grep_text.py "Star Wars" --runs data/runs/*.parquet --count
+python grep_text.py "education" -i --runs data/runs/ctrld_S42_8_1.00.parquet --max 10
+python grep_text.py "young|old" --regex -C 30 --runs data/runs/L0064*.parquet
 
 # Cross-condition summary table
 python summary_table.py                         # print to stdout
