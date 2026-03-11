@@ -105,7 +105,7 @@ class RunInfo:
         """Infer run type from filename prefix and metadata."""
         if self.meta.get("controller"):
             return "controller"
-        if self.id.startswith("ctrl_"):
+        if self.id.startswith("ctrl_") or self.id.startswith("ctrld_"):
             return "controller"
         if self.id.startswith("anneal_"):
             return "anneal"
@@ -144,8 +144,8 @@ class RunInfo:
                     pass
             return L, float(T), seed
 
-        # Try controller pattern: ctrl_S{seed}_{L}_{T}
-        m = re.match(r"ctrl_S(\d+)_(\d+)_([\d.]+)", self.id)
+        # Try controller pattern: ctrl_S{seed}_{L}_{T} or ctrld_S{seed}_{L}_{T}
+        m = re.match(r"ctrld?_S(\d+)_(\d+)_([\d.]+)", self.id)
         if m:
             seed = int(m.group(1))
             L = int(m.group(2))
@@ -520,6 +520,16 @@ def startup() -> None:
     run_cache = RunCache()
     metric_registry = build_metric_registry(run_index, run_cache)
     log.info("Metric registry: %d metrics", len(metric_registry))
+
+
+@app.post("/api/rescan")
+def rescan_runs() -> dict:
+    """Re-scan the runs directory for new/removed parquet files."""
+    global run_index, metric_registry
+    assert run_cache is not None
+    run_index = RunIndex(RUNS_DIR)
+    metric_registry = build_metric_registry(run_index, run_cache)
+    return {"runs": len(run_index.runs), "metrics": len(metric_registry)}
 
 
 @app.get("/api/runs")

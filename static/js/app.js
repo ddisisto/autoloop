@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // App: init, event wiring, hash state, toast, scheduling
 // ---------------------------------------------------------------------------
-import { state, fetchRuns, fetchMetrics, nextPanelId } from './state.js';
+import { state, fetchRuns, fetchMetrics, rescanRuns, nextPanelId } from './state.js';
 import { renderRunList, renderFavorites, toggleFavorites, getFavorites, saveFavorites } from './sidebar.js';
 import { renderAllPanels, rebuildAllPanelDOM, addPanel, resizeAllPanels } from './panels.js';
 import { wireContextEvents } from './context.js';
@@ -231,6 +231,24 @@ function wireEvents() {
     const base = window.location.origin + window.location.pathname;
     const md = favs.map(f => `- [${f.label}](${base}#${f.hash})`).join('\n');
     navigator.clipboard.writeText(md).then(() => showToast('Markdown copied!'));
+  });
+
+  // Rescan for new runs
+  document.getElementById('rescanBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('rescanBtn');
+    btn.disabled = true;
+    btn.textContent = '...';
+    try {
+      const before = state.runs.length;
+      await rescanRuns();
+      renderRunList();
+      const after = state.runs.length;
+      showToast(after > before ? `Found ${after - before} new run(s)` : 'No new runs');
+    } catch (e) {
+      showToast('Rescan failed', 'error');
+    }
+    btn.disabled = false;
+    btn.textContent = '\u21bb Refresh';
   });
 
   // Hash change

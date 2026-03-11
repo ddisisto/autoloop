@@ -127,6 +127,11 @@ export async function fetchMetrics() {
   state.metrics = await apiFetch('/api/metrics');
 }
 
+export async function rescanRuns() {
+  await fetch('/api/rescan', { method: 'POST' });
+  await Promise.all([fetchRuns(), fetchMetrics()]);
+}
+
 export async function fetchData(runIds, metricIds, downsample) {
   const params = new URLSearchParams();
   params.set('runs', runIds.join(','));
