@@ -1,8 +1,8 @@
-# Basin Taxonomy Survey
+# Basin Mapping
 
 ## Motivation
 
-The phase diagram maps regimes. The basin taxonomy maps *content*. Each attractor basin is a mode the model "knows how to do" — a register, topic, format, or genre strong enough to capture the system at a given (T, L) operating point. The set of all recoverable basins is an empirical map of the model's behavioral repertoire, extracted from output dynamics without inspecting weights.
+The phase diagram maps regimes. Basin mapping maps *content*. Each attractor basin is a mode the model "knows how to do" — a register, topic, format, or genre strong enough to capture the system at a given (T, L) operating point. The set of all recoverable basins is an empirical map of the model's behavioral repertoire, extracted from output dynamics without inspecting weights.
 
 Previous work treated basins as obstacles to avoid. This reframes them as the primary object of study. The controller problem (navigate *between* basins) depends on first solving the cartography problem (what basins exist, where are they, what connects to what).
 
@@ -15,165 +15,226 @@ SmolLM-135M, autoregressive free generation. No external input after initial see
 - L (context length): 8–1024
 - W (measurement window): {16, 32, 64, 128, 256}
 
-## Core Protocol: Cooling/Heating Survey
+**Measured T_escape(L):**
 
-### Phase 1 — Basin Capture (cooling)
+| L | T_escape | Source |
+|---|----------|--------|
+| 8 | ~0.50 | controller runs |
+| 16 | ~0.50 | controller runs |
+| 64 | 0.55 | sweep |
+| 128 | 0.57 | sweep |
+| 192 | 0.67 | sweep |
+| 256 | 0.87 | sweep |
+| 512 | ~0.90 | sweep |
 
-1. Initialise context with seed text (see Seeding Strategy below).
-2. Set T to survey temperature T_survey (chosen to be within the suppressed or collapse regime for the current L — i.e., T < T_escape(L)).
-3. Generate until the sensor suite indicates basin capture:
-   - Entropy stabilises (rolling variance drops below threshold)
-   - Compressibility at W=64 stabilises
-   - Decorrelation lag converges
-4. Continue generating for ≥2× decorrelation lag after stabilisation to characterise the basin floor.
-5. Checkpoint PRNG state at basin floor. This is the **basin record point**.
+## Infrastructure
 
-### Phase 2 — Basin Characterisation (at basin record point)
+**Built (engine.py + experiment.py):**
+- `StepEngine`: single token loop, trailing-window sensors (entropy, β, comp), `snapshot()`/`restore()` rollback, checkpoint persistence
+- `StateMachine`: composable controller with named states + sensor-driven transitions — the basin survey protocol maps directly to states
+- `BetaController`: existing hill-climb controller, proves the sensor→action loop works
+- `grep_text.py`: CLI grep for decoded text in runs — motif hunting across the corpus
+
+**What this means:** The cooling/heating survey protocol described below can be implemented as a `StateMachine` experiment with states COOLING → CAPTURED → CHARACTERISING → HEATING → TRANSIT and sensor-driven transitions between them. The engine's `snapshot()`/`restore()` enables depth profiling via checkpoint forking. No new infrastructure needed — just a new experiment definition.
+
+## Compression as Identity
+
+The gzip compression dictionary at the window size of best compression (W*) *is* the basin's mechanistic identity. The repeated byte sequences gzip finds are not measurements of the attractor — they are the attractor's constituent structure.
+
+**W*** (the window size at which compressibility is minimized / compression is best) is the characteristic scale of the attractor:
+- Verbatim 12-token loop: W* ≈ 24 (two repetitions for gzip to find the match)
+- Template attractor (header → definition → header): W* ≈ template period
+- Self-referential attractor: W* → L (structure visible only at context scale)
+
+**The compressibility-vs-W spectrum** is the basin's signature. The shape — which W dominates, where the ratio is minimized, how steeply it falls off — distinguishes attractor types mechanistically. This replaces manual attractor type classification (repetition / template / self-referential / paraphrase) with an empirical, continuous, clusterable representation.
+
+**Basin identity criterion:** Two basin captures represent the same basin iff they produce the same gzip dictionary content at the same W*. Mechanistic identity, not semantic. The dictionary doesn't know what " Star Wars" means. It knows it repeats. That's sufficient.
+
+**Implication:** The entire taxonomy is automatable. Cluster basins by their compressibility-vs-W profiles. The clusters *are* the types. Human-readable labels ("mathematics," "content-mill," "astronomy") are a gloss on what the compression spectrum already encodes.
+
+## Survey Protocol
+
+### State Machine
+
+```
+COOLING  ──[basin_detected]──→  CAPTURED
+CAPTURED ──[characterised]───→  HEATING
+HEATING  ──[escaped]─────────→  TRANSIT
+HEATING  ──[deeper_basin]────→  CAPTURED
+TRANSIT  ──[context_flushed]─→  COOLING
+```
+
+### COOLING (basin capture)
+
+Set T below T_escape(L). Generate until sensors indicate capture:
+- Entropy variance drops below threshold (rolling window)
+- Compressibility at W=64 stabilises
+- Continue for ≥2× decorrelation lag after stabilisation
+
+**Transition → CAPTURED:** entropy_std < threshold for N consecutive segments.
+
+### CAPTURED (characterisation)
 
 At the basin record point, record:
 
-**Sensor profile (quantitative):**
-- Entropy: mean, std, floor value
-- Compressibility: comp_W at all W ∈ {16, 32, 64, 128, 256}
+**Compression spectrum (primary identity):**
+- comp_W at W ∈ {16, 32, 64, 128, 256}
+- W*: window of best compression
+- Gzip dictionary content at W* (repeated byte sequences = fingerprint)
 - Decoupling index: comp_W64 − comp_W256
-- Decorrelation lag (ACF threshold 1/e)
-- EOS rate (trailing window)
-- Surprisal: mean, kurtosis, gap (H − (−log p))
 
-**Attractor type (categorical):**
-- **Repetition**: verbatim token loop. Period measurable in tokens. Fragile to perturbation.
-- **Template**: structural scaffolding (header/definition, Q&A, proof/theorem, list). Cycle length measurable in structural units. Moderate perturbation robustness.
-- **Self-referential**: meta-level/object-level feedback loop. Contains backward references ("the above," "this article," "as mentioned"). High perturbation robustness.
-- **Paraphrase loop**: semantic repetition without token-level repetition. Same propositions restated with surface variation. Intermediate between template and repetition.
-- **Hybrid / unclassified**: exhibits features of multiple types, or novel structure.
-
-Note: these categories emerged from L=512 T=0.90 observation and will likely need refinement as taxonomy grows. Types may grade into each other; record the dominant type and any secondary features.
-
-**Content tag (qualitative):**
-- Semantic domain (astronomy, mathematics, biology, thermodynamics, SEO/content-mill, forum post, encyclopedia, fiction, ...)
-- Register (formal academic, conversational, instructional, promotional, ...)
-- Notable features (functional self-reference, training-data metadata leakage, cross-basin residue, ...)
+**Sensor profile:**
+- Entropy: mean, std, floor
+- Decorrelation lag (ACF < 1/e)
+- EOS rate
+- Heaps' β (trailing window)
 
 **Depth profile (via checkpoint forking):**
-From the basin record point, fork N branches (N ≥ 5) with perturbed parameters:
-- T_perturb ∈ {T_survey + 0.05, T_survey + 0.10, T_survey + 0.20}
-- L_perturb ∈ {L/2, L, 2L} (where hardware allows)
-- Measure: steps of coherent elaboration before collapse or paraphrase onset
-- This yields a depth score: mean elaboration steps across forks
+- `engine.snapshot()` at basin record point
+- Fork branches with perturbed T ∈ {+0.05, +0.10, +0.20} and L ∈ {L/2, L, 2L}
+- Measure steps before collapse or escape in each branch
+- `engine.restore()` after each probe
+- Depth score = mean elaboration steps across forks
 
-### Phase 3 — Escape and Transit (heating)
+**Transition → HEATING:** characterisation complete (all metrics recorded).
 
-1. From basin record point, raise T above T_escape(L) (use phase diagram estimates).
-2. Generate through the escape transient. Record:
-   - Steps to escape (entropy rises above basin floor + threshold)
-   - Escape trajectory in (entropy, compressibility) phase space
-   - Semantic residue: which tokens/topics from the old basin persist in the new context
-3. Allow free generation in the heated regime for a transit period (≥L tokens, to allow context turnover).
-4. Cool again (return T to T_survey). System falls into the next basin.
-5. Repeat from Phase 1.
+### HEATING (escape)
 
-### Cycle Structure
+Raise T above T_escape(L). Record:
+- Steps to escape (entropy rises above floor + threshold)
+- Escape trajectory in (entropy, comp) phase space
+- Semantic residue: gzip dictionary overlap with pre-escape basin
 
-One **survey cycle** = capture → characterise → escape → transit → recapture. Each cycle yields one basin record. A **survey run** is a sequence of cycles from a single initial seed. Multiple survey runs from different seeds and different initial contexts sample different regions of the basin landscape.
+**Transition → TRANSIT:** entropy spike detected (>6 nats, or >3× basin floor).
+**Transition → CAPTURED:** entropy drops to new floor (deeper basin found).
 
-## Seeding Strategy
+### TRANSIT (context flush)
 
-The initial context determines which basin neighborhood the system enters first. Systematic variation of seeds maps different regions:
+Hold T above T_escape(L) for ≥L tokens (context turnover). Then cool back to survey temperature.
 
-**Seed types:**
-- **Domain seeds**: short text fragments from known domains (a LaTeX equation, a code snippet, a news headline, a conversational opener, a recipe, a poem fragment). Biases first capture toward that domain's basins.
-- **Null seeds**: minimal or empty context. Lets the model's unconditional distribution select the first basin. Reveals the "default" or highest-probability basins.
-- **Cross-domain seeds**: juxtapose fragments from different domains. Tests whether hybrid basins exist or whether one domain dominates.
-- **Adversarial seeds**: context designed to be far from any expected basin (random Unicode, contradictory framings). Tests basin capture robustness.
+**Transition → COOLING:** L tokens generated since escape.
 
-## L-Dependent Survey Design
+### Cycle Yield
 
-The basin landscape changes with L. Short context (L=8–32) has shallow basins, fast turnover, many escapes — surveys yield many basins per run but characterisation is noisy. Long context (L=512–1024) has deep basins, slow turnover — fewer basins per run but richer characterisation.
+One cycle = one basin record. A survey run at 100k tokens should yield 10–50 basins at L=64, fewer at larger L (see table below).
 
-**Recommended survey configurations:**
+## Survey Design
 
-| L range | T_survey | T_escape (est.) | Expected regime | Cycles per 100k tokens |
-|---------|----------|-----------------|-----------------|----------------------|
-| 8–32 | 0.50 | ~0.50 | Rapid cycling, shallow basins | 50–200 |
-| 64–128 | 0.50 | 0.55–0.60 | Moderate basins, periodic escape | 10–50 |
-| 192–256 | 0.60 | 0.65–0.90 | Deep basins, slow cycling | 5–15 |
-| 512 | 0.80 | >0.90 | Very deep basins, multi-register | 2–8 |
-| 1024 | 0.90–1.00 | >1.00 (est.) | Potentially permanent capture | 1–3 |
+### L-Dependent Parameters
 
-The short-L regime (8–32) is underexplored in current data and may reveal a qualitatively different basin landscape — basins too shallow for sustained characterisation but cycling fast enough to yield statistical distributions of basin types. This is the "rapid survey" mode.
+| L | T_survey | T_escape | T_heat | Expected cycles/100k |
+|---|----------|----------|--------|---------------------|
+| 8–32 | 0.50 | ~0.50 | 0.70 | 50–200 (shallow, fast cycling) |
+| 64–128 | 0.50 | 0.55–0.60 | 0.80 | 10–50 (core range) |
+| 192–256 | 0.60 | 0.65–0.90 | 1.00 | 5–15 (deep, rich characterisation) |
+| 512 | 0.80 | ~0.90 | 1.10 | 2–8 (very deep, multi-register) |
 
-The long-L regime (512–1024) is the "deep characterisation" mode. Fewer basins per run, but each basin can be depth-probed extensively from checkpoints.
+### Seeding Strategy
 
-## Taxonomy Data Structure
+Initial context determines which basin neighborhood the system enters first:
+- **Null seeds**: BOS only. Reveals highest-probability basins — modes strong enough to emerge from zero context
+- **Domain seeds**: short text fragments (LaTeX, code, news, recipe). Biases toward domain basins
+- **Cross-domain seeds**: juxtaposed fragments. Tests hybrid basin existence
 
-Each basin record is a row in the taxonomy database:
+## Basin Catalogue Schema
 
 ```
-basin_id:         unique identifier (run_id + step_range)
-run_id:           survey run identifier
-seed_text:        initial context (or hash)
-seed_type:        domain / null / cross-domain / adversarial
-L:                context length at capture
-T_survey:         temperature at capture
-capture_step:     step at which basin capture was detected
-record_step:      step of basin record point (checkpoint)
+basin_id           # run_id + capture_step
+run_id             # survey run identifier
+seed_type          # null / domain / cross-domain
+
+# Operating point
+L, T_survey        # context length and temperature at capture
+capture_step       # step when capture detected
+record_step        # step of basin record point (PRNG checkpoint)
+
+# Compression identity (primary)
+comp_spectrum      # float[5] at W = {16, 32, 64, 128, 256}
+W_star             # window of best compression
+fingerprint        # hash of gzip dictionary at W*
 
 # Sensor profile
-entropy_mean:     float
-entropy_std:      float
-entropy_floor:    float
-comp_W16..W256:   float × 5
-decoupling:       float (comp_W64 − comp_W256)
-decorrelation:    int (lag at ACF < 1/e)
-eos_rate:         float
-surprisal_mean:   float
-surprisal_kurt:   float
-surprisal_gap:    float
-
-# Classification
-attractor_type:   repetition | template | self_referential | paraphrase | hybrid
-content_domain:   string (free tag)
-register:         string (free tag)
-features:         list[string] (notable features)
+entropy_mean, entropy_std, entropy_floor
+heaps_beta
+decorrelation_lag
+eos_rate
 
 # Depth
-depth_score:      float (mean elaboration steps under perturbation)
-depth_T_profile:  dict[T_perturb → elaboration_steps]
-depth_L_profile:  dict[L_perturb → elaboration_steps]
+depth_score        # mean elaboration steps under perturbation
 
-# Transition
-escape_T:         temperature used for escape
-escape_steps:     steps from heating to escape detection
-escape_residue:   list[string] (semantic residue tags)
-prev_basin_id:    preceding basin in survey run
-next_basin_id:    following basin in survey run
+# Transitions
+escape_T           # temperature that triggered escape
+escape_steps       # steps from T_heat to escape
+residue_overlap    # gzip dictionary overlap with previous basin
+prev_basin_id, next_basin_id
 ```
 
 ## Analysis Targets
 
-Once the taxonomy has sufficient entries (target: ≥100 basins across the full L×T range):
+1. **Basin census.** Unique fingerprints at each L. Does count scale with L, saturate, or peak?
+2. **Basin type clustering.** Cluster on comp_spectrum shape. Do clusters correspond to manually identified types?
+3. **Transition graph.** Directed graph: nodes = fingerprints, edges = observed transitions. Identify hubs, dead ends, connected components. This is the model's associative topology.
+4. **Depth vs. spectrum.** Can depth be predicted from compression spectrum alone? If yes, the controller can estimate depth without forking.
+5. **Cross-L correspondence.** Which basins exist at L=8? Which require L≥256? Minimum L for a basin = minimum context to express that mode.
+6. **Residue network.** Gzip dictionary overlap across transitions. The overlap matrix is the transition kernel's content structure.
 
-**1. Basin census.** How many distinct basins exist at each L? Does the count scale with L (more context = more expressible modes) or saturate? At what L does the model's repertoire exhaust itself?
+## Architecture
 
-**2. Basin type distribution.** What proportion are repetition / template / self-referential / paraphrase at each (T, L)? Prediction: repetition dominates at low T and high L; self-referential appears only above some minimum L (enough context for the reference frame to establish).
+### Layer 1 — Terrain (SmolLM-135M)
+The model generates tokens autoregressively. It falls into basins. It does not know what it is doing.
 
-**3. Transition graph.** Which basins connect to which? Is the graph sparse or dense? Are there hub basins (high in-degree, easy to reach from many starting points) and peripheral basins (reachable only from specific seeds)? The graph structure is a topology of the model's knowledge.
+### Layer 2 — Perception (engine.read_sensors)
+Compression spectrum, entropy, Heaps' β, decorrelation lag, and EOS rate transform the raw token stream into a ~10-dimensional state vector. Mechanistic, fully automatable. Basins cluster naturally in this space. **Status: built.** The engine computes these in real-time after each segment.
 
-**4. Depth vs. type correlation.** Do self-referential basins consistently have greater depth under perturbation than template basins? Is depth a function of attractor type, or of content domain, or both?
+### Layer 3 — Navigation (controller)
+**Input:** sensor state vector. **Output:** (ΔT, ΔL).
 
-**5. Cross-L basin correspondence.** Does the "pseudo-math proof" basin exist at L=32? At L=1024? How does its sensor profile change with L? Some basins may only be expressible above a minimum L (e.g., the self-referential frame needs enough context for backward references to work).
+Three tiers of increasing sophistication:
 
-**6. Semantic residue network.** When basin A transitions to basin B, which content features persist? This yields a directed, weighted graph of semantic influence between basins — the "bleed" structure observed qualitatively (astronomy → math → taxonomy) made quantitative.
+**Tier A — Rule-based (built):** The `BetaController` and `StateMachine` in experiment.py. Fixed rules: if β < zone, raise T; if entropy crashes, rollback. Good enough for systematic survey and β-targeting. The basin survey protocol is a rule-based state machine.
 
-**7. Basin stability under intra-run T/L modification.** Using the depth-probing forks: what is the minimum ΔT or ΔL needed to escape each basin type? This is the per-basin escape energy, directly useful for controller design.
+**Tier B — Learned policy (next):** Train a small model on (sensor_state → action) pairs from existing controller runs. The input space is ~10D, output is 2D (ΔT, ΔL). A linear model or small MLP may suffice — the state space is well-structured.
 
-## Relationship to Controller Design
+Training data is already being generated: every controller run produces a `.decisions.json` with sensor readings and actions at each segment boundary. The 1M-step drift run alone has 1000 decision points. Combined with the 5 shorter controller runs, that's >1050 labeled examples for free.
 
-The taxonomy is prerequisite to the controller, not a replacement for it. Once the basin map exists:
+Candidate objectives:
+- **β-tracking:** minimize |β − target| over time (supervised, regression on existing data)
+- **Exploration:** maximize unique basin fingerprints per unit time (requires survey runs)
+- **Exploitation:** reach a target basin from arbitrary starting point (requires basin catalogue)
 
-- **Navigation** becomes pathfinding on the transition graph: from current basin, what sequence of T/L modifications reaches the target basin (or target basin *type*)?
-- **Avoidance** is informed: some basins are dead ends (high in-degree, low out-degree), some are hubs. The controller can bias away from dead ends and toward hubs when exploring.
-- **Task framing** becomes seed selection: choose a seed that places the system in the neighborhood of basins relevant to the desired output.
-- **Quality control** becomes basin classification: is the current basin a repetition attractor (abort), a template attractor (possibly useful), or a self-referential attractor (evaluate depth)?
+The β-tracking objective can be trained today with zero new data. Exploration and exploitation objectives require the survey protocol to generate training signal.
 
-The controller doesn't avoid all basins. It *navigates* them.
+**Tier C — Adaptive (future):** Online learning during generation. The controller updates its policy as it discovers new basins. Bandit-style exploration/exploitation tradeoff over the basin landscape.
+
+## Scaling Considerations
+
+The framework — compression-based state representation, learned controller, basin catalogue — is model-agnostic. SmolLM-135M is the training ground. The basins found here are modes strong enough to survive 135M parameters of compression — the skeleton of the training distribution.
+
+Larger models: more basins, deeper basins, richer depth profiles. The compression spectrum still works. The controller architecture transfers; the policy needs retraining.
+
+Frontier models with tool use: action space grows beyond (T, L). State space gains tool-use indicators. The principle is identical.
+
+## Roadmap
+
+### Phase 1 — Pilot Survey
+- Implement basin survey as `StateMachine` experiment
+- L=64 null seed, 100k tokens. Shake down the protocol
+- Validate: compression-spectrum clustering produces recognisable groups
+- Extract gzip dictionaries (new analysis capability)
+
+### Phase 2 — Systematic Survey
+- L ∈ {8, 16, 32, 64, 128, 256}, null + domain seeds
+- Build basin catalogue, transition graph
+- L=8–32 "skeleton" survey: what survives extreme context compression?
+
+### Phase 3 — Learned Controller
+- Train β-tracking model on existing decisions.json data
+- Compare to rule-based BetaController on held-out runs
+- If effective: train exploration-objective model on survey data
+- Plug learned controller into experiment.py as a new controller type
+
+### Phase 4 — Topology
+- Basin census analysis: count, depth, spectrum clustering
+- Transition graph: hubs, dead ends, connected components
+- Cross-L correspondence: basin minimum context requirements
+- Residue network: semantic bleed between basins
