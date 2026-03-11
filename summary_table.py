@@ -39,7 +39,8 @@ def parse_args() -> argparse.Namespace:
 
 def build_summary(runs_dir: Path) -> pd.DataFrame:
     """Build summary DataFrame from all parquet files in runs_dir."""
-    parquets = sorted(runs_dir.glob("L*_T*_S*.parquet"))
+    from runlib import discover_runs
+    parquets = discover_runs(runs_dir, run_type="sweep")
     log.info("Found %d parquet files in %s", len(parquets), runs_dir)
 
     rows: list[dict] = []

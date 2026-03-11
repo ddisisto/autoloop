@@ -36,7 +36,8 @@ def main() -> None:
     if args.runs:
         paths = sorted(Path(p) for p in args.runs)
     else:
-        paths = sorted(Path("data/runs").glob("*.parquet"))
+        from runlib import discover_runs
+        paths = discover_runs()
 
     log.info("Analyzing %d runs at W=%s", len(paths), STANDARD_WINDOWS)
 

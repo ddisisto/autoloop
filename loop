@@ -1,0 +1,5 @@
+#!/usr/bin/env python
+"""Unified CLI entry point for autoloop."""
+from cli import main
+
+main()

@@ -868,12 +868,8 @@ def _discover_run_files(
         for pattern in run_patterns:
             files.extend(glob.glob(pattern))
         return files
-    return sorted(
-        glob.glob("data/runs/L*.parquet")
-        + glob.glob("data/runs/anneal_*.parquet")
-        + glob.glob("data/runs/sched_*.parquet")
-        + glob.glob("data/runs/ctrl_*.parquet")
-    )
+    from runlib import discover_runs
+    return [str(p) for p in discover_runs()]
 
 
 def _load_runs(
