@@ -276,7 +276,7 @@ def reindex_all(conn: sqlite3.Connection, root: Path) -> None:
     if stale:
         logger.info("Removing %d stale entries: %s", len(stale), sorted(stale))
         for run_id in stale:
-            conn.execute("DELETE FROM basins WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM basin_captures WHERE run_id = ?", (run_id,))
             conn.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
         conn.commit()
 

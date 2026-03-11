@@ -2,11 +2,20 @@
 
 Column definitions as data structures (inspectable without SQL parsing),
 plus SQL generation and DB initialization.
+
+Storage tiers for basin data:
+- SQLite (basin_types + basin_captures): scalar fields, queryable
+- .basins.pkl per survey run: full capture data including 576-dim embeddings
+- data/basins/centroids.npy: (N_types, 576) float32, loaded at survey startup
+- data/basins/centroids.json: type metadata aligned with centroids.npy rows
 """
 
+import logging
 import sqlite3
 
-SCHEMA_VERSION = 1
+log = logging.getLogger(__name__)
+
+SCHEMA_VERSION = 2
 
 # ── Column definitions ─────────────────────────────────────────────
 # Each column: (name, sql_type, description)
@@ -44,42 +53,77 @@ RUNS_COLUMNS: list[tuple[str, str, str]] = [
     ("regime", "TEXT", "regime classification from precollapse"),
 ]
 
-BASINS_COLUMNS: list[tuple[str, str, str]] = [
-    ("basin_id", "TEXT PRIMARY KEY", "run_id + capture_step"),
-    ("run_id", "TEXT NOT NULL REFERENCES runs(run_id)", "parent run"),
-    ("capture_step", "INTEGER", "step where basin was captured"),
-    ("record_step", "INTEGER", "step where recording started"),
-    ("L", "INTEGER", "context length at capture"),
-    ("T_survey", "REAL", "temperature used for survey"),
+# Basin types: the taxonomy. One row per distinct attractor type.
+# Centroid embedding stored in data/basins/centroids.npy (row-aligned by type_id).
+BASIN_TYPES_COLUMNS: list[tuple[str, str, str]] = [
+    ("type_id", "INTEGER PRIMARY KEY", "auto-increment, aligns with centroids.npy row"),
+    ("hit_count", "INTEGER NOT NULL DEFAULT 1", "number of captures assigned to this type"),
+    ("first_seen_run", "TEXT NOT NULL", "run_id of first capture"),
+    ("first_seen_step", "INTEGER NOT NULL", "step of first capture"),
+    ("last_seen_run", "TEXT", "run_id of most recent capture"),
+    ("last_seen_step", "INTEGER", "step of most recent capture"),
+    ("min_L", "INTEGER", "smallest L where this type appears"),
+    ("max_L", "INTEGER", "largest L where this type appears"),
+    ("comp_W16", "REAL", "centroid compressibility at W=16"),
+    ("comp_W32", "REAL", "centroid compressibility at W=32"),
+    ("comp_W64", "REAL", "centroid compressibility at W=64"),
+    ("comp_W128", "REAL", "centroid compressibility at W=128"),
+    ("comp_W256", "REAL", "centroid compressibility at W=256"),
+    ("W_star", "INTEGER", "characteristic window size (best compression)"),
+    ("entropy_mean", "REAL", "centroid entropy mean"),
+    ("entropy_std", "REAL", "centroid entropy std"),
+    ("entropy_floor", "REAL", "centroid entropy floor"),
+    ("heaps_beta", "REAL", "centroid Heaps law exponent"),
+    ("representative_text", "TEXT", "attractor text from most typical capture"),
+    ("label", "TEXT", "optional human-readable label"),
+]
+
+# Basin captures: every observation of the system in a basin.
+# Each capture is linked to a basin type. Multiple captures of the
+# same type at different (L, T) are valuable — depth measurements,
+# transition edges, and operating-point coverage.
+BASIN_CAPTURES_COLUMNS: list[tuple[str, str, str]] = [
+    ("capture_id", "TEXT PRIMARY KEY", "run_id:capture_step"),
+    ("run_id", "TEXT NOT NULL REFERENCES runs(run_id)", "parent survey run"),
+    ("type_id", "INTEGER REFERENCES basin_types(type_id)", "assigned basin type"),
+    ("capture_step", "INTEGER NOT NULL", "step when capture detected"),
+    ("record_step", "INTEGER", "step of basin record point"),
+    ("L", "INTEGER NOT NULL", "context length at capture"),
+    ("T_survey", "REAL NOT NULL", "survey temperature at capture"),
     ("comp_W16", "REAL", "compressibility at W=16"),
     ("comp_W32", "REAL", "compressibility at W=32"),
     ("comp_W64", "REAL", "compressibility at W=64"),
     ("comp_W128", "REAL", "compressibility at W=128"),
     ("comp_W256", "REAL", "compressibility at W=256"),
     ("W_star", "INTEGER", "characteristic window size"),
-    ("fingerprint", "TEXT", "gzip dictionary fingerprint"),
     ("entropy_mean", "REAL", "mean surprisal in basin"),
     ("entropy_std", "REAL", "surprisal std in basin"),
     ("entropy_floor", "REAL", "minimum entropy in basin"),
     ("heaps_beta", "REAL", "Heaps law exponent in basin"),
     ("decorrelation_lag", "INTEGER", "autocorrelation decorrelation lag"),
     ("eos_rate", "REAL", "EOS rate in basin"),
-    ("depth_score", "REAL", "basin depth metric"),
-    ("escape_T", "REAL", "temperature needed to escape"),
-    ("escape_steps", "INTEGER", "steps to escape at escape_T"),
+    ("depth_score", "REAL", "basin depth metric from fork probing"),
+    ("escape_T", "REAL", "temperature that triggered escape"),
+    ("escape_steps", "INTEGER", "steps from T_heat to escape"),
     ("attractor_text", "TEXT", "representative attractor content"),
     ("attractor_period", "INTEGER", "attractor repetition period"),
-    ("prev_basin_id", "TEXT", "previous basin in trajectory"),
-    ("next_basin_id", "TEXT", "next basin in trajectory"),
+    ("novelty_distance", "REAL", "cosine distance to nearest type at capture time"),
+    ("prev_capture_id", "TEXT", "previous capture in this run's trajectory"),
+    ("next_capture_id", "TEXT", "next capture in this run's trajectory"),
 ]
 
 INDEX_DEFINITIONS: list[tuple[str, str, list[str]]] = [
-    # (index_name, table_name, columns)
+    # runs
     ("idx_runs_type", "runs", ["run_type"]),
     ("idx_runs_L_T", "runs", ["L", "T"]),
     ("idx_runs_seed", "runs", ["seed"]),
-    ("idx_basins_run", "basins", ["run_id"]),
-    ("idx_basins_fp", "basins", ["fingerprint"]),
+    # basin_types
+    ("idx_btypes_L", "basin_types", ["min_L"]),
+    ("idx_btypes_hits", "basin_types", ["hit_count"]),
+    # basin_captures
+    ("idx_bcap_run", "basin_captures", ["run_id"]),
+    ("idx_bcap_type", "basin_captures", ["type_id"]),
+    ("idx_bcap_L_T", "basin_captures", ["L", "T_survey"]),
 ]
 
 # ── Derived column lists ───────────────────────────────────────────
@@ -112,11 +156,32 @@ def create_tables_sql() -> list[str]:
     """Return all CREATE TABLE and CREATE INDEX statements."""
     stmts: list[str] = [
         _create_table_sql("runs", RUNS_COLUMNS),
-        _create_table_sql("basins", BASINS_COLUMNS),
+        _create_table_sql("basin_types", BASIN_TYPES_COLUMNS),
+        _create_table_sql("basin_captures", BASIN_CAPTURES_COLUMNS),
     ]
     for index_name, table_name, columns in INDEX_DEFINITIONS:
         stmts.append(_create_index_sql(index_name, table_name, columns))
     return stmts
+
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Migrate from v1 (single basins table) to v2 (types + captures).
+
+    The v1 basins table was always empty, so migration is just drop + create.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) FROM basins"
+    ).fetchone()
+    if row[0] > 0:
+        raise RuntimeError(
+            "Cannot auto-migrate: v1 basins table has data. "
+            "Back up the database and migrate manually."
+        )
+    conn.execute("DROP TABLE IF EXISTS basins")
+    conn.execute("DROP INDEX IF EXISTS idx_basins_run")
+    conn.execute("DROP INDEX IF EXISTS idx_basins_fp")
+    log.info("Migrated schema v1 → v2: dropped empty basins table, "
+             "creating basin_types + basin_captures")
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -129,14 +194,13 @@ def init_db(conn: sqlite3.Connection) -> None:
             f"code schema version {SCHEMA_VERSION}. Update your code."
         )
 
+    if current_version == 1:
+        _migrate_v1_to_v2(conn)
+
+    for stmt in create_tables_sql():
+        conn.executescript(stmt)
+
     if current_version < SCHEMA_VERSION:
-        # Fresh DB or needs migration
-        for stmt in create_tables_sql():
-            conn.executescript(stmt)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        conn.commit()
-    else:
-        # Version matches — still ensure tables exist (idempotent)
-        for stmt in create_tables_sql():
-            conn.executescript(stmt)
-        conn.commit()
+
+    conn.commit()
