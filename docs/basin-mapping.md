@@ -116,18 +116,43 @@ Hold T above T_escape(L) for ≥L tokens (context turnover). Then cool back to s
 
 ### Cycle Yield
 
-One cycle = one basin record. A survey run at 100k tokens should yield 10–50 basins at L=64, fewer at larger L (see table below).
+One cycle = one basin record. Yield depends on L: shallow basins cycle fast, deep basins cycle slow.
 
 ## Survey Design
+
+### Adaptive L-Ladder
+
+Instead of a fixed grid, the survey progresses through L values adaptively. Start at L=8 where cycling is fast and cheap. Only advance to the next L when basin discovery saturates at the current depth.
+
+**L sequence (each step ≤50% increase):** 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256
+
+**Saturation criterion:** if the last N captures all match existing basin types (by embedding distance — see below), the current L is exhausted. Advance to the next L and check which basins survive, which disappear, and which new ones appear.
+
+**Why adaptive:**
+- L=8 is cheap (~50–200 cycles per 100k tokens). Build the clustering pipeline on abundant, fast data before committing to expensive deep runs.
+- Spend compute where the diversity is. Maybe L=8 has 5 types found in 20k tokens. Maybe L=64 has 30 and needs 200k.
+- Cross-L correspondence builds incrementally: at each new L, you immediately see which previous basins persist and which are new.
+- Fine L-steps reveal where basin types appear or vanish. If L=16 and L=24 have wildly different structure, that transition boundary is interesting.
 
 ### L-Dependent Parameters
 
 | L | T_survey | T_escape | T_heat | Expected cycles/100k |
 |---|----------|----------|--------|---------------------|
 | 8–32 | 0.50 | ~0.50 | 0.70 | 50–200 (shallow, fast cycling) |
-| 64–128 | 0.50 | 0.55–0.60 | 0.80 | 10–50 (core range) |
-| 192–256 | 0.60 | 0.65–0.90 | 1.00 | 5–15 (deep, rich characterisation) |
-| 512 | 0.80 | ~0.90 | 1.10 | 2–8 (very deep, multi-register) |
+| 48–96 | 0.50 | 0.55–0.60 | 0.80 | 10–50 (core range) |
+| 128–192 | 0.55 | 0.57–0.67 | 0.90 | 5–20 |
+| 256 | 0.60 | ~0.87 | 1.00 | 5–15 (deep, rich characterisation) |
+
+### Basin Identity: Dual Distance
+
+Two distance metrics for basin matching:
+
+**Embedding distance (primary, online).** SmolLM-135M is already loaded for generation. At capture time, embed the attractor text (trailing W* tokens) through the model and extract the mean hidden state. Cosine distance between embeddings gives semantic similarity. This is essentially free — no additional model load, just a forward pass on text already in memory. New captures are compared to all existing centroids; if min distance > threshold, it's a novel basin type.
+
+**Compression spectrum distance (secondary, mechanistic).** The 5-element comp_W vector is a low-dimensional mechanistic fingerprint. Two basins with similar embeddings but different spectra are the same topic with different structure. Two basins with similar spectra but different embeddings are different topics with the same structure. Both cases are informative.
+
+**When they agree:** solid basin identity, high confidence in type assignment.
+**When they disagree:** interesting — flag for analysis. Semantic-structural decoupling may reveal how the model organizes its modes.
 
 ### Seeding Strategy
 
@@ -216,25 +241,30 @@ Frontier models with tool use: action space grows beyond (T, L). State space gai
 
 ## Roadmap
 
-### Phase 1 — Pilot Survey
-- Implement basin survey as `StateMachine` experiment
-- L=64 null seed, 100k tokens. Shake down the protocol
-- Validate: compression-spectrum clustering produces recognisable groups
-- Extract gzip dictionaries (new analysis capability)
+### Phase 1 — Pilot at L=8
+- Implement basin survey as `StateMachine` experiment (`survey.py` + `loop survey`)
+- Embedding extraction at capture time (model already loaded)
+- Online novelty detection: cosine distance to existing centroids
+- L=8 null seed, run until saturation. Shake down the protocol, build the clustering pipeline on fast, cheap data
+- Validate: embedding clusters and compression spectrum clusters agree
 
-### Phase 2 — Systematic Survey
-- L ∈ {8, 16, 32, 64, 128, 256}, null + domain seeds
-- Build basin catalogue, transition graph
-- L=8–32 "skeleton" survey: what survives extreme context compression?
+### Phase 2 — Adaptive L-Ladder
+- Progress through L=12, 16, 24, 32, 48, 64, 96, 128, 192, 256
+- At each L: run until saturation, then advance
+- Track which basin types survive, disappear, or emerge at each L step
+- Cross-L correspondence builds incrementally
+- Domain seeds at selected L values to probe seeded basins
 
 ### Phase 3 — Learned Controller
-- Train β-tracking model on existing decisions.json data
+- Train β-tracking model on existing decisions.json data (~1050 examples)
 - Compare to rule-based BetaController on held-out runs
-- If effective: train exploration-objective model on survey data
+- If effective: train exploration-objective model on survey data (maximize novel basins per unit time)
 - Plug learned controller into experiment.py as a new controller type
 
-### Phase 4 — Topology
-- Basin census analysis: count, depth, spectrum clustering
-- Transition graph: hubs, dead ends, connected components
-- Cross-L correspondence: basin minimum context requirements
-- Residue network: semantic bleed between basins
+### Phase 4 — Topology and Analysis
+- Basin census: count vs L curve, saturation point
+- Type clustering: embedding clusters vs compression spectrum clusters
+- Transition graph: directed graph of basin-to-basin transitions, hubs, dead ends
+- Depth prediction: can depth score be predicted from spectrum + embedding alone?
+- Cross-L correspondence: minimum L for each basin type = minimum context to express that mode
+- Residue network: embedding overlap across transitions
