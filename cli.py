@@ -1,0 +1,488 @@
+"""Unified CLI entry point for autoloop.
+
+All subcommands: run, sweep, index, explore, plot, analyze, grep,
+semantic, precollapse, summary.
+"""
+
+import argparse
+import logging
+import sys
+from pathlib import Path
+
+from runindex import DB_PATH, RUNS_ROOT
+
+log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Run resolution
+# ---------------------------------------------------------------------------
+
+def resolve_runs(
+    run_ids: list[str] | None = None,
+    run_type: str | None = None,
+    L: int | None = None,
+    T: float | None = None,
+    seed: int | None = None,
+    regime: str | None = None,
+    db_path: Path = DB_PATH,
+) -> list[Path]:
+    """Resolve run identifiers and/or filter flags to parquet paths.
+
+    If run_ids are given, they take precedence over filters. Each run_id
+    is a parquet stem (e.g. "L0064_T0.50_S42"). Filters are applied only
+    when no run_ids are provided.
+
+    Args:
+        run_ids: Parquet stems to look up directly.
+        run_type: Filter by run type (sweep, controller, etc.).
+        L: Filter by context length.
+        T: Filter by temperature.
+        seed: Filter by random seed.
+        regime: Filter by regime classification.
+        db_path: Path to the SQLite index database.
+
+    Returns:
+        List of resolved parquet Paths (absolute).
+
+    Raises:
+        SystemExit: If the index doesn't exist or a run_id is not found.
+    """
+    if not db_path.exists():
+        log.error("No index at %s — run 'loop index build' first.", db_path)
+        sys.exit(1)
+
+    from runindex import create_db, query_runs
+
+    conn = create_db(db_path)
+
+    if run_ids:
+        paths: list[Path] = []
+        for rid in run_ids:
+            rows = conn.execute(
+                "SELECT parquet_path FROM runs WHERE run_id = ?", (rid,)
+            ).fetchall()
+            if not rows:
+                conn.close()
+                log.error("Run '%s' not found in index.", rid)
+                sys.exit(1)
+            paths.append((RUNS_ROOT / rows[0]["parquet_path"]).resolve())
+        conn.close()
+        return paths
+
+    # Filter mode
+    filters: dict[str, float | int | str] = {}
+    if L is not None:
+        filters["L"] = L
+    if T is not None:
+        filters["T"] = T
+    if seed is not None:
+        filters["seed"] = seed
+    if regime is not None:
+        filters["regime"] = regime
+
+    runs = query_runs(conn, run_type=run_type, **filters)
+    conn.close()
+
+    if not runs:
+        log.error("No runs match the given filters.")
+        sys.exit(1)
+
+    return [(RUNS_ROOT / r["parquet_path"]).resolve() for r in runs]
+
+
+def _add_filter_args(parser: argparse.ArgumentParser) -> None:
+    """Add common run-filter flags to a subparser."""
+    parser.add_argument("run_ids", nargs="*", default=None,
+                        help="Run IDs (parquet stems, e.g. L0064_T0.50_S42)")
+    parser.add_argument("--type", dest="run_type",
+                        help="Filter by run type (sweep, controller, etc.)")
+    parser.add_argument("--L", type=int, dest="filter_L",
+                        help="Filter by context length")
+    parser.add_argument("--T", type=float, dest="filter_T",
+                        help="Filter by temperature")
+    parser.add_argument("--seed", type=int, dest="filter_seed",
+                        help="Filter by seed")
+    parser.add_argument("--regime", dest="filter_regime",
+                        help="Filter by regime classification")
+
+
+def _resolve_from_args(args: argparse.Namespace) -> list[Path]:
+    """Call resolve_runs using parsed argparse namespace."""
+    ids = args.run_ids if args.run_ids else None
+    return resolve_runs(
+        run_ids=ids,
+        run_type=getattr(args, "run_type", None),
+        L=getattr(args, "filter_L", None),
+        T=getattr(args, "filter_T", None),
+        seed=getattr(args, "filter_seed", None),
+        regime=getattr(args, "filter_regime", None),
+    )
+
+
+def _auto_index_run(parquet_path: Path) -> None:
+    """Index a single run into the database after completion."""
+    from runindex import create_db, index_run
+    conn = create_db(DB_PATH)
+    index_run(conn, parquet_path)
+    conn.commit()
+    conn.close()
+    log.info("Indexed %s", parquet_path.stem)
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    """Run an experiment (fixed, schedule, or beta)."""
+    from engine import StepEngine, load_model
+    from experiment import (
+        BetaController,
+        FixedController,
+        ScheduleController,
+        run_experiment,
+    )
+    import runlib
+
+    model, tokenizer = load_model(args.model_dir, args.device)
+    engine = StepEngine(model, tokenizer, args.device, args.seed)
+
+    mode_dirs = {
+        "fixed": runlib.SWEEP_DIR,
+        "schedule": runlib.SCHEDULE_DIR,
+        "beta": runlib.CONTROLLER_DIR,
+    }
+    output_dir = Path(args.output_dir) if args.output_dir else mode_dirs[args.run_mode]
+
+    if args.run_mode == "fixed":
+        ctrl = FixedController(args.L, args.T)
+        name = args.run_name or f"L{args.L:04d}_T{args.T:.2f}_S{args.seed}"
+        extra = {"controller": False, "context_length": args.L,
+                 "temperature": args.T}
+        run_experiment(
+            engine, ctrl, args.total_steps, args.segment_steps,
+            name, output_dir, args.L, args.T,
+            save_every=args.save_every, prefill_text=args.prefill_text,
+            dry_run=args.dry_run, extra_meta=extra,
+        )
+        _auto_index_run(output_dir / f"{name}.parquet")
+
+    elif args.run_mode == "schedule":
+        segments = []
+        for part in args.spec.split(","):
+            tokens = part.strip().split(":")
+            steps = int(tokens[0])
+            L = int(tokens[1].lstrip("L"))
+            T = float(tokens[2].lstrip("T"))
+            segments.append((steps, L, T))
+        ctrl = ScheduleController(segments)
+        total = sum(s[0] for s in segments)
+        start_L, start_T = segments[0][1], segments[0][2]
+        import hashlib
+        h = hashlib.sha256(args.spec.encode()).hexdigest()[:8]
+        name = args.run_name or f"sched_S{args.seed}_{h}"
+        extra = {"controller": False, "schedule": args.spec}
+        run_experiment(
+            engine, ctrl, total, args.segment_steps,
+            name, output_dir, start_L, start_T,
+            save_every=args.save_every, prefill_text=args.prefill_text,
+            dry_run=args.dry_run, extra_meta=extra,
+        )
+        _auto_index_run(output_dir / f"{name}.parquet")
+
+    elif args.run_mode == "beta":
+        suffix = "d" if args.drift else ""
+        name = (args.run_name or
+                f"ctrl{suffix}_S{args.seed}_{args.start_L}_{args.start_T:.2f}")
+        ctrl = BetaController(target=args.target, drift=args.drift)
+        extra = {"controller": True, "beta_target": args.target,
+                 "drift": args.drift}
+        run_experiment(
+            engine, ctrl, args.total_steps, args.segment_steps,
+            name, output_dir, args.start_L, args.start_T,
+            save_every=args.save_every, prefill_text=args.prefill_text,
+            dry_run=args.dry_run, extra_meta=extra,
+        )
+        _auto_index_run(output_dir / f"{name}.parquet")
+
+
+def cmd_sweep(args: argparse.Namespace) -> None:
+    """Run or inspect sweeps."""
+    from sweep import (
+        PRESETS,
+        expand_grid,
+        print_presets,
+        print_status,
+        run_sweep,
+    )
+
+    if args.list:
+        print_presets()
+        return
+
+    if args.status is not None:
+        preset_name = None if args.status == "__all__" else args.status
+        if preset_name and preset_name not in PRESETS:
+            log.error("Unknown preset '%s'. Use 'loop sweep --list'.", preset_name)
+            sys.exit(1)
+        print_status(preset_name)
+        return
+
+    # Determine grid
+    if args.preset:
+        if args.preset not in PRESETS:
+            log.error("Unknown preset '%s'. Use 'loop sweep --list'.", args.preset)
+            sys.exit(1)
+        preset = PRESETS[args.preset]
+        grid = expand_grid(preset["L"], preset["T"], preset["seeds"])
+        label = args.preset
+    elif args.L and args.T:
+        grid = expand_grid(args.L, args.T, args.seed)
+        parts = [f"L{'_'.join(str(l) for l in args.L)}",
+                 f"T{'_'.join(f'{t:.2f}' for t in args.T)}"]
+        label = "_".join(parts)
+    else:
+        log.error("Provide a preset name or --L and --T for an ad-hoc grid. "
+                  "Use 'loop sweep --list' to see presets.")
+        sys.exit(1)
+
+    run_sweep(grid, label, args.dry_run)
+
+    # Rebuild index after sweep
+    if not args.dry_run:
+        log.info("Rebuilding index after sweep...")
+        from runindex import create_db, reindex_all
+        conn = create_db(DB_PATH)
+        reindex_all(conn, RUNS_ROOT)
+        conn.close()
+
+
+def cmd_index(args: argparse.Namespace) -> None:
+    """Build or query the run index."""
+    from runindex import create_db, query_runs, reindex_all, _format_table
+
+    if args.index_cmd == "build":
+        root = Path(args.root) if args.root else RUNS_ROOT
+        db = Path(args.db) if args.db else DB_PATH
+        conn = create_db(db)
+        reindex_all(conn, root)
+        total = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        log.info("Index complete: %d runs in %s", total, db)
+        conn.close()
+
+    elif args.index_cmd == "query":
+        db = Path(args.db) if args.db else DB_PATH
+        if not db.exists():
+            log.error("No index at %s — run 'loop index build' first.", db)
+            sys.exit(1)
+        conn = create_db(db)
+        filters: dict[str, float | int | str] = {}
+        if args.L is not None:
+            filters["L"] = args.L
+        if args.T is not None:
+            filters["T"] = args.T
+        if args.seed is not None:
+            filters["seed"] = args.seed
+        if args.regime is not None:
+            filters["regime"] = args.regime
+        runs = query_runs(conn, run_type=args.run_type, **filters)
+        if args.as_json:
+            import json
+            import numpy as np
+            for r in runs:
+                for k, v in r.items():
+                    if isinstance(v, float) and np.isnan(v):
+                        r[k] = None
+            print(json.dumps(runs, indent=2))
+        else:
+            print(_format_table(runs))
+        conn.close()
+
+def cmd_explore(args: argparse.Namespace) -> None:
+    """Start the interactive explorer."""
+    import uvicorn
+    log.info("Starting explorer on port %d...", args.port)
+    uvicorn.run("explorer:app", host="0.0.0.0", port=args.port, reload=True)
+
+
+def _stub(args: argparse.Namespace) -> None:
+    """Placeholder for not-yet-implemented consumer commands."""
+    print("Not yet implemented")
+    sys.exit(0)
+
+
+def _add_run_common_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments shared across all run modes."""
+    parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--total-steps", type=int, default=100_000)
+    parser.add_argument("--segment-steps", type=int, default=1000)
+    parser.add_argument("--model-dir", type=str, default="data/model/SmolLM-135M")
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Override output directory")
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--run-name", type=str, help="Override auto run name")
+    parser.add_argument("--prefill-text", type=str)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--save-every", type=int, default=50,
+                        help="Save snapshot every N segments")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the top-level argument parser with all subcommands."""
+    parser = argparse.ArgumentParser(
+        prog="loop",
+        description="Unified CLI for autoloop experiments.",
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    # ── run ────────────────────────────────────────────────────────
+    p_run = sub.add_parser("run", help="Run an experiment")
+    run_sub = p_run.add_subparsers(dest="run_mode", required=True)
+
+    # run fixed
+    p_fixed = run_sub.add_parser("fixed", help="Fixed L/T run")
+    _add_run_common_args(p_fixed)
+    p_fixed.add_argument("-L", type=int, required=True, help="Context length")
+    p_fixed.add_argument("-T", type=float, required=True, help="Temperature")
+
+    # run schedule
+    p_sched = run_sub.add_parser("schedule", help="Scheduled L/T segments")
+    _add_run_common_args(p_sched)
+    p_sched.add_argument("--spec", type=str, required=True,
+                         help="Schedule: 'steps:L{n}:T{f},...'")
+
+    # run beta
+    p_beta = run_sub.add_parser("beta", help="Beta hill-climb controller")
+    _add_run_common_args(p_beta)
+    p_beta.add_argument("--start-L", type=int, default=64)
+    p_beta.add_argument("--start-T", type=float, default=0.70)
+    p_beta.add_argument("--target", type=float, default=0.9)
+    p_beta.add_argument("--drift", action="store_true")
+
+    # ── sweep ─────────────────────────────────────────────────────
+    p_sweep = sub.add_parser("sweep", help="Run or inspect sweeps")
+    p_sweep.add_argument("preset", nargs="?", default=None,
+                         help="Named preset to run")
+    p_sweep.add_argument("--dry-run", action="store_true")
+    p_sweep.add_argument("--status", nargs="?", const="__all__", default=None,
+                         metavar="PRESET",
+                         help="Show grid status")
+    p_sweep.add_argument("--list", action="store_true",
+                         help="List available presets")
+    p_sweep.add_argument("--L", type=int, nargs="+", metavar="N",
+                         help="Context lengths for ad-hoc grid")
+    p_sweep.add_argument("--T", type=float, nargs="+", metavar="F",
+                         help="Temperatures for ad-hoc grid")
+    p_sweep.add_argument("--seed", type=int, nargs="+", default=[42],
+                         help="Seeds for ad-hoc grid")
+
+    # ── index ─────────────────────────────────────────────────────
+    p_index = sub.add_parser("index", help="Manage the run index")
+    idx_sub = p_index.add_subparsers(dest="index_cmd", required=True)
+
+    # index build
+    p_build = idx_sub.add_parser("build", help="Full reindex of all runs")
+    p_build.add_argument("--root", type=str, default=None,
+                         help="Runs directory (default: data/runs)")
+    p_build.add_argument("--db", type=str, default=None,
+                         help="Database path (default: data/runs/index.db)")
+
+    # index query
+    p_query = idx_sub.add_parser("query", help="Query indexed runs")
+    p_query.add_argument("--type", dest="run_type", help="Filter by run type")
+    p_query.add_argument("--L", type=int, help="Filter by context length")
+    p_query.add_argument("--T", type=float, help="Filter by temperature")
+    p_query.add_argument("--seed", type=int, help="Filter by seed")
+    p_query.add_argument("--regime", help="Filter by regime")
+    p_query.add_argument("--db", type=str, default=None,
+                         help="Database path")
+    p_query.add_argument("--json", action="store_true", dest="as_json",
+                         help="Output as JSON")
+
+    # ── explore ───────────────────────────────────────────────────
+    p_explore = sub.add_parser("explore", help="Start the interactive explorer")
+    p_explore.add_argument("--port", type=int, default=8000,
+                           help="Port to serve on (default: 8000)")
+
+    # ── plot (stub) ───────────────────────────────────────────────
+    p_plot = sub.add_parser("plot", help="Plot runs (not yet implemented)")
+    _add_filter_args(p_plot)
+    p_plot.add_argument("--plots", nargs="+",
+                        help="Plot types to generate")
+
+    # ── analyze (stub) ────────────────────────────────────────────
+    p_analyze = sub.add_parser("analyze", help="Analyze runs (not yet implemented)")
+    _add_filter_args(p_analyze)
+
+    # ── grep (stub) ───────────────────────────────────────────────
+    p_grep = sub.add_parser("grep", help="Grep decoded text (not yet implemented)")
+    p_grep.add_argument("pattern", help="Search pattern")
+    _add_filter_args(p_grep)
+    p_grep.add_argument("--count", action="store_true",
+                        help="Show match counts only")
+    p_grep.add_argument("-i", action="store_true", dest="ignore_case",
+                        help="Case-insensitive search")
+    p_grep.add_argument("-C", type=int, default=0, dest="context",
+                        help="Context lines around matches")
+
+    # ── semantic (stub) ───────────────────────────────────────────
+    p_semantic = sub.add_parser("semantic",
+                                help="Semantic analysis (not yet implemented)")
+    sem_group = p_semantic.add_mutually_exclusive_group(required=True)
+    sem_group.add_argument("--clouds", action="store_true",
+                           help="Auto-discover themes and map basins")
+    sem_group.add_argument("--themes", nargs="+", metavar="WORD",
+                           help="Multi-theme density report")
+
+    # ── precollapse (stub) ────────────────────────────────────────
+    p_pre = sub.add_parser("precollapse",
+                           help="Pre-collapse analysis (not yet implemented)")
+    _add_filter_args(p_pre)
+    p_pre.add_argument("--detail", type=str, metavar="RUN_ID",
+                       help="Detailed report for a specific run")
+    p_pre.add_argument("--csv", type=str, metavar="PATH",
+                       help="Export metrics to CSV")
+
+    # ── summary (stub) ───────────────────────────────────────────
+    sub.add_parser("summary",
+                   help="Cross-condition summary table (not yet implemented)")
+
+    return parser
+
+
+_DISPATCH: dict[str, callable] = {
+    "run": cmd_run,
+    "sweep": cmd_sweep,
+    "index": cmd_index,
+    "explore": cmd_explore,
+    "plot": _stub,
+    "analyze": _stub,
+    "grep": _stub,
+    "semantic": _stub,
+    "precollapse": _stub,
+    "summary": _stub,
+}
+
+
+def main() -> None:
+    """CLI entry point."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
+    handler = _DISPATCH.get(args.command)
+    if handler is None:
+        parser.print_help()
+        sys.exit(1)
+
+    handler(args)
+
+
+if __name__ == "__main__":
+    main()
