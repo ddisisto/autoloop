@@ -32,11 +32,11 @@ from typing import Callable
 import torch
 
 from engine import SensorReading, StepEngine, load_model
+import runlib
 
 log = logging.getLogger(__name__)
 
 MODEL_DIR = "data/model/SmolLM-135M"
-OUTPUT_DIR = Path("data/runs")
 DEVICE = "cuda"
 
 
@@ -470,7 +470,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--total-steps", type=int, default=100_000)
     parser.add_argument("--segment-steps", type=int, default=1000)
     parser.add_argument("--model-dir", type=str, default=MODEL_DIR)
-    parser.add_argument("--output-dir", type=str, default=str(OUTPUT_DIR))
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Override output directory (default: per-mode subdir)")
     parser.add_argument("--device", type=str, default=DEVICE)
     parser.add_argument("--run-name", type=str, help="Override auto run name")
     parser.add_argument("--prefill-text", type=str)
@@ -514,7 +515,14 @@ def main() -> None:
     # Load model
     model, tokenizer = load_model(args.model_dir, args.device)
     engine = StepEngine(model, tokenizer, args.device, args.seed)
-    output_dir = Path(args.output_dir)
+
+    # Per-mode default output directories
+    _mode_dirs = {
+        "fixed": runlib.SWEEP_DIR,
+        "schedule": runlib.SCHEDULE_DIR,
+        "beta": runlib.CONTROLLER_DIR,
+    }
+    output_dir = Path(args.output_dir) if args.output_dir else _mode_dirs[args.mode]
 
     if args.mode == "fixed":
         ctrl = FixedController(args.L, args.T)

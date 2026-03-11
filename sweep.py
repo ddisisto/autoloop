@@ -33,10 +33,12 @@ from typing import TypedDict
 
 import pandas as pd
 
+import runlib
+
 log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent
-RUNS_DIR = REPO_ROOT / "data" / "runs"
+SWEEP_DIR = runlib.SWEEP_DIR
 MODEL_DIR = REPO_ROOT / "data" / "model" / "SmolLM-135M"
 
 NUM_TOKENS = 100_000
@@ -93,7 +95,7 @@ def expand_grid(L: list[int], T: list[float], seeds: list[int]) -> list[tuple[in
 
 
 def parquet_path(L: int, T: float, seed: int) -> Path:
-    return RUNS_DIR / f"L{L:04d}_T{T:.2f}_S{seed}.parquet"
+    return SWEEP_DIR / f"L{L:04d}_T{T:.2f}_S{seed}.parquet"
 
 
 def is_complete(L: int, T: float, seed: int) -> bool:
@@ -116,7 +118,7 @@ def run_condition(L: int, T: float, seed: int) -> subprocess.CompletedProcess:
         "--seed", str(seed),
         "--num-tokens", str(NUM_TOKENS),
         "--model-dir", str(MODEL_DIR),
-        "--output-dir", str(RUNS_DIR),
+        "--output-dir", str(SWEEP_DIR),
         "--device", DEVICE,
     ]
     return subprocess.run(cmd)
@@ -133,10 +135,10 @@ def format_duration(seconds: float) -> str:
 def scan_runs() -> dict[tuple[int, float, int], bool]:
     """Scan data/runs/ for all parquet files and check completeness."""
     results: dict[tuple[int, float, int], bool] = {}
-    if not RUNS_DIR.exists():
+    if not SWEEP_DIR.exists():
         return results
     pattern = re.compile(r"L(\d{4})_T(\d+\.\d+)_S(\d+)\.parquet")
-    for path in sorted(RUNS_DIR.glob("L*_T*_S*.parquet")):
+    for path in sorted(SWEEP_DIR.glob("L*_T*_S*.parquet")):
         m = pattern.match(path.name)
         if m:
             L, T, seed = int(m.group(1)), float(m.group(2)), int(m.group(3))
@@ -148,7 +150,7 @@ def print_status(preset_name: str | None = None) -> None:
     """Print a grid table of all runs on disk (or for a specific preset)."""
     runs = scan_runs()
     if not runs:
-        print("No runs found in", RUNS_DIR)
+        print("No runs found in", SWEEP_DIR)
         return
 
     if preset_name:

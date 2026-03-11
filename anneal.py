@@ -21,23 +21,34 @@ from pathlib import Path
 
 import pandas as pd
 
+import runlib
+
 log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).parent
 MODEL_DIR = REPO_ROOT / "data" / "model" / "SmolLM-135M"
-RUNS_DIR = REPO_ROOT / "data" / "runs"
+ANNEAL_DIR = runlib.ANNEAL_DIR
+PROBE_DIR = runlib.PROBE_DIR
 DEVICE = "cuda"
+
+
+def _output_dir_for(name: str) -> Path:
+    """Return the correct output directory based on run name prefix."""
+    if name.startswith("probe_"):
+        return PROBE_DIR
+    return ANNEAL_DIR
 
 
 def run(name: str, *, L: int | None = None, T: float | None = None,
         N: int, prefill: str, seed: int = 42,
         schedule: str | None = None) -> subprocess.CompletedProcess:
     """Run a single generate.py invocation."""
+    output_dir = _output_dir_for(name)
     cmd = [
         sys.executable, str(REPO_ROOT / "generate.py"),
         "--seed", str(seed),
         "--model-dir", str(MODEL_DIR),
-        "--output-dir", str(RUNS_DIR),
+        "--output-dir", str(output_dir),
         "--device", DEVICE,
         "--run-name", name,
         "--prefill-text", prefill,
@@ -55,7 +66,7 @@ def run(name: str, *, L: int | None = None, T: float | None = None,
 
 
 def is_done(name: str) -> bool:
-    return (RUNS_DIR / f"{name}.parquet").exists()
+    return (_output_dir_for(name) / f"{name}.parquet").exists()
 
 
 def format_duration(seconds: float) -> str:
@@ -154,7 +165,7 @@ def check_probes() -> None:
     print("-" * 85)
 
     for name in probes:
-        path = RUNS_DIR / f"{name}.parquet"
+        path = PROBE_DIR / f"{name}.parquet"
         if not path.exists():
             print(f"{name:<22} {'MISSING':<8}")
             continue

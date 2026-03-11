@@ -35,11 +35,12 @@ from transformers.utils.logging import disable_progress_bar
 
 from generate import compute_entropy, save_checkpoint, load_checkpoint
 from utils import compressibility, fix_decoded_texts
+import runlib
 
 log = logging.getLogger(__name__)
 
 MODEL_DIR = "data/model/SmolLM-135M"
-OUTPUT_DIR = Path("data/runs")
+OUTPUT_DIR = runlib.CONTROLLER_DIR
 DEVICE = "cuda"
 
 # Defaults
