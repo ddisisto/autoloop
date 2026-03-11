@@ -3,6 +3,10 @@
 Indexes all parquet runs under data/runs/ into a single SQLite database,
 combining metadata from .meta.json sidecars and .analysis.pkl caches.
 
+Basin data is ingested from two sources:
+- data/basins/centroids.json  → basin_types table
+- data/runs/survey/*.basins.pkl → basin_captures table
+
 Usage:
     python runindex.py build                           # full reindex
     python runindex.py query                           # list all runs
@@ -22,12 +26,15 @@ from pathlib import Path
 
 import numpy as np
 
-from runlib import RUNS_ROOT, classify_run
-from schema import init_db
+from runlib import RUNS_ROOT, SURVEY_DIR, classify_run
+from schema import (
+    BASIN_CAPTURES_COLUMNS, BASIN_TYPES_COLUMNS, init_db,
+)
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = RUNS_ROOT / "index.db"
+BASINS_DIR = Path("data/basins")
 
 # ── Filename parsing ────────────────────────────────────────────────
 
@@ -255,6 +262,118 @@ def index_run(conn: sqlite3.Connection, parquet_path: Path) -> None:
     logger.info("Indexed %s (%s)", stem, run_type)
 
 
+# ── Basin ingestion ────────────────────────────────────────────────
+
+# Fields from .basins.pkl that map to basin_captures columns.
+# 'embedding' key is stripped (stays in pkl only).
+_CAPTURE_DB_FIELDS: set[str] = {
+    col[0] for col in BASIN_CAPTURES_COLUMNS
+}
+
+# Fields from centroids.json that map to basin_types columns.
+_TYPE_DB_FIELDS: set[str] = {
+    col[0] for col in BASIN_TYPES_COLUMNS
+}
+
+
+def _upsert_sql(table: str, row: dict, pk: str) -> tuple[str, list]:
+    """Build an INSERT ... ON CONFLICT DO UPDATE statement."""
+    cols = ", ".join(row.keys())
+    placeholders = ", ".join(["?"] * len(row))
+    updates = ", ".join(
+        f"{k}=excluded.{k}" for k in row if k != pk
+    )
+    sql = (
+        f"INSERT INTO {table} ({cols}) VALUES ({placeholders}) "
+        f"ON CONFLICT({pk}) DO UPDATE SET {updates}"
+    )
+    return sql, list(row.values())
+
+
+def index_basin_types(conn: sqlite3.Connection, basins_dir: Path) -> int:
+    """Ingest basin types from centroids.json into basin_types table.
+
+    centroids.json: list of dicts, one per type. Each dict's keys are a
+    subset of BASIN_TYPES_COLUMNS. Row order aligns with centroids.npy.
+
+    Returns number of types upserted.
+    """
+    meta_path = basins_dir / "centroids.json"
+    if not meta_path.exists():
+        return 0
+
+    with open(meta_path) as f:
+        types = json.load(f)
+
+    count = 0
+    for t in types:
+        row = {k: v for k, v in t.items() if k in _TYPE_DB_FIELDS}
+        if "type_id" not in row:
+            logger.warning("Basin type missing type_id, skipping: %s", t)
+            continue
+        sql, params = _upsert_sql("basin_types", row, "type_id")
+        conn.execute(sql, params)
+        count += 1
+
+    conn.commit()
+    return count
+
+
+def index_basin_captures(
+    conn: sqlite3.Connection, survey_dir: Path,
+) -> int:
+    """Ingest basin captures from .basins.pkl sidecars.
+
+    Each .basins.pkl is a list of capture dicts. The 'embedding' key
+    (numpy array) is stripped — it stays in the pkl file only.
+    Scalar fields matching BASIN_CAPTURES_COLUMNS are upserted.
+
+    Returns total number of captures upserted.
+    """
+    if not survey_dir.is_dir():
+        return 0
+
+    pkl_files = sorted(survey_dir.glob("*.basins.pkl"))
+    if not pkl_files:
+        return 0
+
+    count = 0
+    for pkl_path in pkl_files:
+        with open(pkl_path, "rb") as f:
+            captures = pickle.load(f)
+
+        for cap in captures:
+            row = {
+                k: v for k, v in cap.items()
+                if k in _CAPTURE_DB_FIELDS and k != "embedding"
+            }
+            if "capture_id" not in row:
+                logger.warning(
+                    "Capture missing capture_id in %s, skipping", pkl_path.name
+                )
+                continue
+            # Verify run_id exists in runs table
+            run_id = row.get("run_id")
+            if run_id:
+                exists = conn.execute(
+                    "SELECT 1 FROM runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if not exists:
+                    logger.warning(
+                        "Capture %s references unknown run %s, skipping",
+                        row["capture_id"], run_id,
+                    )
+                    continue
+            sql, params = _upsert_sql("basin_captures", row, "capture_id")
+            conn.execute(sql, params)
+            count += 1
+
+        logger.info("Ingested %d captures from %s", len(captures), pkl_path.name)
+
+    conn.commit()
+    return count
+
+
 def reindex_all(conn: sqlite3.Connection, root: Path) -> None:
     """Index all parquet runs, delete rows for files that no longer exist."""
     from runlib import discover_runs
@@ -279,6 +398,12 @@ def reindex_all(conn: sqlite3.Connection, root: Path) -> None:
             conn.execute("DELETE FROM basin_captures WHERE run_id = ?", (run_id,))
             conn.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
         conn.commit()
+
+    # Ingest basin data
+    n_types = index_basin_types(conn, BASINS_DIR)
+    n_captures = index_basin_captures(conn, root / "survey")
+    if n_types or n_captures:
+        logger.info("Basin data: %d types, %d captures", n_types, n_captures)
 
 
 def query_runs(
