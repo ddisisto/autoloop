@@ -15,7 +15,7 @@ import sqlite3
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # ── Column definitions ─────────────────────────────────────────────
 # Each column: (name, sql_type, description)
@@ -89,7 +89,7 @@ BASIN_CAPTURES_COLUMNS: list[tuple[str, str, str]] = [
     ("capture_step", "INTEGER NOT NULL", "step when capture detected"),
     ("record_step", "INTEGER", "step of basin record point"),
     ("L", "INTEGER NOT NULL", "context length at capture"),
-    ("T_survey", "REAL NOT NULL", "survey temperature at capture"),
+    ("T_capture", "REAL NOT NULL", "temperature when capture triggered"),
     ("comp_W16", "REAL", "compressibility at W=16"),
     ("comp_W32", "REAL", "compressibility at W=32"),
     ("comp_W64", "REAL", "compressibility at W=64"),
@@ -104,7 +104,7 @@ BASIN_CAPTURES_COLUMNS: list[tuple[str, str, str]] = [
     ("eos_rate", "REAL", "EOS rate in basin"),
     ("depth_score", "REAL", "basin depth metric from fork probing"),
     ("escape_T", "REAL", "temperature that triggered escape"),
-    ("escape_steps", "INTEGER", "steps from T_heat to escape"),
+    ("escape_steps", "INTEGER", "steps from heating onset to escape"),
     ("attractor_text", "TEXT", "representative attractor content"),
     ("attractor_period", "INTEGER", "attractor repetition period"),
     ("novelty_distance", "REAL", "cosine distance to nearest type at capture time"),
@@ -123,7 +123,7 @@ INDEX_DEFINITIONS: list[tuple[str, str, list[str]]] = [
     # basin_captures
     ("idx_bcap_run", "basin_captures", ["run_id"]),
     ("idx_bcap_type", "basin_captures", ["type_id"]),
-    ("idx_bcap_L_T", "basin_captures", ["L", "T_survey"]),
+    ("idx_bcap_L_T", "basin_captures", ["L", "T_capture"]),
 ]
 
 # ── Derived column lists ───────────────────────────────────────────
@@ -184,6 +184,28 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
              "creating basin_types + basin_captures")
 
 
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Migrate v2 → v3: rename T_survey → T_capture in basin_captures.
+
+    Basin tables are expected to be empty (no production survey data yet).
+    Drop and recreate to pick up the new column name.
+    """
+    for table in ("basin_captures", "basin_types"):
+        count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        if count > 0:
+            raise RuntimeError(
+                f"Cannot auto-migrate: {table} has {count} rows. "
+                "Back up the database and migrate manually."
+            )
+    conn.execute("DROP TABLE IF EXISTS basin_captures")
+    conn.execute("DROP TABLE IF EXISTS basin_types")
+    # Drop old indexes
+    for idx_name, table_name, _ in INDEX_DEFINITIONS:
+        if table_name in ("basin_captures", "basin_types"):
+            conn.execute(f"DROP INDEX IF EXISTS {idx_name}")
+    log.info("Migrated schema v2 → v3: recreated basin tables (T_survey → T_capture)")
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     """Execute schema creation, set user_version, check version mismatch."""
     current_version = conn.execute("PRAGMA user_version").fetchone()[0]
@@ -196,6 +218,13 @@ def init_db(conn: sqlite3.Connection) -> None:
 
     if current_version == 1:
         _migrate_v1_to_v2(conn)
+    if current_version <= 2:
+        # v2→v3 only needed if basin tables already exist with old schema
+        try:
+            conn.execute("SELECT T_survey FROM basin_captures LIMIT 0")
+            _migrate_v2_to_v3(conn)
+        except sqlite3.OperationalError:
+            pass  # Table doesn't exist yet or already has new schema
 
     for stmt in create_tables_sql():
         conn.executescript(stmt)

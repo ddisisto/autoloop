@@ -455,8 +455,8 @@ def cmd_survey(args: argparse.Namespace) -> None:
         seed=args.seed,
         L=args.L,
         total_steps=args.total_steps,
-        T_survey=args.T_survey,
-        T_heat=args.T_heat,
+        T_min=args.T_min,
+        T_max=args.T_max,
         segment_steps=args.segment_steps,
         model_dir=args.model_dir,
         device=args.device,
@@ -578,10 +578,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_survey.add_argument("--seed", type=int, required=True)
     p_survey.add_argument("-L", type=int, required=True, help="Context length")
     p_survey.add_argument("--total-steps", type=int, default=100_000)
-    p_survey.add_argument("--T-survey", type=float, default=None,
-                          help="Cooling temperature (default: L-dependent)")
-    p_survey.add_argument("--T-heat", type=float, default=None,
-                          help="Heating temperature (default: L-dependent)")
+    p_survey.add_argument("--T-min", type=float, default=None,
+                          help="Temperature floor for cooling (default: L-dependent)")
+    p_survey.add_argument("--T-max", type=float, default=None,
+                          help="Temperature ceiling for heating (default: L-dependent)")
     p_survey.add_argument("--segment-steps", type=int, default=None,
                           help="Steps per segment (default: max(L, 50))")
     p_survey.add_argument("--model-dir", type=str, default="data/model/SmolLM-135M")

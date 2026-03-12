@@ -79,7 +79,7 @@ loop run beta --seed 42 --start-L 8 --start-T 1.00 --drift --total-steps 1000000
 
 # Basin survey
 loop survey --seed 42 -L 8 --total-steps 100000
-loop survey --seed 42 -L 64 --T-survey 0.50 --T-heat 0.80
+loop survey --seed 42 -L 64 --T-min 0.50 --T-max 0.80
 
 # Sweeps (named preset or ad-hoc grid)
 loop sweep pilot

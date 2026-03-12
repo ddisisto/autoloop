@@ -136,12 +136,12 @@ Instead of a fixed grid, the survey progresses through L values adaptively. Star
 
 ### L-Dependent Parameters
 
-| L | T_survey | T_escape | T_heat | Expected cycles/100k |
-|---|----------|----------|--------|---------------------|
-| 8–32 | 0.50 | ~0.50 | 0.70 | 50–200 (shallow, fast cycling) |
-| 48–96 | 0.50 | 0.55–0.60 | 0.80 | 10–50 (core range) |
-| 128–192 | 0.55 | 0.57–0.67 | 0.90 | 5–20 |
-| 256 | 0.60 | ~0.87 | 1.00 | 5–15 (deep, rich characterisation) |
+| L | T_min | T_escape | T_max | Expected cycles/100k |
+|---|-------|----------|-------|---------------------|
+| 8–32 | 0.10 | ~0.50 | 0.70 | 50–200 (shallow, fast cycling) |
+| 48–96 | 0.30 | 0.55–0.60 | 0.80 | 10–50 (core range) |
+| 128–192 | 0.40 | 0.57–0.67 | 0.90 | 5–20 |
+| 256 | 0.50 | ~0.87 | 1.00 | 5–15 (deep, rich characterisation) |
 
 ### Basin Identity: Dual Distance
 
@@ -188,7 +188,7 @@ capture_id         # run_id:capture_step
 run_id             # parent survey run (FK → runs)
 type_id            # assigned basin type (FK → basin_types)
 capture_step, record_step
-L, T_survey
+L, T_capture
 comp_W{16,32,64,128,256}, W_star
 entropy_mean/std/floor, heaps_beta, decorrelation_lag, eos_rate
 depth_score        # mean elaboration steps under perturbation

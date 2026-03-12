@@ -1,15 +1,18 @@
-"""Basin survey: systematic basin discovery via cooling/heating cycles.
+"""Basin survey: systematic basin discovery via cooling/heating ramps.
 
 State machine experiment that cycles through:
   COOLING  -> CAPTURED -> HEATING -> TRANSIT -> COOLING ...
 
-Each cycle captures one basin: compression spectrum, embedding, sensor
-profile. Captures are accumulated in a .basins.pkl sidecar. Novel basins
-(by embedding distance) extend the centroid catalogue.
+Temperature ramps down during COOLING (finding basins at successively
+lower T) and up during HEATING (probing escape). Each cycle captures
+one basin with its accessibility temperature (T at capture) and escape
+temperature (T at escape). Captures are accumulated in a .basins.pkl
+sidecar. Novel basins (by embedding distance) extend the centroid
+catalogue.
 
 Usage:
     loop survey --seed 42 -L 8 --total-steps 100000
-    loop survey --seed 42 -L 64 --T-survey 0.50 --T-heat 0.80
+    loop survey --seed 42 -L 64 --T-min 0.50 --T-max 0.80
 """
 
 import json
@@ -35,21 +38,21 @@ log = logging.getLogger(__name__)
 
 # ── L-dependent defaults ──────────────────────────────────────────
 
-# (L_max, T_survey, T_heat) — first match wins
+# (L_max, T_min, T_max) — first match wins
 _L_DEFAULTS: list[tuple[int, float, float]] = [
-    (32, 0.50, 0.70),
-    (96, 0.50, 0.80),
-    (192, 0.55, 0.90),
-    (256, 0.60, 1.00),
-    (9999, 0.65, 1.05),
+    (32, 0.10, 0.70),
+    (96, 0.30, 0.80),
+    (192, 0.40, 0.90),
+    (256, 0.50, 1.00),
+    (9999, 0.55, 1.05),
 ]
 
 
 def l_defaults(L: int) -> tuple[float, float]:
-    """Return (T_survey, T_heat) for a given L."""
-    for l_max, t_survey, t_heat in _L_DEFAULTS:
+    """Return (T_min, T_max) for a given L."""
+    for l_max, t_min, t_max in _L_DEFAULTS:
         if L <= l_max:
-            return t_survey, t_heat
+            return t_min, t_max
     return _L_DEFAULTS[-1][1], _L_DEFAULTS[-1][2]
 
 
@@ -166,6 +169,10 @@ class CentroidCatalogue:
 
 # ── Survey controller ─────────────────────────────────────────────
 
+# Temperature ramp: relative step per segment (multiplicative).
+# Cooling multiplies by (1 - DT_FRAC), heating by (1 + DT_FRAC).
+DT_FRAC = 0.05
+
 # Stability detection: entropy_mean must change by less than this between
 # consecutive sensor readings for N consecutive readings to declare capture.
 ENTROPY_DELTA_THRESHOLD = 0.1
@@ -181,9 +188,11 @@ ESCAPE_ENTROPY_RISE = 1.0
 class SurveyState:
     """Mutable state tracked across the survey run."""
     L: int
-    T_survey: float
-    T_heat: float
+    T_min: float
+    T_max: float
+    dT_frac: float
     run_id: str
+    current_T: float = 0.0  # set in __post_init__
     captures: list[dict] = field(default_factory=list)
     stability_streak: int = 0
     cooling_segments: int = 0
@@ -193,13 +202,27 @@ class SurveyState:
     novel_count: int = 0
     consecutive_known: int = 0
 
+    def __post_init__(self) -> None:
+        if self.current_T == 0.0:
+            self.current_T = self.T_max
+
+    def cool(self) -> float:
+        """Step T down. Returns new T."""
+        self.current_T = max(self.T_min, self.current_T * (1 - self.dT_frac))
+        return self.current_T
+
+    def heat(self) -> float:
+        """Step T up. Returns new T."""
+        self.current_T = min(self.T_max, self.current_T * (1 + self.dT_frac))
+        return self.current_T
+
 
 class SurveyController:
-    """Basin survey as a StateMachine with capture logic.
+    """Basin survey with gradient temperature ramps.
 
-    Wraps a StateMachine and intercepts state transitions to perform
-    basin characterization (spectrum, embedding, novelty detection)
-    at the COOLING->CAPTURED boundary.
+    Manages T directly: ramps down during COOLING, up during HEATING.
+    Uses a StateMachine for state/transition logic only — the per-state
+    FixedControllers are placeholders (T is overridden by decide()).
     """
 
     def __init__(
@@ -215,17 +238,13 @@ class SurveyController:
 
     def _build_machine(self) -> StateMachine:
         ss = self.ss
-
-        cooling_ctrl = FixedController(ss.L, ss.T_survey)
-        heating_ctrl = FixedController(ss.L, ss.T_heat)
-        transit_ctrl = FixedController(ss.L, ss.T_heat)
-        # CAPTURED is transient — uses survey T but we transition immediately
-        captured_ctrl = FixedController(ss.L, ss.T_survey)
+        # Placeholder controllers — T is overridden in decide()
+        placeholder = FixedController(ss.L, ss.current_T)
 
         states = {
             "COOLING": MachineState(
                 name="COOLING",
-                controller=cooling_ctrl,
+                controller=placeholder,
                 transitions=[
                     Transition(
                         target="CAPTURED",
@@ -236,7 +255,7 @@ class SurveyController:
             ),
             "CAPTURED": MachineState(
                 name="CAPTURED",
-                controller=captured_ctrl,
+                controller=placeholder,
                 transitions=[
                     Transition(
                         target="HEATING",
@@ -247,7 +266,7 @@ class SurveyController:
             ),
             "HEATING": MachineState(
                 name="HEATING",
-                controller=heating_ctrl,
+                controller=placeholder,
                 transitions=[
                     Transition(
                         target="CAPTURED",
@@ -263,7 +282,7 @@ class SurveyController:
             ),
             "TRANSIT": MachineState(
                 name="TRANSIT",
-                controller=transit_ctrl,
+                controller=placeholder,
                 transitions=[
                     Transition(
                         target="COOLING",
@@ -302,8 +321,6 @@ class SurveyController:
         self, sensors: SensorReading, history: list[SensorReading],
     ) -> bool:
         # Transient state: characterize and immediately transition.
-        # The actual capture work happens in decide() when we detect
-        # the CAPTURED->HEATING transition.
         self._record_capture(sensors)
         return True
 
@@ -366,7 +383,7 @@ class SurveyController:
             "capture_step": step,
             "record_step": step,
             "L": self.ss.L,
-            "T_survey": self.ss.T_survey,
+            "T_capture": self.ss.current_T,
             "W_star": w_star,
             "entropy_mean": sensors.entropy_mean,
             "entropy_std": sensors.entropy_std,
@@ -388,18 +405,18 @@ class SurveyController:
             self.ss.novel_count += 1
             self.ss.consecutive_known = 0
             log.info(
-                "NOVEL basin type %d (dist=%.3f) at step %d | "
+                "NOVEL basin type %d (dist=%.3f) at step %d T=%.3f | "
                 "W*=%d ent=%.2f beta=%.2f",
-                type_id, distance, step, w_star,
+                type_id, distance, step, self.ss.current_T, w_star,
                 sensors.entropy_mean, sensors.heaps_beta,
             )
         else:
             self.catalogue.update_type(type_id, capture, self.ss.run_id)
             self.ss.consecutive_known += 1
             log.info(
-                "KNOWN basin type %d (dist=%.3f) at step %d | "
+                "KNOWN basin type %d (dist=%.3f) at step %d T=%.3f | "
                 "W*=%d ent=%.2f beta=%.2f | streak=%d",
-                type_id, distance, step, w_star,
+                type_id, distance, step, self.ss.current_T, w_star,
                 sensors.entropy_mean, sensors.heaps_beta,
                 self.ss.consecutive_known,
             )
@@ -421,7 +438,26 @@ class SurveyController:
         self, sensors: SensorReading, history: list[SensorReading],
         experiment_steps: int,
     ) -> Action:
-        return self._machine.decide(sensors, history, experiment_steps)
+        # Let the state machine handle transitions
+        old_state = self._machine.current
+        action = self._machine.decide(sensors, history, experiment_steps)
+        new_state = self._machine.current
+
+        # Ramp T based on current state
+        if new_state == "COOLING":
+            self.ss.cool()
+        elif new_state == "HEATING":
+            self.ss.heat()
+        # TRANSIT holds T at escape level; CAPTURED is transient
+
+        # Override action's T with our managed T
+        action.T = self.ss.current_T
+        action.L = self.ss.L
+
+        if old_state != new_state:
+            log.debug("T=%.3f after %s→%s", self.ss.current_T, old_state, new_state)
+
+        return action
 
 
 # ── Run entry point ───────────────────────────────────────────────
@@ -430,8 +466,9 @@ def run_survey(
     seed: int,
     L: int,
     total_steps: int,
-    T_survey: float | None = None,
-    T_heat: float | None = None,
+    T_min: float | None = None,
+    T_max: float | None = None,
+    dT_frac: float = DT_FRAC,
     segment_steps: int | None = None,
     model_dir: str = "data/model/SmolLM-135M",
     device: str = "cuda",
@@ -445,11 +482,11 @@ def run_survey(
     Returns path to the output parquet.
     """
     # Defaults
-    default_t_survey, default_t_heat = l_defaults(L)
-    if T_survey is None:
-        T_survey = default_t_survey
-    if T_heat is None:
-        T_heat = default_t_heat
+    default_t_min, default_t_max = l_defaults(L)
+    if T_min is None:
+        T_min = default_t_min
+    if T_max is None:
+        T_max = default_t_max
     if segment_steps is None:
         segment_steps = max(L, 50)
     if output_dir is None:
@@ -458,8 +495,8 @@ def run_survey(
         run_name = f"survey_L{L:04d}_S{seed}"
 
     log.info(
-        "Basin survey: L=%d T_survey=%.2f T_heat=%.2f seed=%d segments=%d",
-        L, T_survey, T_heat, seed, segment_steps,
+        "Basin survey: L=%d T_min=%.2f T_max=%.2f dT=%.0f%% seed=%d segments=%d",
+        L, T_min, T_max, dT_frac * 100, seed, segment_steps,
     )
 
     # Load model
@@ -472,7 +509,7 @@ def run_survey(
 
     # Build survey controller
     survey_state = SurveyState(
-        L=L, T_survey=T_survey, T_heat=T_heat, run_id=run_name,
+        L=L, T_min=T_min, T_max=T_max, dT_frac=dT_frac, run_id=run_name,
     )
     controller = SurveyController(engine, catalogue, survey_state)
 
@@ -481,12 +518,13 @@ def run_survey(
         "controller": True,
         "survey": True,
         "context_length": L,
-        "T_survey": T_survey,
-        "T_heat": T_heat,
+        "T_min": T_min,
+        "T_max": T_max,
+        "dT_frac": dT_frac,
         "novelty_threshold": novelty_threshold,
     }
 
-    # Run
+    # Run — start at T_max, cooling will ramp down
     run_experiment(
         engine=engine,
         controller=controller,
@@ -495,7 +533,7 @@ def run_survey(
         run_name=run_name,
         output_dir=output_dir,
         start_L=L,
-        start_T=T_survey,
+        start_T=T_max,
         save_every=save_every,
         extra_meta=extra_meta,
     )
