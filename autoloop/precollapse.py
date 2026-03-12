@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .analyze import analyze_run, default_window_sizes, sliding_compressibility
-from .analyze.metrics import decorrelation_lag
+from .analyze.scalars import decorrelation_lag
 
 log = logging.getLogger(__name__)
 

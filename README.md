@@ -38,7 +38,7 @@ See [observations.md](observations.md) for the full findings log with reproducti
 
 | Module | Purpose |
 |--------|---------|
-| `autoloop/metrics.py` | Central metric registry: `MetricDef` declarations, `register`/`get`/`by_scale`, shared `heaps_beta_ols` |
+| `autoloop/metrics.py` | Central metric registry: `MetricDef` declarations, `register`/`get`/`by_scale`, shared `heaps_beta_ols`, all run-level compute functions |
 | `autoloop/cli.py` | Unified CLI (`loop`): all subcommands, argparse dispatch |
 | `autoloop/resolve.py` | Run resolution: ID lookup and filter queries against SQLite index |
 | `autoloop/engine.py` | Token generation engine: `StepEngine` with step, sensors, comp_spectrum, embed_context, snapshot/rollback, checkpoint |

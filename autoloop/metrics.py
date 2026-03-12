@@ -133,17 +133,32 @@ def heaps_beta_ols(words: list[str], n_checkpoints: int = 20) -> tuple[float, in
     return beta, n_words, n_unique
 
 
+def decorrelation_lag(acf: np.ndarray, threshold: float = np.exp(-1)) -> int:
+    """Find the first lag where autocorrelation drops below threshold.
+
+    Canonical implementation — used by analyze.scalars and run-level registry.
+    """
+    below = np.where(acf < threshold)[0]
+    if len(below) == 0:
+        return len(acf) - 1
+    return int(below[0])
+
+
 # ---------------------------------------------------------------------------
 # Sensor functions (real-time, from engine records)
 # ---------------------------------------------------------------------------
 
-def _sensor_heaps_beta(records: list[dict], window: int) -> float:
-    """Heaps' beta from trailing engine records."""
+def _tail_records(records: list[dict], window: int) -> list[dict]:
+    """Extract trailing experiment-phase records."""
     tail = records[-window:] if len(records) > window else records
     exp_tail = [r for r in tail if r.get("phase") == "experiment"]
-    if not exp_tail:
-        exp_tail = tail
-    text = "".join(r["decoded_text"] for r in exp_tail)
+    return exp_tail if exp_tail else tail
+
+
+def _sensor_heaps_beta(records: list[dict], window: int) -> float:
+    """Heaps' beta from trailing engine records."""
+    tail = _tail_records(records, window)
+    text = "".join(r["decoded_text"] for r in tail)
     words = [w.lower() for w in text.split() if len(w) > 1]
     beta, _, _ = heaps_beta_ols(words)
     return beta
@@ -151,21 +166,15 @@ def _sensor_heaps_beta(records: list[dict], window: int) -> float:
 
 def _sensor_entropy_mean(records: list[dict], window: int) -> float:
     """Mean entropy from trailing engine records."""
-    tail = records[-window:] if len(records) > window else records
-    exp_tail = [r for r in tail if r.get("phase") == "experiment"]
-    if not exp_tail:
-        exp_tail = tail
-    ent = [r["entropy"] for r in exp_tail]
+    tail = _tail_records(records, window)
+    ent = [r["entropy"] for r in tail]
     return sum(ent) / len(ent) if ent else 0.0
 
 
 def _sensor_entropy_std(records: list[dict], window: int) -> float:
     """Entropy std from trailing engine records."""
-    tail = records[-window:] if len(records) > window else records
-    exp_tail = [r for r in tail if r.get("phase") == "experiment"]
-    if not exp_tail:
-        exp_tail = tail
-    ent = [r["entropy"] for r in exp_tail]
+    tail = _tail_records(records, window)
+    ent = [r["entropy"] for r in tail]
     if not ent:
         return 0.0
     mean = sum(ent) / len(ent)
@@ -173,37 +182,69 @@ def _sensor_entropy_std(records: list[dict], window: int) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Run-level compute functions
+# Run-level compute functions — fn(exp: DataFrame, cache: dict) -> float
 # ---------------------------------------------------------------------------
 
 def _run_entropy_mean(exp: pd.DataFrame, cache: dict) -> float:
-    """Mean entropy from experiment DataFrame."""
     return float(exp.entropy.mean())
 
 
 def _run_entropy_std(exp: pd.DataFrame, cache: dict) -> float:
-    """Entropy std from experiment DataFrame."""
     return float(exp.entropy.std())
 
 
 def _run_decorrelation_lag(exp: pd.DataFrame, cache: dict) -> float:
-    """Decorrelation lag from analysis cache."""
     acf = cache.get("entropy_autocorrelation")
     if acf is None:
         return float("nan")
-    threshold = np.exp(-1)
-    below = np.where(acf < threshold)[0]
-    if len(below) == 0:
-        return float(len(acf) - 1)
-    return float(below[0])
+    return float(decorrelation_lag(acf))
 
 
 def _run_heaps_beta(exp: pd.DataFrame, cache: dict) -> float:
-    """Heaps' beta from full experiment DataFrame."""
     text = "".join(exp.decoded_text)
     words = [w.lower() for w in text.split() if len(w) > 1]
     beta, _, _ = heaps_beta_ols(words)
     return beta
+
+
+def _run_surprisal_mean(exp: pd.DataFrame, cache: dict) -> float:
+    return float(np.mean(-exp["log_prob"].values))
+
+
+def _run_surprisal_var(exp: pd.DataFrame, cache: dict) -> float:
+    return float(np.var(-exp["log_prob"].values))
+
+
+def _run_surprisal_skew(exp: pd.DataFrame, cache: dict) -> float:
+    from scipy.stats import skew
+    return float(skew(-exp["log_prob"].values))
+
+
+def _run_surprisal_kurtosis(exp: pd.DataFrame, cache: dict) -> float:
+    from scipy.stats import kurtosis
+    return float(kurtosis(-exp["log_prob"].values))
+
+
+def _run_eos_rate(exp: pd.DataFrame, cache: dict) -> float:
+    return float(exp["eos"].mean())
+
+
+def _run_eos_gap_mean(exp: pd.DataFrame, cache: dict) -> float:
+    gaps = _eos_gaps(exp)
+    return float(np.mean(gaps)) if len(gaps) > 0 else float("nan")
+
+
+def _run_eos_gap_std(exp: pd.DataFrame, cache: dict) -> float:
+    gaps = _eos_gaps(exp)
+    return float(np.std(gaps)) if len(gaps) > 0 else float("nan")
+
+
+def _eos_gaps(exp: pd.DataFrame) -> np.ndarray:
+    """Helper: compute EOS inter-arrival gaps."""
+    eos_steps = exp.index[exp["eos"]].values
+    if len(eos_steps) < 2:
+        return np.array([])
+    return np.diff(eos_steps)
 
 
 # ---------------------------------------------------------------------------
@@ -237,12 +278,19 @@ register(MetricDef(
     column="context_length",
 ))
 
+# Derived step-level (computed from other columns)
+register(MetricDef(
+    "eos_ema", "EOS Rate (EMA)", "step",
+    "Exponential moving average of EOS flag (span=1000)",
+    column="eos",  # source column; extract_metric() applies eos_ema()
+))
+
 # Window-level (sliding window computations)
 register(MetricDef(
     "compressibility", "Compressibility", "window",
     "Gzip compression ratio over sliding window",
     unit="ratio",
-    window_fn=None,  # set below after import
+    window_fn=None,  # bound at module load via _bind_window_fns()
 ))
 
 # Run-level (scalar summaries)
@@ -272,12 +320,44 @@ register(MetricDef(
     run_fn=_run_entropy_std,
     sensor_fn=_sensor_entropy_std,
 ))
-
-# Derived step-level (computed from other columns)
 register(MetricDef(
-    "eos_ema", "EOS Rate (EMA)", "step",
-    "Exponential moving average of EOS flag (span=1000)",
-    column="eos",  # source column; actual computation uses eos_ema()
+    "surprisal_mean", "Surprisal Mean", "run",
+    "Mean surprisal (-log_prob) over run",
+    unit="nats",
+    run_fn=_run_surprisal_mean,
+))
+register(MetricDef(
+    "surprisal_var", "Surprisal Variance", "run",
+    "Variance of surprisal (-log_prob)",
+    unit="nats²",
+    run_fn=_run_surprisal_var,
+))
+register(MetricDef(
+    "surprisal_skew", "Surprisal Skewness", "run",
+    "Skewness of surprisal distribution",
+    run_fn=_run_surprisal_skew,
+))
+register(MetricDef(
+    "surprisal_kurtosis", "Surprisal Kurtosis", "run",
+    "Excess kurtosis of surprisal distribution",
+    run_fn=_run_surprisal_kurtosis,
+))
+register(MetricDef(
+    "eos_rate", "EOS Rate", "run",
+    "Fraction of steps producing EOS token",
+    run_fn=_run_eos_rate,
+))
+register(MetricDef(
+    "eos_gap_mean", "EOS Gap Mean", "run",
+    "Mean inter-arrival time between EOS tokens",
+    unit="steps",
+    run_fn=_run_eos_gap_mean,
+))
+register(MetricDef(
+    "eos_gap_std", "EOS Gap Std", "run",
+    "Std of inter-arrival time between EOS tokens",
+    unit="steps",
+    run_fn=_run_eos_gap_std,
 ))
 
 

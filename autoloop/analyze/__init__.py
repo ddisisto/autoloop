@@ -15,7 +15,7 @@ For scalar summaries, always use comp_stats(). Access raw arrays only for
 time-series work where positional alignment matters.
 
 Submodules:
-    analyze.metrics    — scalar metric extraction (surprisal, EOS, decorrelation)
+    analyze.scalars    — scalar metric extraction (surprisal, EOS, decorrelation)
     analyze.semantic   — vocabulary, Heaps' law, coherence, repetition onset
     analyze.cache      — .analysis.pkl cache management
 """

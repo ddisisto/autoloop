@@ -28,7 +28,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 - Each run: one Parquet + JSON sidecar + `.analysis.pkl` cache + `.ckpt` checkpoint. Survey runs also produce `.basins.pkl` (captures with 576-dim embeddings)
 - Per-step `temperature` and `context_length` columns in parquet (vary per-step in scheduled/controller runs)
 - Compressibility arrays have leading NaN (first W-1 positions). Use `comp_stats(cache, W)` for scalar summaries; raw arrays only for time-series
-- Analysis cache: single `.analysis.pkl` per parquet, incremental (new window sizes merged in), invalidated by parquet mtime
+- Analysis cache: single `.analysis.pkl` per parquet, incremental (new window sizes merged in), invalidated by parquet mtime or cache version mismatch (CACHE_VERSION in analyze/cache.py)
 - `default_window_sizes()` returns [32,64,128,256] (floor at 32, always includes W>L)
 - Checkpoints: same stem as parquet `.ckpt` -- kept after completion for extension
 - Basin data: three-tier storage. Embeddings in `.basins.pkl`, type centroids in `data/basins/centroids.npy` + `.json`, scalar summaries in SQLite. `loop index build` ingests pkl/json into DB
@@ -42,7 +42,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 
 ## Current state
 
-**What's built:** All modules in `autoloop/` package. metrics.py (central metric registry: MetricDef + register/get/by_scale + heaps_beta_ols; 11 built-in metrics across step/window/run scales), engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController with direct state tracking + CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage (discovers window metrics from registry), plot.py (+ generic plot_metric_timeseries), explorer.py (metric discovery from registry), precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
+**What's built:** All modules in `autoloop/` package. metrics.py (central metric registry: MetricDef + register/get/by_scale + heaps_beta_ols + decorrelation_lag; 18 built-in metrics across step/window/run scales; all run-level compute functions consolidated here), engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController with direct state tracking + CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage (discovers window metrics from registry; scalars.py iterates registry for run_scalars(); cache.py with version-validated .analysis.pkl), plot.py (+ generic plot_metric_timeseries), explorer.py (metric discovery from registry), precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
 
 **Data collected:** ~70 runs. Run `loop index query` for the live catalog.
 

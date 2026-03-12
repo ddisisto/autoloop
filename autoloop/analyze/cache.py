@@ -12,6 +12,8 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 
+CACHE_VERSION = 2  # bump to invalidate all caches
+
 
 def cache_path(parquet_path: Path) -> Path:
     """Single cache file per parquet."""
@@ -29,11 +31,16 @@ def load_cache(parquet_path: Path) -> dict | None:
     if cache.get("parquet_mtime") != pq_mtime:
         log.info("Cache stale for %s (parquet changed)", parquet_path.name)
         return None
+    if cache.get("cache_version") != CACHE_VERSION:
+        log.info("Cache version mismatch for %s (have %s, want %d)",
+                 parquet_path.name, cache.get("cache_version"), CACHE_VERSION)
+        return None
     return cache
 
 
 def save_cache(parquet_path: Path, cache: dict) -> None:
     """Save cache with current parquet mtime."""
+    cache["cache_version"] = CACHE_VERSION
     cache["parquet_mtime"] = parquet_path.stat().st_mtime
     cp = cache_path(parquet_path)
     with open(cp, "wb") as f:

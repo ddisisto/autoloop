@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from .analyze import analyze_run, comp_stats, load_experiment_df
-from .analyze.metrics import run_scalars
+from .analyze.scalars import run_scalars
 from .plot import parse_run_name
 
 log = logging.getLogger(__name__)
@@ -29,9 +29,8 @@ def build_summary(runs_dir: Path) -> pd.DataFrame:
 
         exp = load_experiment_df(pq)
         analysis = analyze_run(pq, window_sizes=[64], exp=exp)
-        acf = analysis["entropy_autocorrelation"]
 
-        scalars = run_scalars(exp, acf)
+        scalars = run_scalars(exp, analysis)
 
         comp_w64_mean = comp_stats(analysis, 64)["mean"]
 
