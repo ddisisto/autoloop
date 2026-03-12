@@ -29,13 +29,13 @@ SmolLM-135M, autoregressive free generation. No external input after initial see
 
 ## Infrastructure
 
-**Built (engine.py + experiment.py):**
+**Built:**
 - `StepEngine`: single token loop, trailing-window sensors (entropy, β, comp), `snapshot()`/`restore()` rollback, checkpoint persistence
-- `StateMachine`: composable controller with named states + sensor-driven transitions — the basin survey protocol maps directly to states
-- `BetaController`: existing hill-climb controller, proves the sensor→action loop works
-- `grep_text.py`: CLI grep for decoded text in runs — motif hunting across the corpus
-
-**What this means:** The cooling/heating survey protocol described below can be implemented as a `StateMachine` experiment with states COOLING → CAPTURED → CHARACTERISING → HEATING → TRANSIT and sensor-driven transitions between them. The engine's `snapshot()`/`restore()` enables depth profiling via checkpoint forking. No new infrastructure needed — just a new experiment definition.
+- `SurveyController`: direct state tracking (COOLING → CAPTURED → HEATING → TRANSIT) with gradient T ramps
+- `CentroidCatalogue`: load/save centroids, cosine novelty detection, type registration
+- `BetaController`: hill-climb controller, proves the sensor→action loop works
+- `loop survey`: CLI entry point for basin survey runs
+- `loop grep`: decoded text search across runs — motif hunting across the corpus
 
 ## Compression as Identity
 
@@ -66,32 +66,34 @@ TRANSIT  ──[context_flushed]─→  COOLING
 
 ### COOLING (basin capture)
 
-Set T below T_escape(L). Generate until sensors indicate capture:
-- Entropy variance drops below threshold (rolling window)
-- Compressibility at W=64 stabilises
-- Continue for ≥2× decorrelation lag after stabilisation
+Ramp T down from T_max toward T_min (multiplicative steps, `dT_frac` per segment). Generate until sensors indicate capture:
+- Entropy delta between consecutive segments drops below threshold
+- Stability persists for N consecutive readings
+- Minimum cooling segments before capture can trigger (let system settle)
 
-**Transition → CAPTURED:** entropy_std < threshold for N consecutive segments.
+**Transition → CAPTURED:** entropy stabilized (N consecutive low-delta segments).
 
 ### CAPTURED (characterisation)
 
-At the basin record point, record:
+Transient state — record capture and immediately transition. At the basin record point, record:
 
 **Compression spectrum (primary identity):**
 - comp_W at W ∈ {16, 32, 64, 128, 256}
 - W*: window of best compression
-- Gzip dictionary content at W* (repeated byte sequences = fingerprint)
 - Decoupling index: comp_W64 − comp_W256
 
 **Sensor profile:**
 - Entropy: mean, std, floor
-- Decorrelation lag (ACF < 1/e)
 - EOS rate
 - Heaps' β (trailing window)
 
-**Depth profile (via checkpoint forking):**
+**Embedding:**
+- Mean-pooled last-layer hidden state (576-dim) from attractor text
+- Cosine distance to all known centroids for novelty detection
+
+**Deferred — depth profile (via checkpoint forking):**
 - `engine.snapshot()` at basin record point
-- Fork branches with perturbed T ∈ {+0.05, +0.10, +0.20} and L ∈ {L/2, L, 2L}
+- Fork branches with perturbed T and L
 - Measure steps before collapse or escape in each branch
 - `engine.restore()` after each probe
 - Depth score = mean elaboration steps across forks
@@ -100,17 +102,16 @@ At the basin record point, record:
 
 ### HEATING (escape)
 
-Raise T above T_escape(L). Record:
-- Steps to escape (entropy rises above floor + threshold)
-- Escape trajectory in (entropy, comp) phase space
-- Semantic residue: gzip dictionary overlap with pre-escape basin
+Ramp T up toward T_max (multiplicative steps). Record:
+- Steps to escape (entropy rises above floor + ESCAPE_ENTROPY_RISE)
+- T at which escape occurs
 
-**Transition → TRANSIT:** entropy spike detected (>6 nats, or >3× basin floor).
-**Transition → CAPTURED:** entropy drops to new floor (deeper basin found).
+**Transition → TRANSIT:** entropy rise detected, or T reaches T_max ceiling.
+**Transition → CAPTURED:** entropy drops to new floor (deeper basin found during heating).
 
 ### TRANSIT (context flush)
 
-Hold T above T_escape(L) for ≥L tokens (context turnover). Then cool back to survey temperature.
+Hold T at escape level for ≥L tokens (context turnover). Then begin cooling again.
 
 **Transition → COOLING:** L tokens generated since escape.
 
@@ -190,8 +191,8 @@ type_id            # assigned basin type (FK → basin_types)
 capture_step, record_step
 L, T_capture
 comp_W{16,32,64,128,256}, W_star
-entropy_mean/std/floor, heaps_beta, decorrelation_lag, eos_rate
-depth_score        # mean elaboration steps under perturbation
+entropy_mean/std/floor, heaps_beta, eos_rate
+depth_score        # mean elaboration steps under perturbation (deferred)
 escape_T, escape_steps
 attractor_text, attractor_period
 novelty_distance   # cosine distance to nearest type at capture time
@@ -204,12 +205,6 @@ prev_capture_id, next_capture_id
 | Per-capture embeddings (576-dim) | `.basins.pkl` per survey run | Full fidelity, reanalysis |
 | Type centroids (N_types × 576) | `data/basins/centroids.npy` + `.json` | Fast load at survey startup |
 | Scalar summaries | SQLite `basin_types` + `basin_captures` | Queryable via `loop index` |
-
-### Implementation
-- `engine.comp_spectrum()`: point-in-time compression at W={16,32,64,128,256}
-- `engine.embed_context()`: mean-pooled last-layer hidden state (576-dim)
-- `runindex.py`: `index_basin_types()` ingests `centroids.json`, `index_basin_captures()` ingests `.basins.pkl`
-- `loop index build` runs both automatically
 
 ## Analysis Targets
 
@@ -225,17 +220,17 @@ prev_capture_id, next_capture_id
 ### Layer 1 — Terrain (SmolLM-135M)
 The model generates tokens autoregressively. It falls into basins. It does not know what it is doing.
 
-### Layer 2 — Perception (engine.read_sensors)
-Compression spectrum, entropy, Heaps' β, decorrelation lag, and EOS rate transform the raw token stream into a ~10-dimensional state vector. Mechanistic, fully automatable. Basins cluster naturally in this space. **Status: built.** The engine computes these in real-time after each segment.
+### Layer 2 — Perception (sensors)
+Compression spectrum, entropy, Heaps' β, and EOS rate transform the raw token stream into a ~10-dimensional state vector. Mechanistic, fully automatable. Basins cluster naturally in this space. **Status: built.** The engine computes these in real-time after each segment.
 
 ### Layer 3 — Navigation (controller)
 **Input:** sensor state vector. **Output:** (ΔT, ΔL).
 
 Three tiers of increasing sophistication:
 
-**Tier A — Rule-based (built):** The `BetaController` and `StateMachine` in experiment.py. Fixed rules: if β < zone, raise T; if entropy crashes, rollback. Good enough for systematic survey and β-targeting. The basin survey protocol is a rule-based state machine.
+**Tier A — Rule-based (built).** `BetaController` for β-targeting and `SurveyController` for basin survey. Fixed rules: ramp T based on state, detect transitions via sensor thresholds. Good enough for systematic survey and β-targeting.
 
-**Tier B — Learned policy (next):** Train a small model on (sensor_state → action) pairs from existing controller runs. The input space is ~10D, output is 2D (ΔT, ΔL). A linear model or small MLP may suffice — the state space is well-structured.
+**Tier B — Learned policy (next).** Train a small model on (sensor_state → action) pairs from existing controller runs. The input space is ~10D, output is 2D (ΔT, ΔL). A linear model or small MLP may suffice — the state space is well-structured.
 
 Training data comes from per-step sensor readings in parquet files. Controller and survey runs record temperature, context_length, entropy, and other signals at every token.
 
@@ -246,7 +241,7 @@ Candidate objectives:
 
 The β-tracking objective can be trained today with zero new data. Exploration and exploitation objectives require the survey protocol to generate training signal.
 
-**Tier C — Adaptive (future):** Online learning during generation. The controller updates its policy as it discovers new basins. Bandit-style exploration/exploitation tradeoff over the basin landscape.
+**Tier C — Adaptive (future).** Online learning during generation. The controller updates its policy as it discovers new basins. Bandit-style exploration/exploitation tradeoff over the basin landscape.
 
 ## Scaling Considerations
 
@@ -259,10 +254,11 @@ Frontier models with tool use: action space grows beyond (T, L). State space gai
 ## Roadmap
 
 ### Phase 1 — Pilot at L=8
-- Implement basin survey as `StateMachine` experiment (`survey.py` + `loop survey`)
-- Embedding extraction at capture time (model already loaded)
-- Online novelty detection: cosine distance to existing centroids
-- L=8 null seed, run until saturation. Shake down the protocol, build the clustering pipeline on fast, cheap data
+- ~~Implement basin survey (`loop survey`)~~  done
+- ~~Embedding extraction at capture time~~  done
+- ~~Online novelty detection: cosine distance to existing centroids~~  done
+- Tune capture detection thresholds (see [basin-mapping-phase1.md](basin-mapping-phase1.md))
+- L=8 null seed, run until saturation
 - Validate: embedding clusters and compression spectrum clusters agree
 
 ### Phase 2 — Adaptive L-Ladder
@@ -276,7 +272,7 @@ Frontier models with tool use: action space grows beyond (T, L). State space gai
 - Train β-tracking model on sensor data from existing runs
 - Compare to rule-based BetaController on held-out runs
 - If effective: train exploration-objective model on survey data (maximize novel basins per unit time)
-- Plug learned controller into experiment.py as a new controller type
+- Plug learned controller in as a new controller type
 
 ### Phase 4 — Topology and Analysis
 - Basin census: count vs L curve, saturation point
