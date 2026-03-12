@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import kurtosis, skew
 
-from analyze.summary import summarize_run
+from .summary import summarize_run
 
 
 def surprisal_stats(exp: pd.DataFrame) -> dict:

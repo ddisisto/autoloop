@@ -20,7 +20,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.logging import disable_progress_bar
 
-from utils import compressibility, fix_decoded_texts
+from .utils import compressibility, fix_decoded_texts
 
 log = logging.getLogger(__name__)
 

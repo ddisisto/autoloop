@@ -9,7 +9,7 @@ import logging
 import sys
 from pathlib import Path
 
-from runindex import DB_PATH, RUNS_ROOT
+from autoloop.runindex import DB_PATH, RUNS_ROOT
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def resolve_runs(
         log.error("No index at %s — run 'loop index build' first.", db_path)
         sys.exit(1)
 
-    from runindex import create_db, query_runs
+    from autoloop.runindex import create_db, query_runs
 
     conn = create_db(db_path)
 
@@ -122,7 +122,7 @@ def _resolve_from_args(args: argparse.Namespace) -> list[Path]:
 
 def _auto_index_run(parquet_path: Path) -> None:
     """Index a single run into the database after completion."""
-    from runindex import create_db, index_run
+    from autoloop.runindex import create_db, index_run
     conn = create_db(DB_PATH)
     index_run(conn, parquet_path)
     conn.commit()
@@ -132,14 +132,14 @@ def _auto_index_run(parquet_path: Path) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Run an experiment (fixed, schedule, or beta)."""
-    from engine import StepEngine, load_model
-    from experiment import (
+    from autoloop.engine import StepEngine, load_model
+    from autoloop.experiment import (
         BetaController,
         FixedController,
         ScheduleController,
         run_experiment,
     )
-    import runlib
+    from autoloop import runlib
 
     model, tokenizer = load_model(args.model_dir, args.device)
     engine = StepEngine(model, tokenizer, args.device, args.seed)
@@ -205,7 +205,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 def cmd_sweep(args: argparse.Namespace) -> None:
     """Run or inspect sweeps."""
-    from sweep import (
+    from autoloop.sweep import (
         PRESETS,
         expand_grid,
         print_presets,
@@ -248,7 +248,7 @@ def cmd_sweep(args: argparse.Namespace) -> None:
     # Rebuild index after sweep
     if not args.dry_run:
         log.info("Rebuilding index after sweep...")
-        from runindex import create_db, reindex_all
+        from autoloop.runindex import create_db, reindex_all
         conn = create_db(DB_PATH)
         reindex_all(conn, RUNS_ROOT)
         conn.close()
@@ -256,7 +256,7 @@ def cmd_sweep(args: argparse.Namespace) -> None:
 
 def cmd_index(args: argparse.Namespace) -> None:
     """Build or query the run index."""
-    from runindex import create_db, query_runs, reindex_all, _format_table
+    from autoloop.runindex import create_db, query_runs, reindex_all, _format_table
 
     if args.index_cmd == "build":
         root = Path(args.root) if args.root else RUNS_ROOT
@@ -317,7 +317,7 @@ def cmd_plot(args: argparse.Namespace) -> None:
 
 def cmd_analyze(args: argparse.Namespace) -> None:
     """Recompute analysis caches for resolved runs."""
-    from analyze import analyze_run, default_window_sizes
+    from autoloop.analyze import analyze_run, default_window_sizes
 
     paths = _resolve_from_args(args)
     window_sizes = default_window_sizes(0)
@@ -333,7 +333,7 @@ def cmd_analyze(args: argparse.Namespace) -> None:
 def cmd_grep(args: argparse.Namespace) -> None:
     """Search decoded text in resolved runs."""
     import re
-    from grep_text import grep_run, format_match
+    from autoloop.grep_text import grep_run, format_match
 
     paths = _resolve_from_args(args)
     log.info("Searching %d runs for '%s'", len(paths), args.pattern)

@@ -33,11 +33,11 @@ from typing import TypedDict
 
 import pandas as pd
 
-import runlib
+from . import runlib
 
 log = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 SWEEP_DIR = runlib.SWEEP_DIR
 MODEL_DIR = REPO_ROOT / "data" / "model" / "SmolLM-135M"
 
@@ -112,11 +112,12 @@ def is_complete(L: int, T: float, seed: int) -> bool:
 
 def run_condition(L: int, T: float, seed: int) -> subprocess.CompletedProcess:
     cmd = [
-        sys.executable, str(REPO_ROOT / "generate.py"),
-        "--context-length", str(L),
-        "--temperature", str(T),
+        sys.executable, str(REPO_ROOT / "cli.py"),
+        "run", "fixed",
+        "-L", str(L),
+        "-T", str(T),
         "--seed", str(seed),
-        "--num-tokens", str(NUM_TOKENS),
+        "--total-steps", str(NUM_TOKENS),
         "--model-dir", str(MODEL_DIR),
         "--output-dir", str(SWEEP_DIR),
         "--device", DEVICE,

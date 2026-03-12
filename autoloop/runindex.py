@@ -26,8 +26,8 @@ from pathlib import Path
 
 import numpy as np
 
-from runlib import RUNS_ROOT, SURVEY_DIR, classify_run
-from schema import (
+from .runlib import RUNS_ROOT, SURVEY_DIR, classify_run
+from .schema import (
     BASIN_CAPTURES_COLUMNS, BASIN_TYPES_COLUMNS, init_db,
 )
 

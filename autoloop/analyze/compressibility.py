@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from utils import compressibility
+from ..utils import compressibility
 
 AUTOCORR_MAX_LAG = 2000
 

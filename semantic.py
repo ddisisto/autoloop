@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from analyze.semantic import (
+from autoloop.analyze.semantic import (
     HeapsLaw,
     CoherenceProfile,
     RepetitionOnset,

@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from analyze import analyze_run, comp_stats, load_experiment_df
-from analyze.metrics import run_scalars
-from plot import parse_run_name
+from autoloop.analyze import analyze_run, comp_stats, load_experiment_df
+from autoloop.analyze.metrics import run_scalars
+from autoloop.plot import parse_run_name
 
 log = logging.getLogger(__name__)
 

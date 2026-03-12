@@ -23,8 +23,8 @@ from pathlib import Path
 
 import numpy as np
 
-from engine import SensorReading, StepEngine, load_model
-from experiment import (
+from autoloop.engine import SensorReading, StepEngine, load_model
+from autoloop.experiment import (
     Action,
     FixedController,
     MachineState,
@@ -32,7 +32,7 @@ from experiment import (
     Transition,
     run_experiment,
 )
-import runlib
+from autoloop import runlib
 
 log = logging.getLogger(__name__)
 

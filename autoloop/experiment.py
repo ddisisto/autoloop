@@ -31,8 +31,8 @@ from typing import Callable
 
 import torch
 
-from engine import SensorReading, StepEngine, load_model
-import runlib
+from .engine import SensorReading, StepEngine, load_model
+from . import runlib
 
 log = logging.getLogger(__name__)
 

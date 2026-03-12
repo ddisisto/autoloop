@@ -26,13 +26,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analyze.cache import load_cache, save_cache, load_experiment_df
-from analyze.compressibility import (
+from .cache import load_cache, save_cache, load_experiment_df
+from .compressibility import (
     sliding_compressibility,
     stationarity_blocks,
     entropy_autocorrelation,
 )
-from analyze.summary import default_window_sizes, comp_stats, summarize_run
+from .summary import default_window_sizes, comp_stats, summarize_run
 
 log = logging.getLogger(__name__)
 

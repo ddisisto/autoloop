@@ -26,8 +26,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analyze import analyze_run, default_window_sizes, sliding_compressibility
-from analyze.metrics import decorrelation_lag
+from autoloop.analyze import analyze_run, default_window_sizes, sliding_compressibility
+from autoloop.analyze.metrics import decorrelation_lag
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger(__name__)
