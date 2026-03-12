@@ -1,23 +1,11 @@
-"""Pre-collapse trajectory analysis for autoloop runs.
+"""Pre-collapse trajectory analysis: detection and analysis.
 
 Detects collapse events, extracts pre-collapse features, maps attractor
 content, and characterizes W/L dynamics during the descent into attractors.
-
-Key outputs:
-- Per-run collapse event detection with onset step, attractor period, and content
-- Pre-collapse trajectory features: entropy slope, variance decay, EOS rate
-- Multi-scale compressibility dynamics (W/L ratios) through the descent
-- Cross-run summary CSV for systematic comparison
-
-Usage:
-    python precollapse.py                          # analyze all T<=1.0 runs
-    python precollapse.py --runs data/runs/L*.parquet  # specific runs
-    python precollapse.py --threshold 0.1          # custom entropy threshold
-    python precollapse.py --csv data/precollapse.csv   # write CSV
-    python precollapse.py --detail L0256_T0.80_S42     # detailed single-run report
 """
 
-import argparse
+from __future__ import annotations
+
 import logging
 import pickle
 from dataclasses import dataclass, field
@@ -26,10 +14,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from autoloop.analyze import analyze_run, default_window_sizes, sliding_compressibility
-from autoloop.analyze.metrics import decorrelation_lag
+from .analyze import analyze_run, default_window_sizes, sliding_compressibility
+from .analyze.metrics import decorrelation_lag
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 RUNS_DIR = Path("data/runs")
@@ -51,6 +38,18 @@ class CollapseEvent:
     entropy_floor: float          # mean entropy during collapse
     pre_onset_entropy_mean: float # mean entropy in pre-collapse window
     pre_onset_entropy_slope: float  # linear entropy slope approaching onset
+
+
+@dataclass
+class BasinTransition:
+    """A transition between attractor basins."""
+    collapse_start: int
+    escape_step: int
+    duration: int       # steps in basin before escape
+    floor: float        # mean entropy during collapse
+    spike: float        # max entropy at escape
+    landing: float      # mean entropy in 2000 steps after escape
+    direction: str      # "deeper" or "shallower"
 
 
 @dataclass
@@ -184,14 +183,7 @@ def pre_collapse_features(
     onset: int,
     window: int = 2000,
 ) -> dict:
-    """Extract trajectory features from the window before collapse onset.
-
-    Args:
-        entropy: full entropy array
-        eos: full EOS boolean array
-        onset: step index of collapse onset
-        window: number of steps before onset to analyze
-    """
+    """Extract trajectory features from the window before collapse onset."""
     start = max(0, onset - window)
     pre_e = entropy[start:onset]
     pre_eos = eos[start:onset]
@@ -232,13 +224,7 @@ def multiscale_descent(
     onset: int,
     pre_window: int = 5000,
 ) -> dict:
-    """Characterize compressibility at multiple W sizes during the descent.
-
-    Returns dict with:
-        - pre_comp_spread: |comp_Wmax - comp_Wmin| in pre-collapse window
-        - descent_slopes: {W: slope} of compressibility approaching onset
-        - w_l_convergence: at what W/L ratio does compressibility diverge most?
-    """
+    """Characterize compressibility at multiple W sizes during the descent."""
     comp_data = cache.get("compressibility", {})
     if not comp_data:
         return {"pre_comp_spread": float("nan"), "descent_slopes": {}, "w_ratios": {}}
@@ -274,28 +260,13 @@ def multiscale_descent(
     }
 
 
-@dataclass
-class BasinTransition:
-    """A transition between attractor basins."""
-    collapse_start: int
-    escape_step: int
-    duration: int       # steps in basin before escape
-    floor: float        # mean entropy during collapse
-    spike: float        # max entropy at escape
-    landing: float      # mean entropy in 2000 steps after escape
-    direction: str      # "deeper" or "shallower"
-
-
 def detect_basin_transitions(
     entropy: np.ndarray,
     threshold: float = 0.1,
     min_collapse: int = 200,
     landing_window: int = 2000,
 ) -> list[BasinTransition]:
-    """Find all transitions out of collapsed basins.
-
-    Detects: sustained low entropy → escape spike → landing.
-    """
+    """Find all transitions out of collapsed basins."""
     transitions = []
     in_low = False
     low_start = 0
@@ -328,16 +299,7 @@ def detect_basin_transitions(
 
 
 def wl_convergence_profile(cache: dict, L: int) -> dict:
-    """Analyze how compressibility behaves as W approaches L.
-
-    The W/L boundary is where the measurement window equals the model's
-    context — this is where "memory saturation" dynamics become visible.
-
-    Returns:
-        - comp_by_wl_ratio: {W/L_ratio: mean_compressibility} across the run
-        - slope_divergence: difference in comp slope between W<<L and W≈L
-        - saturation_w: smallest W where comp stabilizes (slope change < 5%)
-    """
+    """Analyze how compressibility behaves as W approaches L."""
     comp_data = cache.get("compressibility", {})
     if not comp_data:
         return {}
@@ -482,7 +444,7 @@ def analyze_precollapse(
         pre_start = max(0, first_onset - pre_window)
         pre_entropy = entropy[pre_start:first_onset]
         if len(pre_entropy) > 100:
-            from analyze.compressibility import entropy_autocorrelation
+            from .analyze.compressibility import entropy_autocorrelation
             acf = entropy_autocorrelation(pre_entropy, max_lag=min(500, len(pre_entropy) - 1))
             result.pre_decorr_lag = decorrelation_lag(acf)
 
@@ -514,231 +476,3 @@ def analyze_precollapse(
     result.basin_transitions = detect_basin_transitions(entropy, threshold=threshold)
 
     return result
-
-
-# ---------------------------------------------------------------------------
-# Output formatting
-# ---------------------------------------------------------------------------
-
-def summary_row(ra: RunAnalysis) -> dict:
-    """Flatten RunAnalysis to a dict suitable for CSV."""
-    row = {
-        "run_id": ra.run_id,
-        "L": ra.L,
-        "T": ra.T,
-        "seed": ra.seed,
-        "n_steps": ra.n_steps,
-        "n_collapse_events": len(ra.events),
-        "total_collapsed_steps": ra.total_collapsed_steps,
-        "collapse_fraction": round(ra.collapse_fraction, 4),
-        "first_collapse_step": ra.first_collapse_step,
-        "dominant_attractor": ra.dominant_attractor,
-        "dominant_period": ra.dominant_period,
-        "pre_entropy_mean": round(ra.pre_entropy_mean, 4) if not np.isnan(ra.pre_entropy_mean) else None,
-        "pre_entropy_std": round(ra.pre_entropy_std, 4) if not np.isnan(ra.pre_entropy_std) else None,
-        "pre_entropy_slope": f"{ra.pre_entropy_slope:.2e}" if not np.isnan(ra.pre_entropy_slope) else None,
-        "pre_entropy_var_decay": f"{ra.pre_entropy_var_decay:.2e}" if not np.isnan(ra.pre_entropy_var_decay) else None,
-        "pre_eos_rate": round(ra.pre_eos_rate, 4) if not np.isnan(ra.pre_eos_rate) else None,
-        "pre_decorr_lag": ra.pre_decorr_lag,
-        "pre_comp_spread": round(ra.pre_comp_spread, 4) if not np.isnan(ra.pre_comp_spread) else None,
-        "collapse_intensity": round(ra.collapse_intensity, 4),
-        "regime": ra.regime,
-        "n_basin_transitions": len(ra.basin_transitions),
-        "n_deeper_transitions": sum(1 for t in ra.basin_transitions if t.direction == "deeper"),
-        "mean_spike": round(np.mean([t.spike for t in ra.basin_transitions]), 3) if ra.basin_transitions else None,
-        "mean_floor": round(np.mean([t.floor for t in ra.basin_transitions]), 4) if ra.basin_transitions else None,
-    }
-    # Add per-W descent slopes
-    for W in STANDARD_W:
-        val = ra.descent_comp_slope.get(W)
-        row[f"descent_slope_W{W}"] = f"{val:.2e}" if val is not None else None
-    # W/L convergence
-    wl = ra.wl_convergence
-    if wl:
-        row["wl_slope_divergence"] = round(wl.get("slope_divergence", float("nan")), 6) if not np.isnan(wl.get("slope_divergence", float("nan"))) else None
-        for ratio, comp in sorted(wl.get("comp_by_wl_ratio", {}).items()):
-            row[f"comp_wl_{ratio:.2f}"] = round(comp, 4)
-    return row
-
-
-def detail_report(ra: RunAnalysis) -> str:
-    """Detailed text report for a single run."""
-    lines = [
-        f"{'='*70}",
-        f"Pre-Collapse Analysis: {ra.run_id}",
-        f"L={ra.L}, T={ra.T}, seed={ra.seed}, steps={ra.n_steps}",
-        f"{'='*70}",
-        "",
-        f"Regime: {ra.regime} (intensity={ra.collapse_intensity:.3f})",
-        f"Collapse events: {len(ra.events)}",
-        f"Total collapsed steps: {ra.total_collapsed_steps} ({100*ra.collapse_fraction:.1f}%)",
-        f"First collapse at step: {ra.first_collapse_step}",
-        "",
-    ]
-
-    for i, ev in enumerate(ra.events):
-        end_str = str(ev.end_step) if ev.end_step is not None else "END"
-        lines.extend([
-            f"--- Event {i+1}: steps {ev.onset_step} → {end_str} ({ev.duration} steps) ---",
-            f"  Entropy floor: {ev.entropy_floor:.4f}",
-            f"  Pre-onset entropy: mean={ev.pre_onset_entropy_mean:.3f}, slope={ev.pre_onset_entropy_slope:.2e}",
-            f"  Attractor period: {ev.attractor_period} tokens",
-            f"  Attractor text: {repr(ev.attractor_text[:120])}",
-            "",
-        ])
-
-    if ra.events:
-        lines.extend([
-            "--- Pre-first-collapse trajectory ---",
-            f"  Entropy: mean={ra.pre_entropy_mean:.3f}, std={ra.pre_entropy_std:.3f}",
-            f"  Entropy slope: {ra.pre_entropy_slope:.2e} (negative = descending)",
-            f"  Variance decay: {ra.pre_entropy_var_decay:.2e} (negative = narrowing)",
-            f"  EOS rate: {ra.pre_eos_rate:.4f}",
-            f"  Decorrelation lag: {ra.pre_decorr_lag}",
-            f"  Multi-scale spread: {ra.pre_comp_spread:.4f}",
-            "",
-            "  Compressibility descent slopes by W:",
-        ])
-        for W in sorted(ra.descent_comp_slope.keys()):
-            slope = ra.descent_comp_slope[W]
-            lines.append(f"    W={W:3d}: {slope:.2e}")
-
-    # W/L convergence profile
-    wl = ra.wl_convergence
-    if wl and wl.get("comp_by_wl_ratio"):
-        lines.extend(["", "--- W/L Convergence Profile ---"])
-        for ratio in sorted(wl["comp_by_wl_ratio"].keys()):
-            comp = wl["comp_by_wl_ratio"][ratio]
-            slope = wl.get("slope_by_wl_ratio", {}).get(ratio, float("nan"))
-            lines.append(f"  W/L={ratio:.2f}: comp={comp:.3f}, trend={slope:.2e}")
-        sd = wl.get("slope_divergence", float("nan"))
-        if not np.isnan(sd):
-            lines.append(f"  Slope divergence (large_W - small_W): {sd:.2e}")
-        spreads = wl.get("block_spreads", [])
-        if spreads:
-            lines.append(f"  Block spreads (Wmax-Wmin over time): {' '.join(f'{s:.3f}' for s in spreads)}")
-
-    # Basin transitions
-    if ra.basin_transitions:
-        n_deeper = sum(1 for t in ra.basin_transitions if t.direction == "deeper")
-        lines.extend([
-            "",
-            f"--- Basin Transitions ({len(ra.basin_transitions)} escapes, {n_deeper} to deeper basins) ---",
-        ])
-        for t in ra.basin_transitions:
-            lines.append(
-                f"  step {t.collapse_start:>6d}→{t.escape_step:>6d} ({t.duration:>5d} steps): "
-                f"floor={t.floor:.3f}, spike={t.spike:.1f}, landing={t.landing:.3f} ({t.direction})"
-            )
-
-    return "\n".join(lines)
-
-
-def print_summary(df: pd.DataFrame, results: list[RunAnalysis] | None = None) -> None:
-    """Print regime-grouped summary table to stdout.
-
-    Args:
-        df: DataFrame of summary_row dicts (columns: run_id, regime, etc.).
-        results: Optional list of RunAnalysis (unused, kept for API compat).
-    """
-    print(f"\n{'='*80}")
-    print(f"Pre-Collapse Summary: {len(df)} runs analyzed")
-    print(f"{'='*80}")
-
-    for regime in ["deep_collapsed", "collapsed", "oscillating", "escaped"]:
-        regime_df = df[df["regime"] == regime]
-        if len(regime_df) == 0:
-            continue
-        print(f"\n--- {regime.upper()} ({len(regime_df)} runs) ---")
-
-        if regime in ("deep_collapsed", "collapsed"):
-            print(f"{'Run':<22s} {'Intens':>6s} {'Onset':>7s} {'Frac':>6s} {'Pre-H':>6s} "
-                  f"{'Slope':>10s} {'Spread':>6s} {'Per':>4s} Attractor")
-            for _, row in regime_df.iterrows():
-                onset = row["first_collapse_step"]
-                onset_str = f"{int(onset):>7d}" if onset is not None else "    N/A"
-                pre_h = f"{row['pre_entropy_mean']:.3f}" if row["pre_entropy_mean"] is not None else "  N/A"
-                slope = row["pre_entropy_slope"] if row["pre_entropy_slope"] is not None else "       N/A"
-                spread = f"{row['pre_comp_spread']:.3f}" if row["pre_comp_spread"] is not None else " N/A"
-                attractor = (row["dominant_attractor"] or "")[:30]
-                print(f"{row['run_id']:<22s} {row['collapse_intensity']:>6.3f} {onset_str} "
-                      f"{row['collapse_fraction']:>6.2f} {pre_h:>6s} {slope:>10s} "
-                      f"{spread:>6s} {row['dominant_period']:>4d} {attractor}")
-        else:
-            print(f"{'Run':<22s} {'Intens':>6s} {'Entropy':>8s}")
-            for _, row in regime_df.iterrows():
-                e_mean = f"{row.get('pre_entropy_mean', 'N/A')}" if row.get("pre_entropy_mean") is not None else "N/A"
-                print(f"{row['run_id']:<22s} {row['collapse_intensity']:>6.3f} {e_mean:>8s}")
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-def find_runs(patterns: list[str] | None, runs_dir: Path = RUNS_DIR) -> list[Path]:
-    """Find parquet files matching patterns, or all T<=1.0 runs."""
-    if patterns:
-        from glob import glob
-        paths = []
-        for p in patterns:
-            paths.extend(Path(x) for x in sorted(glob(p)))
-        return [p for p in paths if p.suffix == ".parquet"]
-
-    # Default: all fixed-param runs with T <= 1.0
-    all_runs = sorted(runs_dir.glob("L*_T*_S*.parquet"))
-    filtered = []
-    for p in all_runs:
-        try:
-            T = float(p.stem.split("_")[1][1:])
-            if T <= 1.20:
-                filtered.append(p)
-        except (IndexError, ValueError):
-            continue
-    return filtered
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Pre-collapse trajectory analysis")
-    parser.add_argument("--runs", nargs="*", help="Parquet file patterns (default: all T<=1.2)")
-    parser.add_argument("--threshold", type=float, default=0.1, help="Entropy collapse threshold")
-    parser.add_argument("--pre-window", type=int, default=2000, help="Steps before onset to analyze")
-    parser.add_argument("--csv", type=str, help="Output CSV path")
-    parser.add_argument("--detail", type=str, help="Run ID for detailed report")
-    args = parser.parse_args()
-
-    paths = find_runs(args.runs)
-    log.info("Analyzing %d runs", len(paths))
-
-    results = []
-    for p in paths:
-        log.info("Processing %s", p.stem)
-        ra = analyze_precollapse(p, threshold=args.threshold, pre_window=args.pre_window)
-        results.append(ra)
-
-        if args.detail and args.detail in ra.run_id:
-            print(detail_report(ra))
-
-    # Summary table
-    rows = [summary_row(ra) for ra in results]
-    df = pd.DataFrame(rows)
-
-    # Sort by L, T, seed
-    df = df.sort_values(["L", "T", "seed"]).reset_index(drop=True)
-
-    if args.csv:
-        df.to_csv(args.csv, index=False)
-        log.info("Wrote %s", args.csv)
-    else:
-        print_summary(df, results)
-
-    # If no --detail given but --csv also not given, print detailed reports for interesting cases
-    if not args.detail and not args.csv:
-        # Show detail for runs with recovery (temporary collapse)
-        for ra in results:
-            recoveries = [e for e in ra.events if e.end_step is not None]
-            if recoveries:
-                print(f"\n{detail_report(ra)}")
-
-
-if __name__ == "__main__":
-    main()

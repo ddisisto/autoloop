@@ -21,8 +21,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from autoloop.analyze import analyze_run, default_window_sizes
-from autoloop.utils import eos_ema
+from .analyze import analyze_run, default_window_sizes
+from .utils import eos_ema
 
 log = logging.getLogger(__name__)
 

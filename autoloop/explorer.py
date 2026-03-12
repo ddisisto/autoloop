@@ -18,7 +18,7 @@ from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from autoloop.analyze import analyze_run, default_window_sizes
+from .analyze import analyze_run, default_window_sizes
 
 log = logging.getLogger(__name__)
 

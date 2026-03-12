@@ -299,12 +299,12 @@ def cmd_explore(args: argparse.Namespace) -> None:
     """Start the interactive explorer."""
     import uvicorn
     log.info("Starting explorer on port %d...", args.port)
-    uvicorn.run("explorer:app", host="0.0.0.0", port=args.port, reload=True)
+    uvicorn.run("autoloop.explorer:app", host="0.0.0.0", port=args.port, reload=True)
 
 
 def cmd_plot(args: argparse.Namespace) -> None:
     """Generate plots for resolved runs."""
-    from plot import plot_runs
+    from autoloop.plot import plot_runs
 
     paths = _resolve_from_args(args)
     log.info("Plotting %d runs", len(paths))
@@ -370,7 +370,9 @@ def cmd_grep(args: argparse.Namespace) -> None:
 
 def cmd_semantic(args: argparse.Namespace) -> None:
     """Run semantic analysis (clouds or themes)."""
-    from semantic import _load_runs, run_clouds, run_themes
+    from autoloop.semantic import _load_runs
+    from autoloop.semantic_clouds import run_clouds
+    from autoloop.semantic_report import run_themes
 
     # Semantic analysis uses its own run loading (needs full text).
     # Convert resolved paths to string file list for _load_runs.
@@ -379,7 +381,7 @@ def cmd_semantic(args: argparse.Namespace) -> None:
         files = [str(p) for p in paths]
     else:
         # No run IDs specified — use all runs via semantic's own discovery
-        from semantic import _discover_run_files
+        from autoloop.semantic import _discover_run_files
         files = _discover_run_files(None)
 
     if not files:
@@ -405,8 +407,8 @@ def cmd_semantic(args: argparse.Namespace) -> None:
 def cmd_precollapse(args: argparse.Namespace) -> None:
     """Run pre-collapse trajectory analysis."""
     import pandas as pd
-    from precollapse import (
-        analyze_precollapse,
+    from autoloop.precollapse import analyze_precollapse
+    from autoloop.precollapse_report import (
         detail_report,
         print_summary,
         summary_row,
@@ -448,7 +450,7 @@ def cmd_precollapse(args: argparse.Namespace) -> None:
 
 def cmd_survey(args: argparse.Namespace) -> None:
     """Run a basin survey."""
-    from survey import run_survey
+    from autoloop.survey import run_survey
 
     output_dir = Path(args.output_dir) if args.output_dir else None
     parquet_path = run_survey(
@@ -470,7 +472,7 @@ def cmd_survey(args: argparse.Namespace) -> None:
 
 def cmd_summary(args: argparse.Namespace) -> None:
     """Generate cross-condition summary table."""
-    from summary_table import build_summary
+    from autoloop.summary import build_summary
 
     runs_dir = Path(getattr(args, "runs_dir", "data/runs"))
     df = build_summary(runs_dir)
