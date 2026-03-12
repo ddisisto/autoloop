@@ -343,7 +343,8 @@ class SurveyController:
         self, sensors: SensorReading, history: list[SensorReading],
     ) -> bool:
         rise = sensors.entropy_mean - self.ss.basin_entropy_floor
-        if rise > ESCAPE_ENTROPY_RISE:
+        at_ceiling = self.ss.current_T >= self.ss.T_max - 1e-6
+        if rise > ESCAPE_ENTROPY_RISE or at_ceiling:
             self.ss.transit_entry_step = sensors.step
             return True
         return False
