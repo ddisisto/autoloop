@@ -176,6 +176,16 @@ def _sensor_entropy_std(records: list[dict], window: int) -> float:
 # Run-level compute functions
 # ---------------------------------------------------------------------------
 
+def _run_entropy_mean(exp: pd.DataFrame, cache: dict) -> float:
+    """Mean entropy from experiment DataFrame."""
+    return float(exp.entropy.mean())
+
+
+def _run_entropy_std(exp: pd.DataFrame, cache: dict) -> float:
+    """Entropy std from experiment DataFrame."""
+    return float(exp.entropy.std())
+
+
 def _run_decorrelation_lag(exp: pd.DataFrame, cache: dict) -> float:
     """Decorrelation lag from analysis cache."""
     acf = cache.get("entropy_autocorrelation")
@@ -252,13 +262,22 @@ register(MetricDef(
     "entropy_mean", "Entropy Mean", "run",
     "Mean softmax entropy over run",
     unit="nats",
+    run_fn=_run_entropy_mean,
     sensor_fn=_sensor_entropy_mean,
 ))
 register(MetricDef(
     "entropy_std", "Entropy Std", "run",
     "Standard deviation of softmax entropy",
     unit="nats",
+    run_fn=_run_entropy_std,
     sensor_fn=_sensor_entropy_std,
+))
+
+# Derived step-level (computed from other columns)
+register(MetricDef(
+    "eos_ema", "EOS Rate (EMA)", "step",
+    "Exponential moving average of EOS flag (span=1000)",
+    column="eos",  # source column; actual computation uses eos_ema()
 ))
 
 

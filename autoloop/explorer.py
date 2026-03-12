@@ -343,15 +343,19 @@ def build_metric_registry(
             "description": f"Gzip compressibility over {w}-token sliding windows",
         })
 
-    # EOS rate EMA (derived step-level metric)
-    if "eos" in step_columns_found:
-        metrics.append({
-            "id": "eos_ema",
-            "name": "EOS Rate (EMA)",
-            "resolution": "step",
-            "source": "derived",
-            "description": "Exponential moving average of EOS flag (span=1000)",
-        })
+    # EOS rate EMA (derived step-level metric, from registry)
+    try:
+        eos_ema_def = get_metric("eos_ema")
+        if "eos" in step_columns_found:
+            metrics.append({
+                "id": eos_ema_def.id,
+                "name": eos_ema_def.name,
+                "resolution": "step",
+                "source": "derived",
+                "description": eos_ema_def.description,
+            })
+    except KeyError:
+        pass
 
     return metrics
 
