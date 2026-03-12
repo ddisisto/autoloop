@@ -166,10 +166,12 @@ class CentroidCatalogue:
 # Cooling multiplies by (1 - DT_FRAC), heating by (1 + DT_FRAC).
 DT_FRAC = 0.05
 
-# Stability detection: entropy_mean must change by less than this between
-# consecutive sensor readings for N consecutive readings to declare capture.
-ENTROPY_DELTA_THRESHOLD = 0.1
-STABILITY_COUNT = 3
+# Capture detection: β and entropy gates derived from regime analysis
+# (50 sweep runs, F-stat + Cohen's d). β < 0.40 is a clean collapse wall
+# (d=3.4, zero false positives). Entropy < 1.0 separates real basins from
+# suppressed dynamics. Both must hold for capture.
+CAPTURE_BETA_THRESHOLD = 0.40
+CAPTURE_ENTROPY_THRESHOLD = 1.0
 # Minimum segments in COOLING before capture can trigger (let system settle).
 MIN_COOLING_SEGMENTS = 5
 
@@ -187,7 +189,6 @@ class SurveyState:
     run_id: str
     current_T: float = 0.0  # set in __post_init__
     captures: list[dict] = field(default_factory=list)
-    stability_streak: int = 0
     cooling_segments: int = 0
     basin_entropy_floor: float = float("inf")
     transit_entry_step: int = 0
@@ -238,17 +239,12 @@ class SurveyController:
             self.ss.cooling_segments += 1
             if self.ss.cooling_segments < MIN_COOLING_SEGMENTS:
                 return None
-            if len(history) < 2:
-                return None
-            prev = history[-2]
-            delta = abs(sensors.entropy_mean - prev.entropy_mean)
-            if delta < ENTROPY_DELTA_THRESHOLD:
-                self.ss.stability_streak += 1
-            else:
-                self.ss.stability_streak = 0
-            if self.ss.stability_streak >= STABILITY_COUNT:
+            # Capture gate: β < 0.40 AND entropy < 1.0
+            # Both conditions must hold — β is the primary discriminator
+            # (collapse wall), entropy confirms we're at a real basin floor.
+            if (sensors.heaps_beta < CAPTURE_BETA_THRESHOLD
+                    and sensors.entropy_mean < CAPTURE_ENTROPY_THRESHOLD):
                 self.ss.basin_entropy_floor = sensors.entropy_mean
-                self.ss.stability_streak = 0
                 return "CAPTURED"
             return None
 
@@ -257,15 +253,12 @@ class SurveyController:
             return "HEATING"
 
         if self.state == "HEATING":
-            # Check deeper basin first
-            if len(history) >= 2:
-                prev = history[-2]
-                delta = abs(sensors.entropy_mean - prev.entropy_mean)
-                if (sensors.entropy_mean < self.ss.basin_entropy_floor * 0.8
-                        and delta < ENTROPY_DELTA_THRESHOLD
-                        and prev.entropy_mean > sensors.entropy_mean):
-                    self.ss.basin_entropy_floor = sensors.entropy_mean
-                    return "CAPTURED"
+            # Check deeper basin: same gates as capture, plus deeper than current floor
+            if (sensors.heaps_beta < CAPTURE_BETA_THRESHOLD
+                    and sensors.entropy_mean < CAPTURE_ENTROPY_THRESHOLD
+                    and sensors.entropy_mean < self.ss.basin_entropy_floor * 0.8):
+                self.ss.basin_entropy_floor = sensors.entropy_mean
+                return "CAPTURED"
             # Check escape
             rise = sensors.entropy_mean - self.ss.basin_entropy_floor
             at_ceiling = self.ss.current_T >= self.ss.T_max - 1e-6

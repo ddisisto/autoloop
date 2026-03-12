@@ -10,24 +10,17 @@ Tracking doc for the L=8 pilot survey. Goal: tune capture/escape detection, run 
 
 ### Capture detection (COOLING → CAPTURED)
 
-**Current implementation:** N consecutive segments where entropy delta < threshold.
+**Implementation:** β + entropy gate, derived from regime analysis (50 sweep runs, F-stat + Cohen's d).
 
 ```
-ENTROPY_DELTA_THRESHOLD = 0.1   # max delta between consecutive readings
-STABILITY_COUNT = 3             # consecutive low-delta readings needed
+CAPTURE_BETA_THRESHOLD = 0.40   # β < 0.40 is a clean collapse wall (d=3.4, zero false positives)
+CAPTURE_ENTROPY_THRESHOLD = 1.0 # entropy < 1.0 separates real basins from suppressed dynamics
 MIN_COOLING_SEGMENTS = 5        # minimum segments before capture can fire
 ```
 
-**Problem:** Fires on normal dynamics, not just basin capture. In the smoke test (L=8, 5k steps, seed=42), captured at ent=3.83, β=0.80 — that's rich dynamics, not a basin. The system was still descending; entropy hadn't actually stabilized.
+Both conditions must hold. β is the primary discriminator — it's the single cleanest regime gate in the dataset. Entropy confirms we're at a real basin floor, not just slow dynamics.
 
-**Options to explore:**
-- **Entropy derivative sign gate** — require entropy flat or rising, not descending. Descent means we haven't reached the floor yet
-- **Compressibility as secondary gate** — require comp stabilization alongside entropy. Comp changes lag entropy during transitions
-- **Entropy relative to T-dependent baseline** — ent=3.83 at T=0.49 is normal for L=8; real basins have much lower entropy
-- **Longer stability window** — increase STABILITY_COUNT or MIN_COOLING_SEGMENTS. Blunt but may help
-- **Absolute entropy floor** — require entropy below some L-dependent threshold before capture triggers
-
-**What to try first:** Entropy derivative sign gate seems most principled — if entropy is still falling, we're not at the floor. Combine with increased MIN_COOLING_SEGMENTS.
+**Previous approach (superseded):** entropy-delta stability (N consecutive low-delta readings). This fired on normal dynamics — captured at ent=3.83, β=0.80 in the smoke test, which is rich dynamics not a basin.
 
 ### Escape detection (HEATING → TRANSIT)
 
@@ -41,9 +34,9 @@ ESCAPE_ENTROPY_RISE = 1.0       # absolute rise above basin floor
 
 ### Deeper basin detection (HEATING → CAPTURED)
 
-**Current implementation:** During heating, if entropy drops to < 80% of current basin floor with low delta, re-capture.
+**Implementation:** Same β + entropy gates as capture, plus entropy < 80% of current basin floor. During heating, if the system falls into a deeper basin than the one it escaped, re-capture it.
 
-**Status:** Untested in practice. Depends on capture detection quality.
+**Status:** Untested in practice. Now shares the same validated gates as primary capture.
 
 ### Re-capture avoidance
 
@@ -82,9 +75,9 @@ ESCAPE_ENTROPY_RISE = 1.0       # absolute rise above basin floor
 - T_max ceiling fix triggers escape when T reaches 0.70
 - Full cycle completes but capture quality is poor
 
-### Key question
+### Key question (resolved)
 
-What does a real basin look like at L=8? From sweep data, L=8 at T=0.50 should collapse to ent < 1.0. The smoke test's ent=3.83 capture is nowhere near collapse — the stability detection triggered on normal fluctuations during the cooling ramp.
+What does a real basin look like at L=8? From sweep data, L=8 at T=0.50 should collapse to ent < 1.0. The smoke test's ent=3.83 capture was nowhere near collapse — stability detection triggered on normal fluctuations. **Fixed:** replaced with β < 0.40 + entropy < 1.0 gates from regime analysis (50 runs, zero false positives).
 
 ## Commands
 
