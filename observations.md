@@ -12,7 +12,7 @@ Append-only record of findings. Each entry includes reproduction commands.
 - T (temperature): per-step noise floor. Controls escape probability from attractors.
 - L (context length): memory horizon. Controls attractor basin depth, stickiness, and collapse boundary.
 
-**Four regimes** at fixed L: collapse (T≤T_escape), suppressed dynamics (structure but slow mixing), rich dynamics (T well above T_escape), noise (T≥1.50). The collapse boundary T_escape is L-dependent, but the coupling saturates at large L. Data-driven classification: β<0.40 → collapse; entropy>3.5 → high-entropy zone (comp_W256>0.65 → noise, else → rich); remainder → suppressed. Heaps' β is the best collapse/suppressed discriminator (Cohen's d=3.4); entropy_mean is the best rich/suppressed discriminator (d=3.4).
+**Four regimes** at fixed L: collapse (T≤T_escape), suppressed dynamics (structure but slow mixing), rich dynamics (T well above T_escape), noise (T≥1.50). The collapse boundary T_escape is L-dependent, sharp, and hysteretic. The noise boundary is smooth — no phase transition, just diminishing returns above T≈2.0. Data-driven classification: β<0.40 → collapse; entropy>3.5 → high-entropy zone (comp_W256>0.65 → noise, else → rich); remainder → suppressed. Heaps' β is the best collapse/suppressed discriminator (Cohen's d=3.4); entropy_mean is the best rich/suppressed discriminator (d=3.4).
 
 **Collapse boundary T_escape(L) increases then saturates.** Estimated escape temperatures: L=64/128 ≈ 0.55–0.60, L=192 ≈ 0.65–0.70, L=256 ≈ 0.85–0.90, L=512 ≈ 0.90. The steep rise from L=128→256 (~+0.3 in T) flattens out by L=512 (~+0.03). This suggests a characteristic scale: below L≈256, context amplifies collapse; above it, context is "sufficient" and temperature alone determines the regime.
 
@@ -28,7 +28,7 @@ Append-only record of findings. Each entry includes reproduction commands.
 
 **EOS peak tracks the escape boundary.** Peak EOS rate: L=64 at T=0.90 (0.00092), L=128 at T=0.90 (0.00104), L=192 at T=0.70 (0.00083), L=256 at T=0.90 (0.00087). The peak fires at or just above T_escape — where the system is actively transitioning between collapse and rich dynamics. L=192's peak at T=0.70 reflects its lower escape boundary.
 
-**T=1.50 is a universal noise floor.** Compressibility ~0.705 and entropy ~8.0–8.3 regardless of L. At high T, context length is irrelevant — thermal noise dominates.
+**T=1.50 is not a hard noise floor — the noise boundary is smooth and relational.** From T=1.5 to T=10, entropy gains only +0.4 (L=64) or +0.3 (L=256), saturating at ~55% of the theoretical max (8.4-8.7 vs log2(49152)=15.58). Even at T=10, the model retains strong opinions at ~45% of positions — the distribution is bimodal (55% near-uniform, 45% confident). L matters more than T above T≈2.0. The noise boundary is structurally defined by the space-prefix gradient: at T=1.0, the model's per-token confidence correlates with word-boundary position (gradient +0.57); at T=10, this correlation vanishes (gradient ~0) and token-type frequencies match the vocab baseline. The collapse boundary is intrinsic (the system locks itself); the noise boundary is relational (the model's dynamics decouple from linguistic structure that an observer can parse).
 
 **W (measurement window) is a third dimension.** Compressibility depends strongly on W. Standard grid: W ∈ {16, 32, 64, 128, 256}. At T=0.50, L-curves separate dramatically across W. At T≥0.90, L barely matters at any W. Gzip has fixed overhead (~20B header + Huffman table); at W=16 this inflates ratios above 1.0. Useful range: W≥64 for quantitative work, W≥32 qualitatively. Correction possible by normalizing against incompressible baseline at matched byte length.
 
@@ -77,6 +77,8 @@ Append-only record of findings. Each entry includes reproduction commands.
 - Can proportional T control stabilize the L=128 oscillation, or does the escape boundary have intrinsic bistability?
 - Can semantic basin fingerprints predict which attractor a run will find? Is there a topology to basin space?
 - The "self" neighbor profile reorganizes with temperature (psychological → code → grammatical). How deep does this conceptual reorganization go?
+- Does the space-prefix gradient generalize to other structural features (punctuation position, digit context, etc.)? Is there a family of "structural coupling" metrics?
+- At what T does the space-prefix gradient cross zero? The data shows +0.41 at T=2.0 and ~0 at T=10 — the crossover is somewhere in between.
 
 ---
 
@@ -97,3 +99,4 @@ Detailed entries archived by date. Each file contains full reproduction commands
 | 2026-03-10e | [observations-2026-03-10e.md](docs/observations-2026-03-10e.md) | Controller v1 with balance points (β≈0.90 equilibrium), comp_stats interface fix, W>L analysis (compressibility as collapse detector) |
 | 2026-03-10f | [observations-2026-03-10f.md](docs/observations-2026-03-10f.md) | Semantic theme mapping (--clouds/--themes), L=256 controller (T=0.95 balance), balance-point text is L-dependent, basin fingerprint catalog, three theme classes, "self" profile shifts with T |
 | 2026-03-12 | [observations-2026-03-12.md](docs/observations-2026-03-12.md) | Metric separability analysis (F-stat + Cohen's d across 50 runs, 18 metrics). β<0.40 is clean collapse wall, entropy_mean is top separator (F=72), surprisal_kurtosis is extreme-event detector, decorrelation_lag is bimodal. Data-driven regime classifier. Capture detection gates: β first, entropy second. |
+| 2026-03-12b | [observations-2026-03-12b.md](docs/observations-2026-03-12b.md) | Extreme-T probes (T=2-10, L=64/256). Entropy saturates at ~55% of theoretical max. β trajectory is T-independent (same asymptote, different rate). Space-prefix gradient defines the noise boundary structurally: collapse boundary is intrinsic, noise boundary is relational (model-observer coupling). |
