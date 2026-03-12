@@ -12,7 +12,7 @@ Append-only record of findings. Each entry includes reproduction commands.
 - T (temperature): per-step noise floor. Controls escape probability from attractors.
 - L (context length): memory horizon. Controls attractor basin depth, stickiness, and collapse boundary.
 
-**Four regimes** at fixed L: collapse (T≤T_escape), suppressed dynamics (structure but slow mixing), rich dynamics (T well above T_escape), noise (T≥1.50). The collapse boundary T_escape is L-dependent, but the coupling saturates at large L.
+**Four regimes** at fixed L: collapse (T≤T_escape), suppressed dynamics (structure but slow mixing), rich dynamics (T well above T_escape), noise (T≥1.50). The collapse boundary T_escape is L-dependent, but the coupling saturates at large L. Data-driven classification: β<0.40 → collapse; entropy>3.5 → high-entropy zone (comp_W256>0.65 → noise, else → rich); remainder → suppressed. Heaps' β is the best collapse/suppressed discriminator (Cohen's d=3.4); entropy_mean is the best rich/suppressed discriminator (d=3.4).
 
 **Collapse boundary T_escape(L) increases then saturates.** Estimated escape temperatures: L=64/128 ≈ 0.55–0.60, L=192 ≈ 0.65–0.70, L=256 ≈ 0.85–0.90, L=512 ≈ 0.90. The steep rise from L=128→256 (~+0.3 in T) flattens out by L=512 (~+0.03). This suggests a characteristic scale: below L≈256, context amplifies collapse; above it, context is "sufficient" and temperature alone determines the regime.
 
@@ -96,3 +96,4 @@ Detailed entries archived by date. Each file contains full reproduction commands
 | 2026-03-10d | [observations-2026-03-10d.md](docs/observations-2026-03-10d.md) | Escape by semantic mutation (period-doubling route to chaos), L=16 β=2.926 anomaly, suppressed zone equivalence across scales, L=128/T=0.60 "temperature" eigenstate, full 15-attractor catalog |
 | 2026-03-10e | [observations-2026-03-10e.md](docs/observations-2026-03-10e.md) | Controller v1 with balance points (β≈0.90 equilibrium), comp_stats interface fix, W>L analysis (compressibility as collapse detector) |
 | 2026-03-10f | [observations-2026-03-10f.md](docs/observations-2026-03-10f.md) | Semantic theme mapping (--clouds/--themes), L=256 controller (T=0.95 balance), balance-point text is L-dependent, basin fingerprint catalog, three theme classes, "self" profile shifts with T |
+| 2026-03-12 | [observations-2026-03-12.md](docs/observations-2026-03-12.md) | Metric separability analysis (F-stat + Cohen's d across 50 runs, 18 metrics). β<0.40 is clean collapse wall, entropy_mean is top separator (F=72), surprisal_kurtosis is extreme-event detector, decorrelation_lag is bimodal. Data-driven regime classifier. Capture detection gates: β first, entropy second. |

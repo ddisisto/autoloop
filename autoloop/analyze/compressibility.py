@@ -34,6 +34,16 @@ def stationarity_blocks(
 
     Returns dict with block means, stds, linear trend slope, and classification.
     """
+    if len(series) < n_blocks:
+        return {
+            "block_means": [],
+            "block_stds": [],
+            "slope": 0.0,
+            "total_drift": 0.0,
+            "overall_std": float(series.std()) if len(series) > 0 else 0.0,
+            "classification": "insufficient_data",
+        }
+
     block_size = len(series) // n_blocks
     trimmed = series[: block_size * n_blocks]
     blocks = trimmed.reshape(n_blocks, block_size)
