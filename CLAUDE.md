@@ -42,7 +42,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 
 ## Current state
 
-**What's built:** All modules in `autoloop/` package. engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController with direct state tracking + CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage, plot.py, explorer.py, precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
+**What's built:** All modules in `autoloop/` package. metrics.py (central metric registry: MetricDef + register/get/by_scale + heaps_beta_ols; 11 built-in metrics across step/window/run scales), engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController with direct state tracking + CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage (discovers window metrics from registry), plot.py (+ generic plot_metric_timeseries), explorer.py (metric discovery from registry), precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
 
 **Data collected:** ~70 runs. Run `loop index query` for the live catalog.
 

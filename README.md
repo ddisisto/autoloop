@@ -38,6 +38,7 @@ See [observations.md](observations.md) for the full findings log with reproducti
 
 | Module | Purpose |
 |--------|---------|
+| `autoloop/metrics.py` | Central metric registry: `MetricDef` declarations, `register`/`get`/`by_scale`, shared `heaps_beta_ols` |
 | `autoloop/cli.py` | Unified CLI (`loop`): all subcommands, argparse dispatch |
 | `autoloop/resolve.py` | Run resolution: ID lookup and filter queries against SQLite index |
 | `autoloop/engine.py` | Token generation engine: `StepEngine` with step, sensors, comp_spectrum, embed_context, snapshot/rollback, checkpoint |
@@ -47,8 +48,8 @@ See [observations.md](observations.md) for the full findings log with reproducti
 | `autoloop/runlib.py` | Run discovery, path constants, classification |
 | `autoloop/runindex.py` | SQLite index builder and query interface |
 | `autoloop/schema.py` | Data schema definitions v2 (runs + basin_types + basin_captures) |
-| `autoloop/analyze/` | Analysis package: compressibility, stationarity, summaries; incremental cache |
-| `autoloop/plot.py` | Visualization: entropy, compressibility, phase portraits, temporal portraits, violins |
+| `autoloop/analyze/` | Analysis package: compressibility, stationarity, summaries; incremental cache; discovers window metrics from registry |
+| `autoloop/plot.py` | Visualization: entropy, compressibility, phase portraits, temporal portraits, violins; generic `plot_metric_timeseries` |
 | `autoloop/precollapse.py` | Pre-collapse detection and analysis |
 | `autoloop/precollapse_report.py` | Pre-collapse reporting: summary rows, detail reports |
 | `autoloop/semantic.py` | Semantic core: data types, loading, theme search, attractor catalog |
