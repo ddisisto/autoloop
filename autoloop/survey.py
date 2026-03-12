@@ -24,14 +24,7 @@ from pathlib import Path
 import numpy as np
 
 from .engine import SensorReading, StepEngine, load_model
-from .experiment import (
-    Action,
-    FixedController,
-    MachineState,
-    StateMachine,
-    Transition,
-    run_experiment,
-)
+from .experiment import Action, run_experiment
 from . import runlib
 
 log = logging.getLogger(__name__)
@@ -221,8 +214,7 @@ class SurveyController:
     """Basin survey with gradient temperature ramps.
 
     Manages T directly: ramps down during COOLING, up during HEATING.
-    Uses a StateMachine for state/transition logic only — the per-state
-    FixedControllers are placeholders (T is overridden by decide()).
+    Direct state tracking with _check_transitions() — no StateMachine wrapper.
     """
 
     def __init__(
@@ -234,130 +226,63 @@ class SurveyController:
         self.engine = engine
         self.catalogue = catalogue
         self.ss = survey_state
-        self._machine = self._build_machine()
+        self.state = "COOLING"
 
-    def _build_machine(self) -> StateMachine:
-        ss = self.ss
-        # Placeholder controllers — T is overridden in decide()
-        placeholder = FixedController(ss.L, ss.current_T)
+    # ── Transition checks ─────────────────────────────────────────
 
-        states = {
-            "COOLING": MachineState(
-                name="COOLING",
-                controller=placeholder,
-                transitions=[
-                    Transition(
-                        target="CAPTURED",
-                        condition=self._cooling_captured,
-                        reason="entropy stabilized",
-                    ),
-                ],
-            ),
-            "CAPTURED": MachineState(
-                name="CAPTURED",
-                controller=placeholder,
-                transitions=[
-                    Transition(
-                        target="HEATING",
-                        condition=self._captured_heating,
-                        reason="characterization complete",
-                    ),
-                ],
-            ),
-            "HEATING": MachineState(
-                name="HEATING",
-                controller=placeholder,
-                transitions=[
-                    Transition(
-                        target="CAPTURED",
-                        condition=self._heating_deeper,
-                        reason="deeper basin found",
-                    ),
-                    Transition(
-                        target="TRANSIT",
-                        condition=self._heating_escaped,
-                        reason="escaped basin",
-                    ),
-                ],
-            ),
-            "TRANSIT": MachineState(
-                name="TRANSIT",
-                controller=placeholder,
-                transitions=[
-                    Transition(
-                        target="COOLING",
-                        condition=self._transit_flushed,
-                        reason="context flushed",
-                    ),
-                ],
-            ),
-        }
-        return StateMachine(states, initial="COOLING")
-
-    # ── Transition conditions ─────────────────────────────────────
-
-    def _cooling_captured(
+    def _check_transitions(
         self, sensors: SensorReading, history: list[SensorReading],
-    ) -> bool:
-        self.ss.cooling_segments += 1
-        if self.ss.cooling_segments < MIN_COOLING_SEGMENTS:
-            return False
-        if len(history) < 2:
-            return False
-        prev = history[-2]
-        delta = abs(sensors.entropy_mean - prev.entropy_mean)
-        if delta < ENTROPY_DELTA_THRESHOLD:
-            self.ss.stability_streak += 1
-        else:
-            self.ss.stability_streak = 0
+    ) -> str | None:
+        """Check transition conditions for current state. Returns new state or None."""
+        if self.state == "COOLING":
+            self.ss.cooling_segments += 1
+            if self.ss.cooling_segments < MIN_COOLING_SEGMENTS:
+                return None
+            if len(history) < 2:
+                return None
+            prev = history[-2]
+            delta = abs(sensors.entropy_mean - prev.entropy_mean)
+            if delta < ENTROPY_DELTA_THRESHOLD:
+                self.ss.stability_streak += 1
+            else:
+                self.ss.stability_streak = 0
+            if self.ss.stability_streak >= STABILITY_COUNT:
+                self.ss.basin_entropy_floor = sensors.entropy_mean
+                self.ss.stability_streak = 0
+                return "CAPTURED"
+            return None
 
-        if self.ss.stability_streak >= STABILITY_COUNT:
-            self.ss.basin_entropy_floor = sensors.entropy_mean
-            self.ss.stability_streak = 0
-            return True
-        return False
+        if self.state == "CAPTURED":
+            self._record_capture(sensors)
+            return "HEATING"
 
-    def _captured_heating(
-        self, sensors: SensorReading, history: list[SensorReading],
-    ) -> bool:
-        # Transient state: characterize and immediately transition.
-        self._record_capture(sensors)
-        return True
+        if self.state == "HEATING":
+            # Check deeper basin first
+            if len(history) >= 2:
+                prev = history[-2]
+                delta = abs(sensors.entropy_mean - prev.entropy_mean)
+                if (sensors.entropy_mean < self.ss.basin_entropy_floor * 0.8
+                        and delta < ENTROPY_DELTA_THRESHOLD
+                        and prev.entropy_mean > sensors.entropy_mean):
+                    self.ss.basin_entropy_floor = sensors.entropy_mean
+                    return "CAPTURED"
+            # Check escape
+            rise = sensors.entropy_mean - self.ss.basin_entropy_floor
+            at_ceiling = self.ss.current_T >= self.ss.T_max - 1e-6
+            if rise > ESCAPE_ENTROPY_RISE or at_ceiling:
+                self.ss.transit_entry_step = sensors.step
+                return "TRANSIT"
+            return None
 
-    def _heating_deeper(
-        self, sensors: SensorReading, history: list[SensorReading],
-    ) -> bool:
-        # Entropy dropped to a new floor during heating
-        if len(history) < 2:
-            return False
-        prev = history[-2]
-        delta = abs(sensors.entropy_mean - prev.entropy_mean)
-        if (sensors.entropy_mean < self.ss.basin_entropy_floor * 0.8
-                and delta < ENTROPY_DELTA_THRESHOLD
-                and prev.entropy_mean > sensors.entropy_mean):
-            self.ss.basin_entropy_floor = sensors.entropy_mean
-            return True
-        return False
+        if self.state == "TRANSIT":
+            tokens_in_transit = sensors.step - self.ss.transit_entry_step
+            if tokens_in_transit >= self.ss.L:
+                self.ss.basin_entropy_floor = float("inf")
+                self.ss.cooling_segments = 0
+                return "COOLING"
+            return None
 
-    def _heating_escaped(
-        self, sensors: SensorReading, history: list[SensorReading],
-    ) -> bool:
-        rise = sensors.entropy_mean - self.ss.basin_entropy_floor
-        at_ceiling = self.ss.current_T >= self.ss.T_max - 1e-6
-        if rise > ESCAPE_ENTROPY_RISE or at_ceiling:
-            self.ss.transit_entry_step = sensors.step
-            return True
-        return False
-
-    def _transit_flushed(
-        self, sensors: SensorReading, history: list[SensorReading],
-    ) -> bool:
-        tokens_in_transit = sensors.step - self.ss.transit_entry_step
-        if tokens_in_transit >= self.ss.L:
-            self.ss.basin_entropy_floor = float("inf")
-            self.ss.cooling_segments = 0
-            return True
-        return False
+        return None
 
     # ── Capture logic ─────────────────────────────────────────────
 
@@ -439,26 +364,27 @@ class SurveyController:
         self, sensors: SensorReading, history: list[SensorReading],
         experiment_steps: int,
     ) -> Action:
-        # Let the state machine handle transitions
-        old_state = self._machine.current
-        action = self._machine.decide(sensors, history, experiment_steps)
-        new_state = self._machine.current
+        old_state = self.state
+        new_state = self._check_transitions(sensors, history)
+        if new_state is not None:
+            self.state = new_state
+            log.info("State: %s → %s", old_state, new_state)
 
         # Ramp T based on current state
-        if new_state == "COOLING":
+        if self.state == "COOLING":
             self.ss.cool()
-        elif new_state == "HEATING":
+        elif self.state == "HEATING":
             self.ss.heat()
         # TRANSIT holds T at escape level; CAPTURED is transient
 
-        # Override action's T with our managed T
-        action.T = self.ss.current_T
-        action.L = self.ss.L
+        if old_state != self.state:
+            log.debug("T=%.3f after %s→%s", self.ss.current_T, old_state, self.state)
 
-        if old_state != new_state:
-            log.debug("T=%.3f after %s→%s", self.ss.current_T, old_state, new_state)
-
-        return action
+        return Action(
+            L=self.ss.L,
+            T=self.ss.current_T,
+            reason=f"[{self.state}]",
+        )
 
 
 # ── Run entry point ───────────────────────────────────────────────
