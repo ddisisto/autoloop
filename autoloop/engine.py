@@ -20,6 +20,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.logging import disable_progress_bar
 
+from .metrics import heaps_beta_ols
 from .utils import compressibility, fix_decoded_texts
 
 log = logging.getLogger(__name__)
@@ -200,33 +201,7 @@ class StepEngine:
         # Heaps' β from trailing window
         text = "".join(texts)
         words = [w.lower() for w in text.split() if len(w) > 1]
-        n_words = len(words)
-
-        beta = 0.0
-        n_unique = 0
-        if n_words >= 50:
-            seen: set[str] = set()
-            checkpoints = 20
-            step_size = max(1, n_words // checkpoints)
-            ns, vs = [], []
-            for i, w in enumerate(words):
-                seen.add(w)
-                if (i + 1) % step_size == 0:
-                    ns.append(i + 1)
-                    vs.append(len(seen))
-            n_unique = len(seen)
-
-            if len(ns) >= 3:
-                log_n = np.log(np.array(ns, dtype=float))
-                log_v = np.log(np.array(vs, dtype=float))
-                n_pts = len(log_n)
-                sum_x = log_n.sum()
-                sum_y = log_v.sum()
-                sum_xy = (log_n * log_v).sum()
-                sum_x2 = (log_n ** 2).sum()
-                denom = n_pts * sum_x2 - sum_x ** 2
-                if abs(denom) > 1e-12:
-                    beta = float((n_pts * sum_xy - sum_x * sum_y) / denom)
+        beta, n_words, n_unique = heaps_beta_ols(words)
 
         last = exp_tail[-1] if exp_tail else self.records[-1]
         return SensorReading(

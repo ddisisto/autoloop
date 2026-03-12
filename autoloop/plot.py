@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from .analyze import analyze_run, default_window_sizes
+from .metrics import get as get_metric
 from .utils import eos_ema
 
 log = logging.getLogger(__name__)
@@ -429,6 +430,65 @@ def plot_violin(
 
     out = ensure_figures_dir() / output_name
     fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("Saved %s", out)
+    return out
+
+
+def plot_metric_timeseries(
+    runs: list[RunBundle],
+    metric_id: str,
+    title: str,
+    output_name: str,
+    downsample: int = 100,
+    window_size: int | None = None,
+) -> Path:
+    """Generic time-series plot for any registered metric.
+
+    Works for step-level metrics (from parquet columns) and window-level
+    metrics (from analysis cache). For window metrics, specify window_size
+    or defaults to the run's L.
+    """
+    mdef = get_metric(metric_id)
+    fig, ax = plt.subplots(figsize=(12, 4))
+
+    for run in runs:
+        if mdef.scale == "step" and mdef.column:
+            if mdef.column not in run.exp.columns:
+                log.warning("Column %s not in %s, skipping", mdef.column, run.label)
+                continue
+            values = run.exp[mdef.column].to_numpy(dtype=np.float64)
+        elif mdef.scale == "window" and run.analysis is not None:
+            w = window_size if window_size is not None else run.params.get("L", 64)
+            metric_data = run.analysis.get(mdef.id, {})
+            if w not in metric_data:
+                log.warning("%s W=%d not in %s, skipping", mdef.id, w, run.label)
+                continue
+            raw = metric_data[w]
+            # Strip leading NaN
+            valid_mask = ~np.isnan(raw)
+            values = raw[valid_mask]
+        else:
+            log.warning("Cannot plot %s for %s", metric_id, run.label)
+            continue
+
+        n = len(values) // downsample * downsample
+        if n == 0:
+            continue
+        values_ds = values[:n].reshape(-1, downsample).mean(axis=1)
+        steps = np.arange(downsample // 2, n, downsample)
+        ax.plot(steps, values_ds, label=run.label, linewidth=0.8)
+
+    unit_str = f" ({mdef.unit})" if mdef.unit else ""
+    ax.set_xlabel("Step (experiment phase)")
+    ax.set_ylabel(f"{mdef.name}{unit_str}")
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+    out = ensure_figures_dir() / output_name
+    fig.savefig(out, dpi=150)
     plt.close(fig)
     log.info("Saved %s", out)
     return out

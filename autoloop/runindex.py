@@ -111,7 +111,7 @@ def _load_analysis(parquet_path: Path) -> dict | None:
 
 def _extract_analysis_metrics(cache: dict) -> dict:
     """Extract quick metrics from analysis cache."""
-    from analyze.summary import comp_stats
+    from .analyze.summary import comp_stats
 
     metrics: dict = {}
 
@@ -376,7 +376,7 @@ def index_basin_captures(
 
 def reindex_all(conn: sqlite3.Connection, root: Path) -> None:
     """Index all parquet runs, delete rows for files that no longer exist."""
-    from runlib import discover_runs
+    from .runlib import discover_runs
 
     root = root.resolve()
     all_parquets = discover_runs(root)

@@ -49,6 +49,12 @@ __all__ = [
 ]
 
 
+def _window_metrics() -> list:
+    """Discover registered window metrics from the metrics registry."""
+    from ..metrics import by_scale
+    return by_scale("window")
+
+
 def analyze_run(
     parquet_path: Path,
     window_sizes: list[int],
@@ -58,11 +64,11 @@ def analyze_run(
 
     Args:
         parquet_path: Path to the run's parquet file.
-        window_sizes: List of window sizes for compressibility computation.
+        window_sizes: List of window sizes for window-level metrics.
         exp: Pre-loaded experiment-phase DataFrame. If None, loaded from parquet.
 
-    Returns dict with summary stats, stationarity, and compressibility data.
-    Compressibility stored as {W: array} dict keyed by window size.
+    Returns dict with summary stats, stationarity, and per-metric windowed
+    arrays. Each window metric is stored as {metric_id: {W: array}}.
 
     Cache is incremental: previously computed window sizes are reused,
     only missing ones are computed. Cache invalidates when parquet changes.
@@ -70,18 +76,23 @@ def analyze_run(
     requested = set(window_sizes)
     cache = load_cache(parquet_path)
 
+    # Determine what needs computing
+    window_mets = _window_metrics()
+    needs_work = False
+
     if cache is not None:
-        cached_windows = set(cache.get("compressibility", {}).keys())
-        missing = requested - cached_windows
         needs_autocorr = "entropy_autocorrelation" not in cache
-        if not missing and not needs_autocorr:
+        for m in window_mets:
+            cached_windows = set(cache.get(m.id, {}).keys())
+            if requested - cached_windows:
+                needs_work = True
+                break
+        if not needs_work and not needs_autocorr:
             log.info("Full cache hit for %s", parquet_path.name)
             return cache
-        log.info("Partial cache hit for %s (have W=%s, need W=%s)",
-                 parquet_path.name, sorted(cached_windows), sorted(missing))
     else:
-        missing = requested
         cache = {}
+        needs_work = True
 
     if exp is None:
         exp = load_experiment_df(parquet_path)
@@ -92,17 +103,29 @@ def analyze_run(
     if "entropy_autocorrelation" not in cache:
         cache["entropy_autocorrelation"] = entropy_autocorrelation(exp.entropy.to_numpy())
 
+    # Compute each registered window metric at requested window sizes
+    all_window_sizes: set[int] = set()
+    for m in window_mets:
+        existing = cache.get(m.id, {})
+        missing = requested - set(existing.keys())
+        if missing and m.window_fn is not None:
+            cached_ws = sorted(existing.keys()) if existing else []
+            log.info("Computing %s for %s (have W=%s, need W=%s)",
+                     m.id, parquet_path.name, cached_ws, sorted(missing))
+            for w in sorted(missing):
+                log.info("  %s W=%d", m.id, w)
+                existing[w] = m.window_fn(exp.decoded_text, w)
+        cache[m.id] = existing
+        all_window_sizes.update(existing.keys())
+
+    # Stationarity of the largest window metric (compressibility if present)
     comp = cache.get("compressibility", {})
-    for w in sorted(missing):
-        log.info("Computing compressibility W=%d for %s", w, parquet_path.name)
-        comp[w] = sliding_compressibility(exp.decoded_text, w)
-    cache["compressibility"] = comp
+    if comp:
+        w_max = max(comp.keys())
+        comp_valid = comp[w_max][~np.isnan(comp[w_max])]
+        cache["compressibility_stationarity"] = stationarity_blocks(comp_valid)
 
-    w_max = max(comp.keys())
-    comp_valid = comp[w_max][~np.isnan(comp[w_max])]
-    cache["compressibility_stationarity"] = stationarity_blocks(comp_valid)
-
-    cache["window_sizes"] = sorted(comp.keys())
+    cache["window_sizes"] = sorted(all_window_sizes)
 
     save_cache(parquet_path, cache)
     return cache

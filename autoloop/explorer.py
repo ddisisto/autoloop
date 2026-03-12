@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .analyze import analyze_run, default_window_sizes
+from .metrics import by_scale, get as get_metric
 
 log = logging.getLogger(__name__)
 
@@ -28,35 +29,6 @@ DEFAULT_DOWNSAMPLE = 500
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
-
-# Step-level metric definitions (from parquet columns)
-STEP_METRIC_DEFS: dict[str, dict] = {
-    "entropy": {
-        "name": "Softmax Entropy",
-        "description": "Shannon entropy of the softmax distribution (nats)",
-        "column": "entropy",
-    },
-    "log_prob": {
-        "name": "Log Probability",
-        "description": "Log probability of the chosen token",
-        "column": "log_prob",
-    },
-    "eos": {
-        "name": "EOS Flag",
-        "description": "Whether the generated token was EOS (0/1)",
-        "column": "eos",
-    },
-    "temperature": {
-        "name": "Temperature",
-        "description": "Sampling temperature at each step (varies in controller/schedule runs)",
-        "column": "temperature",
-    },
-    "context_length": {
-        "name": "Context Length",
-        "description": "Context window size at each step (varies in controller/schedule runs)",
-        "column": "context_length",
-    },
-}
 
 # Block-level metric prefix (compressibility at various W)
 BLOCK_METRIC_PREFIX = "compressibility_W"
@@ -319,15 +291,14 @@ def build_metric_registry(
     index: RunIndex,
     cache: RunCache,
 ) -> list[dict]:
-    """Build the metric registry by inspecting actual data.
+    """Build the metric registry from central metric definitions.
 
-    Checks parquet columns for step-level metrics and analysis caches
-    for block-level metrics. Only includes metrics that exist in at
-    least one run.
+    Uses the autoloop.metrics registry for step-level metrics, discovers
+    window sizes from analysis caches, and adds derived metrics.
     """
     metrics: list[dict] = []
 
-    # Check step-level metrics across run types (columns may differ)
+    # Check which parquet columns actually exist across run types
     step_columns_found: set[str] = set()
     sampled_types: set[str] = set()
     for info in index.runs.values():
@@ -337,20 +308,19 @@ def build_metric_registry(
         sample_df = cache.get_experiment_df(info)
         step_columns_found.update(sample_df.columns)
 
-    for metric_id, defn in STEP_METRIC_DEFS.items():
-        if defn["column"] in step_columns_found:
+    # Step-level metrics from central registry
+    for m in by_scale("step"):
+        if m.column and m.column in step_columns_found:
             metrics.append({
-                "id": metric_id,
-                "name": defn["name"],
+                "id": m.id,
+                "name": m.name,
                 "resolution": "step",
                 "source": "parquet",
-                "column": defn["column"],
-                "description": defn["description"],
+                "column": m.column,
+                "description": m.description,
             })
 
-    # Check block-level metrics from analysis caches on disk
-    # Load one .analysis.pkl to discover available window sizes
-    # (window sizes are keys inside the pickle's compressibility dict)
+    # Window-level metrics: discover available window sizes from caches
     window_sizes_found: set[int] = set()
     for p in index.runs_dir.glob("*.analysis.pkl"):
         try:
@@ -373,7 +343,7 @@ def build_metric_registry(
             "description": f"Gzip compressibility over {w}-token sliding windows",
         })
 
-    # EOS rate EMA (derived step-level metric, always available if eos exists)
+    # EOS rate EMA (derived step-level metric)
     if "eos" in step_columns_found:
         metrics.append({
             "id": "eos_ema",
@@ -403,11 +373,15 @@ def extract_metric(
 
     Returns {"x": [...], "y": [...]} or None if metric unavailable.
     """
-    # Step-level metrics from parquet
-    if metric_id in STEP_METRIC_DEFS:
-        defn = STEP_METRIC_DEFS[metric_id]
+    # Step-level metrics from central registry
+    try:
+        mdef = get_metric(metric_id)
+    except KeyError:
+        mdef = None
+
+    if mdef is not None and mdef.scale == "step" and mdef.column:
         exp = cache.get_experiment_df(info)
-        col = defn["column"]
+        col = mdef.column
         if col not in exp.columns:
             return None
 
@@ -432,7 +406,7 @@ def extract_metric(
 
     # EOS EMA (derived step-level)
     if metric_id == "eos_ema":
-        from utils import eos_ema
+        from .utils import eos_ema
         exp = cache.get_experiment_df(info)
         if "eos" not in exp.columns:
             return None
