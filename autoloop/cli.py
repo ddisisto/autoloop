@@ -9,131 +9,21 @@ import logging
 import sys
 from pathlib import Path
 
-from autoloop.runindex import DB_PATH, RUNS_ROOT
+from .resolve import (
+    add_filter_args,
+    auto_index_run,
+    resolve_from_args,
+    resolve_runs,
+)
+from .runindex import DB_PATH, RUNS_ROOT
 
 log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Run resolution
-# ---------------------------------------------------------------------------
-
-def resolve_runs(
-    run_ids: list[str] | None = None,
-    run_type: str | None = None,
-    L: int | None = None,
-    T: float | None = None,
-    seed: int | None = None,
-    regime: str | None = None,
-    db_path: Path = DB_PATH,
-) -> list[Path]:
-    """Resolve run identifiers and/or filter flags to parquet paths.
-
-    If run_ids are given, they take precedence over filters. Each run_id
-    is a parquet stem (e.g. "L0064_T0.50_S42"). Filters are applied only
-    when no run_ids are provided.
-
-    Args:
-        run_ids: Parquet stems to look up directly.
-        run_type: Filter by run type (sweep, controller, etc.).
-        L: Filter by context length.
-        T: Filter by temperature.
-        seed: Filter by random seed.
-        regime: Filter by regime classification.
-        db_path: Path to the SQLite index database.
-
-    Returns:
-        List of resolved parquet Paths (absolute).
-
-    Raises:
-        SystemExit: If the index doesn't exist or a run_id is not found.
-    """
-    if not db_path.exists():
-        log.error("No index at %s — run 'loop index build' first.", db_path)
-        sys.exit(1)
-
-    from autoloop.runindex import create_db, query_runs
-
-    conn = create_db(db_path)
-
-    if run_ids:
-        paths: list[Path] = []
-        for rid in run_ids:
-            rows = conn.execute(
-                "SELECT parquet_path FROM runs WHERE run_id = ?", (rid,)
-            ).fetchall()
-            if not rows:
-                conn.close()
-                log.error("Run '%s' not found in index.", rid)
-                sys.exit(1)
-            paths.append((RUNS_ROOT / rows[0]["parquet_path"]).resolve())
-        conn.close()
-        return paths
-
-    # Filter mode
-    filters: dict[str, float | int | str] = {}
-    if L is not None:
-        filters["L"] = L
-    if T is not None:
-        filters["T"] = T
-    if seed is not None:
-        filters["seed"] = seed
-    if regime is not None:
-        filters["regime"] = regime
-
-    runs = query_runs(conn, run_type=run_type, **filters)
-    conn.close()
-
-    if not runs:
-        log.error("No runs match the given filters.")
-        sys.exit(1)
-
-    return [(RUNS_ROOT / r["parquet_path"]).resolve() for r in runs]
-
-
-def _add_filter_args(parser: argparse.ArgumentParser) -> None:
-    """Add common run-filter flags to a subparser."""
-    parser.add_argument("run_ids", nargs="*", default=None,
-                        help="Run IDs (parquet stems, e.g. L0064_T0.50_S42)")
-    parser.add_argument("--type", dest="run_type",
-                        help="Filter by run type (sweep, controller, etc.)")
-    parser.add_argument("--L", type=int, dest="filter_L",
-                        help="Filter by context length")
-    parser.add_argument("--T", type=float, dest="filter_T",
-                        help="Filter by temperature")
-    parser.add_argument("--seed", type=int, dest="filter_seed",
-                        help="Filter by seed")
-    parser.add_argument("--regime", dest="filter_regime",
-                        help="Filter by regime classification")
-
-
-def _resolve_from_args(args: argparse.Namespace) -> list[Path]:
-    """Call resolve_runs using parsed argparse namespace."""
-    ids = args.run_ids if args.run_ids else None
-    return resolve_runs(
-        run_ids=ids,
-        run_type=getattr(args, "run_type", None),
-        L=getattr(args, "filter_L", None),
-        T=getattr(args, "filter_T", None),
-        seed=getattr(args, "filter_seed", None),
-        regime=getattr(args, "filter_regime", None),
-    )
-
-
-def _auto_index_run(parquet_path: Path) -> None:
-    """Index a single run into the database after completion."""
-    from autoloop.runindex import create_db, index_run
-    conn = create_db(DB_PATH)
-    index_run(conn, parquet_path)
-    conn.commit()
-    conn.close()
-    log.info("Indexed %s", parquet_path.stem)
-
-
 def cmd_run(args: argparse.Namespace) -> None:
     """Run an experiment (fixed, schedule, or beta)."""
-    from autoloop.engine import StepEngine, load_model
-    from autoloop.experiment import (
+    from .engine import StepEngine, load_model
+    from .experiment import (
         BetaController,
         FixedController,
         ScheduleController,
@@ -162,7 +52,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             save_every=args.save_every, prefill_text=args.prefill_text,
             dry_run=args.dry_run, extra_meta=extra,
         )
-        _auto_index_run(output_dir / f"{name}.parquet")
+        auto_index_run(output_dir / f"{name}.parquet")
 
     elif args.run_mode == "schedule":
         segments = []
@@ -185,7 +75,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             save_every=args.save_every, prefill_text=args.prefill_text,
             dry_run=args.dry_run, extra_meta=extra,
         )
-        _auto_index_run(output_dir / f"{name}.parquet")
+        auto_index_run(output_dir / f"{name}.parquet")
 
     elif args.run_mode == "beta":
         suffix = "d" if args.drift else ""
@@ -200,12 +90,12 @@ def cmd_run(args: argparse.Namespace) -> None:
             save_every=args.save_every, prefill_text=args.prefill_text,
             dry_run=args.dry_run, extra_meta=extra,
         )
-        _auto_index_run(output_dir / f"{name}.parquet")
+        auto_index_run(output_dir / f"{name}.parquet")
 
 
 def cmd_sweep(args: argparse.Namespace) -> None:
     """Run or inspect sweeps."""
-    from autoloop.sweep import (
+    from .sweep import (
         PRESETS,
         expand_grid,
         print_presets,
@@ -248,7 +138,7 @@ def cmd_sweep(args: argparse.Namespace) -> None:
     # Rebuild index after sweep
     if not args.dry_run:
         log.info("Rebuilding index after sweep...")
-        from autoloop.runindex import create_db, reindex_all
+        from .runindex import create_db, reindex_all
         conn = create_db(DB_PATH)
         reindex_all(conn, RUNS_ROOT)
         conn.close()
@@ -256,7 +146,7 @@ def cmd_sweep(args: argparse.Namespace) -> None:
 
 def cmd_index(args: argparse.Namespace) -> None:
     """Build or query the run index."""
-    from autoloop.runindex import create_db, query_runs, reindex_all, _format_table
+    from .runindex import create_db, query_runs, reindex_all, _format_table
 
     if args.index_cmd == "build":
         root = Path(args.root) if args.root else RUNS_ROOT
@@ -304,9 +194,9 @@ def cmd_explore(args: argparse.Namespace) -> None:
 
 def cmd_plot(args: argparse.Namespace) -> None:
     """Generate plots for resolved runs."""
-    from autoloop.plot import plot_runs
+    from .plot import plot_runs
 
-    paths = _resolve_from_args(args)
+    paths = resolve_from_args(args)
     log.info("Plotting %d runs", len(paths))
     plot_runs(
         paths,
@@ -317,9 +207,9 @@ def cmd_plot(args: argparse.Namespace) -> None:
 
 def cmd_analyze(args: argparse.Namespace) -> None:
     """Recompute analysis caches for resolved runs."""
-    from autoloop.analyze import analyze_run, default_window_sizes
+    from .analyze import analyze_run, default_window_sizes
 
-    paths = _resolve_from_args(args)
+    paths = resolve_from_args(args)
     window_sizes = default_window_sizes(0)
     log.info("Analyzing %d runs at W=%s", len(paths), window_sizes)
 
@@ -333,9 +223,9 @@ def cmd_analyze(args: argparse.Namespace) -> None:
 def cmd_grep(args: argparse.Namespace) -> None:
     """Search decoded text in resolved runs."""
     import re
-    from autoloop.grep_text import grep_run, format_match
+    from .grep_text import grep_run, format_match
 
-    paths = _resolve_from_args(args)
+    paths = resolve_from_args(args)
     log.info("Searching %d runs for '%s'", len(paths), args.pattern)
 
     flags = re.IGNORECASE if args.ignore_case else 0
@@ -370,18 +260,18 @@ def cmd_grep(args: argparse.Namespace) -> None:
 
 def cmd_semantic(args: argparse.Namespace) -> None:
     """Run semantic analysis (clouds or themes)."""
-    from autoloop.semantic import _load_runs
-    from autoloop.semantic_clouds import run_clouds
-    from autoloop.semantic_report import run_themes
+    from .semantic import _load_runs
+    from .semantic_clouds import run_clouds
+    from .semantic_report import run_themes
 
     # Semantic analysis uses its own run loading (needs full text).
     # Convert resolved paths to string file list for _load_runs.
     if hasattr(args, "run_ids") and args.run_ids:
-        paths = _resolve_from_args(args)
+        paths = resolve_from_args(args)
         files = [str(p) for p in paths]
     else:
         # No run IDs specified — use all runs via semantic's own discovery
-        from autoloop.semantic import _discover_run_files
+        from .semantic import _discover_run_files
         files = _discover_run_files(None)
 
     if not files:
@@ -407,8 +297,8 @@ def cmd_semantic(args: argparse.Namespace) -> None:
 def cmd_precollapse(args: argparse.Namespace) -> None:
     """Run pre-collapse trajectory analysis."""
     import pandas as pd
-    from autoloop.precollapse import analyze_precollapse
-    from autoloop.precollapse_report import (
+    from .precollapse import analyze_precollapse
+    from .precollapse_report import (
         detail_report,
         print_summary,
         summary_row,
@@ -421,7 +311,7 @@ def cmd_precollapse(args: argparse.Namespace) -> None:
         for f in ("run_type", "filter_L", "filter_T", "filter_seed", "filter_regime")
     )
     if ids or has_filters:
-        paths = _resolve_from_args(args)
+        paths = resolve_from_args(args)
     else:
         # Default: resolve all sweep runs
         paths = resolve_runs(run_type="sweep")
@@ -450,7 +340,7 @@ def cmd_precollapse(args: argparse.Namespace) -> None:
 
 def cmd_survey(args: argparse.Namespace) -> None:
     """Run a basin survey."""
-    from autoloop.survey import run_survey
+    from .survey import run_survey
 
     output_dir = Path(args.output_dir) if args.output_dir else None
     parquet_path = run_survey(
@@ -467,12 +357,12 @@ def cmd_survey(args: argparse.Namespace) -> None:
         save_every=args.save_every,
         novelty_threshold=args.novelty_threshold,
     )
-    _auto_index_run(parquet_path)
+    auto_index_run(parquet_path)
 
 
 def cmd_summary(args: argparse.Namespace) -> None:
     """Generate cross-condition summary table."""
-    from autoloop.summary import build_summary
+    from .summary import build_summary
 
     runs_dir = Path(getattr(args, "runs_dir", "data/runs"))
     df = build_summary(runs_dir)
@@ -601,7 +491,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ── plot ──────────────────────────────────────────────────────
     p_plot = sub.add_parser("plot", help="Generate plots for runs")
-    _add_filter_args(p_plot)
+    add_filter_args(p_plot)
     p_plot.add_argument("--plots", nargs="+",
                         help="Plot types to generate (entropy, compressibility, "
                              "phase, temporal, violin)")
@@ -611,12 +501,12 @@ def build_parser() -> argparse.ArgumentParser:
     # ── analyze ──────────────────────────────────────────────────
     p_analyze = sub.add_parser("analyze",
                                help="Recompute analysis caches for runs")
-    _add_filter_args(p_analyze)
+    add_filter_args(p_analyze)
 
     # ── grep ─────────────────────────────────────────────────────
     p_grep = sub.add_parser("grep", help="Search decoded text in runs")
     p_grep.add_argument("pattern", help="Search pattern")
-    _add_filter_args(p_grep)
+    add_filter_args(p_grep)
     p_grep.add_argument("--count", action="store_true",
                         help="Show match counts only")
     p_grep.add_argument("-i", action="store_true", dest="ignore_case",
@@ -629,7 +519,7 @@ def build_parser() -> argparse.ArgumentParser:
     # ── semantic ─────────────────────────────────────────────────
     p_semantic = sub.add_parser("semantic",
                                 help="Semantic analysis (clouds or themes)")
-    _add_filter_args(p_semantic)
+    add_filter_args(p_semantic)
     sem_group = p_semantic.add_mutually_exclusive_group(required=True)
     sem_group.add_argument("--clouds", action="store_true",
                            help="Auto-discover themes and map basins")
@@ -645,7 +535,7 @@ def build_parser() -> argparse.ArgumentParser:
     # ── precollapse ──────────────────────────────────────────────
     p_pre = sub.add_parser("precollapse",
                            help="Pre-collapse trajectory analysis")
-    _add_filter_args(p_pre)
+    add_filter_args(p_pre)
     p_pre.add_argument("--detail", type=str, metavar="RUN_ID",
                        help="Detailed report for a specific run")
     p_pre.add_argument("--csv", type=str, metavar="PATH",

@@ -112,7 +112,7 @@ def is_complete(L: int, T: float, seed: int) -> bool:
 
 def run_condition(L: int, T: float, seed: int) -> subprocess.CompletedProcess:
     cmd = [
-        sys.executable, str(REPO_ROOT / "cli.py"),
+        sys.executable, "-m", "autoloop.cli",
         "run", "fixed",
         "-L", str(L),
         "-T", str(T),
