@@ -166,13 +166,19 @@ class CentroidCatalogue:
 # Cooling multiplies by (1 - DT_FRAC), heating by (1 + DT_FRAC).
 DT_FRAC = 0.05
 
-# Capture detection: β and entropy gates derived from regime analysis
-# (50 sweep runs, F-stat + Cohen's d). β < 0.40 is a clean collapse wall
-# (d=3.4, zero false positives). Entropy < 1.0 separates real basins from
-# suppressed dynamics. Both must hold for capture.
+# Capture detection: two independent gates, either sufficient.
+#
+# Gate 1 — β < 0.40 (when measurable, i.e. n_words >= 50).
+#   Clean collapse wall from regime analysis (50 runs, d=3.4, zero false positives).
+#
+# Gate 2 — compressibility < 0.45.
+#   Catches short-cycle basins (e.g. "1.1.1." at L=8) where tokens produce
+#   no words >1 char so β is unmeasurable, and entropy stays high (~4.5)
+#   because the output distribution is broad even though sampling is locked.
+#
+# Either gate fires capture. Both require MIN_COOLING_SEGMENTS.
 CAPTURE_BETA_THRESHOLD = 0.40
-CAPTURE_ENTROPY_THRESHOLD = 1.0
-# Minimum segments in COOLING before capture can trigger (let system settle).
+CAPTURE_COMP_THRESHOLD = 0.45
 MIN_COOLING_SEGMENTS = 5
 
 # Escape detection: entropy must rise this much above the basin floor.
@@ -239,11 +245,13 @@ class SurveyController:
             self.ss.cooling_segments += 1
             if self.ss.cooling_segments < MIN_COOLING_SEGMENTS:
                 return None
-            # Capture gate: β < 0.40 AND entropy < 1.0
-            # Both conditions must hold — β is the primary discriminator
-            # (collapse wall), entropy confirms we're at a real basin floor.
-            if (sensors.heaps_beta < CAPTURE_BETA_THRESHOLD
-                    and sensors.entropy_mean < CAPTURE_ENTROPY_THRESHOLD):
+            # Two independent capture gates — either sufficient:
+            # 1) β < 0.40 (when measurable): vocabulary has died
+            # 2) comp < 0.45: output is highly repetitive/compressible
+            beta_captured = (sensors.n_words >= 50
+                             and sensors.heaps_beta < CAPTURE_BETA_THRESHOLD)
+            comp_captured = sensors.comp_W64 < CAPTURE_COMP_THRESHOLD
+            if beta_captured or comp_captured:
                 self.ss.basin_entropy_floor = sensors.entropy_mean
                 return "CAPTURED"
             return None
@@ -253,9 +261,11 @@ class SurveyController:
             return "HEATING"
 
         if self.state == "HEATING":
-            # Check deeper basin: same gates as capture, plus deeper than current floor
-            if (sensors.heaps_beta < CAPTURE_BETA_THRESHOLD
-                    and sensors.entropy_mean < CAPTURE_ENTROPY_THRESHOLD
+            # Check deeper basin: same gates as capture, plus deeper than current
+            beta_captured = (sensors.n_words >= 50
+                             and sensors.heaps_beta < CAPTURE_BETA_THRESHOLD)
+            comp_captured = sensors.comp_W64 < CAPTURE_COMP_THRESHOLD
+            if ((beta_captured or comp_captured)
                     and sensors.entropy_mean < self.ss.basin_entropy_floor * 0.8):
                 self.ss.basin_entropy_floor = sensors.entropy_mean
                 return "CAPTURED"

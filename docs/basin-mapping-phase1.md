@@ -10,17 +10,21 @@ Tracking doc for the L=8 pilot survey. Goal: tune capture/escape detection, run 
 
 ### Capture detection (COOLING → CAPTURED)
 
-**Implementation:** β + entropy gate, derived from regime analysis (50 sweep runs, F-stat + Cohen's d).
+**Implementation:** Two independent gates, either sufficient.
 
 ```
-CAPTURE_BETA_THRESHOLD = 0.40   # β < 0.40 is a clean collapse wall (d=3.4, zero false positives)
-CAPTURE_ENTROPY_THRESHOLD = 1.0 # entropy < 1.0 separates real basins from suppressed dynamics
+CAPTURE_BETA_THRESHOLD = 0.40   # β < 0.40 = vocabulary death (d=3.4, zero false positives)
+CAPTURE_COMP_THRESHOLD = 0.45   # comp_W64 < 0.45 = highly repetitive output
 MIN_COOLING_SEGMENTS = 5        # minimum segments before capture can fire
 ```
 
-Both conditions must hold. β is the primary discriminator — it's the single cleanest regime gate in the dataset. Entropy confirms we're at a real basin floor, not just slow dynamics.
+Gate 1 (β): Clean collapse wall from regime analysis (50 runs). Only evaluated when n_words >= 50 (β=0.0 means insufficient data, not collapse).
 
-**Previous approach (superseded):** entropy-delta stability (N consecutive low-delta readings). This fired on normal dynamics — captured at ent=3.83, β=0.80 in the smoke test, which is rich dynamics not a basin.
+Gate 2 (compressibility): Catches short-cycle basins where β is unmeasurable. At L=8 T=0.10, the "1.1.1." basin has entropy=4.53 (model's output distribution is broad) and β=0.0 (no words >1 char), but comp=0.391 (perfectly repetitive). Entropy cannot detect this basin; compressibility can.
+
+**Previous approaches (superseded):**
+1. Entropy-delta stability (N consecutive low-delta readings) — fired on normal dynamics (ent=3.83, β=0.80)
+2. β + entropy<1.0 gate — missed short-cycle basins where entropy stays high (~4.5) despite total lock-in
 
 ### Escape detection (HEATING → TRANSIT)
 
@@ -34,9 +38,9 @@ ESCAPE_ENTROPY_RISE = 1.0       # absolute rise above basin floor
 
 ### Deeper basin detection (HEATING → CAPTURED)
 
-**Implementation:** Same β + entropy gates as capture, plus entropy < 80% of current basin floor. During heating, if the system falls into a deeper basin than the one it escaped, re-capture it.
+**Implementation:** Same dual gates as capture (β or comp), plus entropy < 80% of current basin floor. During heating, if the system falls into a deeper basin than the one it escaped, re-capture it.
 
-**Status:** Untested in practice. Now shares the same validated gates as primary capture.
+**Status:** Untested in practice. Shares the same validated gates as primary capture.
 
 ### Re-capture avoidance
 
@@ -75,9 +79,9 @@ ESCAPE_ENTROPY_RISE = 1.0       # absolute rise above basin floor
 - T_max ceiling fix triggers escape when T reaches 0.70
 - Full cycle completes but capture quality is poor
 
-### Key question (resolved)
+### Key finding: basins can have high entropy
 
-What does a real basin look like at L=8? From sweep data, L=8 at T=0.50 should collapse to ent < 1.0. The smoke test's ent=3.83 capture was nowhere near collapse — stability detection triggered on normal fluctuations. **Fixed:** replaced with β < 0.40 + entropy < 1.0 gates from regime analysis (50 runs, zero false positives).
+At L=8 T=0.10, the "1.1.1." basin (token 30 "." and token 33 "1" alternating) has entropy=4.53 — the model's output distribution is broad across many tokens, but at T=0.10 the slight probability edge for "." and "1" always wins. Compressibility (0.391) detects this; entropy (4.53) and β (0.0, unmeasurable) do not. This motivated the dual-gate approach: β catches word-level basins, comp catches token-level cycles.
 
 ## Commands
 
