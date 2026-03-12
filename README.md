@@ -34,25 +34,30 @@ See [observations.md](observations.md) for the full findings log with reproducti
 
 ## Architecture
 
-Scripts, not a package. Flat layout (except `analyze/` which is a package).
+`autoloop/` package in project root. CLI entry point installed via `uv sync`.
 
 | Module | Purpose |
 |--------|---------|
-| `cli.py` | Unified CLI (`loop`): all subcommands below |
-| `engine.py` | Token generation engine: `StepEngine` with step, sensors, comp_spectrum, embed_context, snapshot/rollback, checkpoint |
-| `experiment.py` | Experiment framework: controllers (`Fixed`, `Schedule`, `Beta`), `StateMachine`, universal run loop |
-| `survey.py` | Basin survey: `SurveyController` state machine (COOLING/CAPTURED/HEATING/TRANSIT), `CentroidCatalogue` for online novelty detection |
-| `sweep.py` | Sweep runner: named presets, ad-hoc grids |
-| `runlib.py` | Run discovery, path constants, classification |
-| `runindex.py` | SQLite index builder and query interface |
-| `schema.py` | Data schema definitions v2 (runs + basin_types + basin_captures) |
-| `analyze/` | Analysis package: compressibility, stationarity, summaries; incremental cache |
-| `plot.py` | Visualization: entropy, compressibility, phase portraits, temporal portraits, violins |
-| `precollapse.py` | Pre-collapse trajectory analysis: regime classification, basin transitions |
-| `semantic.py` | Semantic analysis: theme discovery, attractor catalog, Heaps' law, coherence |
-| `grep_text.py` | Grep for decoded text in parquet runs: regex, context, step/L/T display |
-| `explorer.py` + `static/` | Interactive web explorer: FastAPI + Plotly.js, buffered context viewer |
-| `utils.py` | Shared primitives: compressibility, EOS EMA |
+| `autoloop/cli.py` | Unified CLI (`loop`): all subcommands, argparse dispatch |
+| `autoloop/resolve.py` | Run resolution: ID lookup and filter queries against SQLite index |
+| `autoloop/engine.py` | Token generation engine: `StepEngine` with step, sensors, comp_spectrum, embed_context, snapshot/rollback, checkpoint |
+| `autoloop/experiment.py` | Experiment framework: controllers (`Fixed`, `Schedule`, `Beta`), `StateMachine`, universal run loop |
+| `autoloop/survey.py` | Basin survey: `SurveyController` (COOLING/CAPTURED/HEATING/TRANSIT), `CentroidCatalogue` for online novelty detection |
+| `autoloop/sweep.py` | Sweep runner: named presets, ad-hoc grids |
+| `autoloop/runlib.py` | Run discovery, path constants, classification |
+| `autoloop/runindex.py` | SQLite index builder and query interface |
+| `autoloop/schema.py` | Data schema definitions v2 (runs + basin_types + basin_captures) |
+| `autoloop/analyze/` | Analysis package: compressibility, stationarity, summaries; incremental cache |
+| `autoloop/plot.py` | Visualization: entropy, compressibility, phase portraits, temporal portraits, violins |
+| `autoloop/precollapse.py` | Pre-collapse detection and analysis |
+| `autoloop/precollapse_report.py` | Pre-collapse reporting: summary rows, detail reports |
+| `autoloop/semantic.py` | Semantic core: data types, loading, theme search, attractor catalog |
+| `autoloop/semantic_clouds.py` | Theme discovery, co-occurrence, basin mapping |
+| `autoloop/semantic_report.py` | Semantic reporting: theme density, full analysis |
+| `autoloop/summary.py` | Cross-condition summary table builder |
+| `autoloop/grep_text.py` | Grep for decoded text in parquet runs: regex, context, step/L/T display |
+| `autoloop/explorer.py` + `static/` | Interactive web explorer: FastAPI + Plotly.js, buffered context viewer |
+| `autoloop/utils.py` | Shared primitives: compressibility, EOS EMA |
 
 ## Data
 

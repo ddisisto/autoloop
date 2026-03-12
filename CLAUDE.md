@@ -16,7 +16,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 - No TODOs in code -- use `raise NotImplementedError` where appropriate
 - Single responsibility, DRY, YAGNI, KISS
 - Modules expose clean interfaces; internals stay internal
-- Scripts, not a package. No `src/` layout. Add modules only when genuinely needed
+- `autoloop/` package in project root. `cli.py` is the entry point (`loop` command via `uv sync`)
 - Files should stay under ~500 lines; split when natural seams emerge
 
 ## Data internals
@@ -42,7 +42,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 
 ## Current state
 
-**What's built:** engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController state machine + CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI), analyze/ package, plot.py, explorer.py, precollapse.py, semantic.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
+**What's built:** All modules in `autoloop/` package. engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController with direct state tracking + CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage, plot.py, explorer.py, precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
 
 **Data collected:** ~70 runs. Run `loop index query` for the live catalog.
 
