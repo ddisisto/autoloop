@@ -30,6 +30,9 @@ At threshold temperature, the model doesn't jump out of a basin — it tunnels o
 
 A simple closed-loop controller can navigate this landscape, holding the system at the edge between collapse and rich dynamics. Temperature and context length are coupled actuators; Heaps' beta (vocabulary growth rate) is the control signal. The system finds a natural equilibrium at beta ~ 0.90 regardless of starting conditions.
 
+## Why this matters
+Any system where a model conditions on its own output — chain-of-thought, agentic loops, multi-turn dialogue — is a version of this system with additional structure. The dynamics described here (attractor collapse, hysteresis, escape boundaries) don't disappear when you add a system prompt; they become harder to observe. This framework strips the scaffolding and exposes the raw phase structure that underlies all autoregressive self-consumption.
+
 ## What we're mapping
 
 Four regimes emerge across temperature (T) and context length (L): repetitive collapse, suppressed dynamics, rich dynamics, and incoherent noise. The boundary between collapse and escape is sharp, L-dependent, and hysteretic — exiting an occupied basin requires ~0.4T more than avoiding it from a cold start.
