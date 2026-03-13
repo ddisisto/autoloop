@@ -1,8 +1,18 @@
-# autoloop
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="static/banner.svg">
+    <source media="(prefers-color-scheme: light)" srcset="static/banner.svg">
+    <img alt="autoloop — basin topography and learnable steering in autoregressive generation" src="static/banner.png" width="680">
+  </picture>
+</p>
 
-Basin topography and learnable steering in autoregressive generation.
+<p align="center">
+  <em>A small language model generates tokens into a fixed-length sliding window, conditioning entirely on its own output.<br>No input, no prompt, no external signal — just a model consuming its own predictions forever.</em>
+</p>
 
-A small language model (SmolLM-135M) generates tokens indefinitely into a fixed-length sliding context window, conditioning entirely on its own output. No input, no prompt, no external signal — just a model consuming its own predictions forever. The resulting system is a discrete stochastic dynamical system with surprisingly rich structure.
+---
+
+The resulting system is a discrete stochastic dynamical system with surprisingly rich structure.
 
 > **Status:** Active research. Landscape mapping and closed-loop control complete. Currently building basin cartography — systematic discovery and clustering of attractor basins across the parameter space. Not taking contributions, but forks and discussion welcome.
 

@@ -1,0 +1,86 @@
+<svg width="100%" viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg">
+<style>
+@media (prefers-color-scheme: light) {
+  .bg { fill: #0D1117; }
+  .contour { stroke: #1E3A5F; }
+  .contour-bright { stroke: #2D6AAF; }
+  .basin-fill { fill: #0A1628; }
+  .title-text { fill: #E6EDF3; }
+  .sub-text { fill: #7D8590; }
+  .loop-stroke { stroke: #58A6FF; }
+  .loop-glow { stroke: #58A6FF; }
+  .dot { fill: #58A6FF; }
+  .dot-dim { fill: #2D6AAF; }
+  .stair-line { stroke: #3FB950; }
+  .stair-glow { stroke: #3FB950; }
+}
+@media (prefers-color-scheme: dark) {
+  .bg { fill: #0D1117; }
+  .contour { stroke: #1E3A5F; }
+  .contour-bright { stroke: #2D6AAF; }
+  .basin-fill { fill: #0A1628; }
+  .title-text { fill: #E6EDF3; }
+  .sub-text { fill: #7D8590; }
+  .loop-stroke { stroke: #58A6FF; }
+  .loop-glow { stroke: #58A6FF; }
+  .dot { fill: #58A6FF; }
+  .dot-dim { fill: #2D6AAF; }
+  .stair-line { stroke: #3FB950; }
+  .stair-glow { stroke: #3FB950; }
+}
+</style>
+<rect class="bg" x="0" y="0" width="680" height="220" rx="12"/>
+
+<!-- Basin contour lines - left cluster -->
+<ellipse class="contour" cx="480" cy="130" rx="140" ry="65" fill="none" stroke-width="0.4" opacity="0.25"/>
+<ellipse class="contour" cx="480" cy="132" rx="115" ry="52" fill="none" stroke-width="0.4" opacity="0.3"/>
+<ellipse class="contour" cx="480" cy="134" rx="90" ry="40" fill="none" stroke-width="0.5" opacity="0.4"/>
+<ellipse class="contour-bright" cx="480" cy="136" rx="65" ry="28" fill="none" stroke-width="0.5" opacity="0.5"/>
+<ellipse class="contour-bright" cx="480" cy="138" rx="40" ry="17" fill="none" stroke-width="0.6" opacity="0.65"/>
+<ellipse class="contour-bright" cx="482" cy="140" rx="18" ry="8" fill="none" stroke-width="0.7" opacity="0.8"/>
+
+<!-- Second basin - smaller, offset -->
+<ellipse class="contour" cx="570" cy="80" rx="70" ry="35" fill="none" stroke-width="0.3" opacity="0.2"/>
+<ellipse class="contour" cx="570" cy="82" rx="50" ry="24" fill="none" stroke-width="0.4" opacity="0.3"/>
+<ellipse class="contour-bright" cx="570" cy="84" rx="30" ry="14" fill="none" stroke-width="0.5" opacity="0.45"/>
+<ellipse class="contour-bright" cx="571" cy="85" rx="12" ry="6" fill="none" stroke-width="0.6" opacity="0.6"/>
+
+<!-- Third basin - bottom right -->
+<ellipse class="contour" cx="560" cy="175" rx="55" ry="28" fill="none" stroke-width="0.3" opacity="0.2"/>
+<ellipse class="contour" cx="560" cy="176" rx="38" ry="18" fill="none" stroke-width="0.4" opacity="0.3"/>
+<ellipse class="contour-bright" cx="561" cy="177" rx="20" ry="9" fill="none" stroke-width="0.5" opacity="0.45"/>
+
+<!-- Entropy staircase trace -->
+<path class="stair-glow" d="M395 68 L415 68 L415 88 L445 88 L445 115 L470 115 L470 138" fill="none" stroke-width="2.5" opacity="0.15" stroke-linecap="round" stroke-linejoin="round"/>
+<path class="stair-line" d="M395 68 L415 68 L415 88 L445 88 L445 115 L470 115 L470 138" fill="none" stroke-width="1.2" opacity="0.7" stroke-linecap="round" stroke-linejoin="round"/>
+
+<!-- Trajectory dot at basin center -->
+<circle class="dot" cx="470" cy="138" r="2.5" opacity="0.9"/>
+<circle class="dot" cx="470" cy="138" r="5" opacity="0.2"/>
+
+<!-- Scattered trajectory dots -->
+<circle class="dot-dim" cx="395" cy="68" r="1.5" opacity="0.5"/>
+<circle class="dot-dim" cx="415" cy="88" r="1.5" opacity="0.5"/>
+<circle class="dot-dim" cx="445" cy="115" r="1.5" opacity="0.5"/>
+
+<!-- Escape trajectory (faint, shooting out) -->
+<path class="loop-glow" d="M470 138 Q490 125 530 82" fill="none" stroke-width="1" opacity="0.2" stroke-linecap="round" stroke-dasharray="3 4"/>
+<circle class="dot-dim" cx="530" cy="82" r="1.5" opacity="0.4"/>
+
+<!-- Loop symbol - subtle circular arrow near the staircase -->
+<path class="loop-stroke" d="M404 46 A14 14 0 1 1 418 32" fill="none" stroke-width="1" opacity="0.4" stroke-linecap="round"/>
+<path class="loop-stroke" d="M418 32 L415 27 M418 32 L423 30" fill="none" stroke-width="1" opacity="0.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+<!-- Title -->
+<text class="title-text" x="44" y="100" font-family="monospace" font-size="38" font-weight="700" letter-spacing="-1">autoloop</text>
+
+<!-- Subtitle -->
+<text class="sub-text" x="46" y="126" font-family="monospace" font-size="12" letter-spacing="0.5">basin topography and learnable steering</text>
+<text class="sub-text" x="46" y="142" font-family="monospace" font-size="12" letter-spacing="0.5">in autoregressive generation</text>
+
+<!-- Thin separator line -->
+<line x1="46" y1="154" x2="180" y2="154" stroke="#30363D" stroke-width="0.5"/>
+
+<!-- Minimal metadata -->
+<text class="sub-text" x="46" y="172" font-family="monospace" font-size="10" opacity="0.6">SmolLM-135M · MIT</text>
+</svg>
