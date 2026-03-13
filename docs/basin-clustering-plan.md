@@ -13,6 +13,16 @@ L=8 pilot survey complete: 3 seeds x 100k steps, 201 captures, 17 types via cosi
 
 Root cause: 576-dim embeddings are overparameterized for L=8 (only 8 tokens of real information), and cosine distance on raw embeddings doesn't separate structural variants well.
 
+## Phase 0: Compressibility normalization
+
+Gzip has fixed overhead (~20B header + Huffman table) that inflates compression ratios at short byte lengths. At W=16 this pushes ratios above 1.0; even at W=32 it's a measurable bias. Since the compression spectrum is 5 of 16 clustering dimensions, this length-dependent artifact would distort cluster distances.
+
+**Fix:** normalize raw compression ratios against an incompressible baseline at matched byte length. For each byte length N, compress random bytes to get the baseline ratio, then divide through: `normalized = raw_ratio / baseline_ratio`. This maps incompressible content to ~1.0 regardless of W, removing the overhead bias.
+
+Implementation: `normalized_compressibility()` and `compressibility_baseline()` in `autoloop/utils.py`. Baselines are cached per byte length (deterministic enough after averaging 8 random samples).
+
+**Applied at feature-extraction time, not capture time.** Raw comp_W values stay in `.basins.pkl` and SQLite — normalization happens when building the clustering feature matrix. This keeps existing data valid and lets the normalization be adjusted without re-running surveys.
+
 ## Phase 1: Recluster L=8
 
 ### Feature engineering
@@ -20,7 +30,7 @@ Root cause: 576-dim embeddings are overparameterized for L=8 (only 8 tokens of r
 Joint feature vector per capture (16 dims):
 
 1. **Embedding projection**: PCA(576 → 8) on all L=8 capture embeddings. 8 dims to match context length — captures the real structure, discards hidden-state noise. Save PCA model for projecting future L=8 captures.
-2. **Compression spectrum**: comp_W16, comp_W32, comp_W64, comp_W128, comp_W256 (5 dims). Fingerprints cycle structure at multiple scales.
+2. **Compression spectrum**: normalized comp_W16, comp_W32, comp_W64, comp_W128, comp_W256 (5 dims). Normalized against incompressible baseline at matched byte length (see Phase 0). Fingerprints cycle structure at multiple scales without gzip overhead bias.
 3. **Scalar metrics**: entropy_mean, heaps_beta (2 dims). Basin depth indicators.
 4. **Context length**: L normalized to [0,1] (1 dim). Constant for L=8-only data (zero impact on clustering), but ready for cross-L integration when multi-L data arrives. Cheap to include; provides gentle separation pressure at different L without dominating the vector.
 

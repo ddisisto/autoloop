@@ -42,9 +42,9 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 
 ## Current state
 
-**What's built:** All modules in `autoloop/` package. metrics.py (central metric registry: MetricDef + register/get/by_scale + heaps_beta_ols + decorrelation_lag; 18 built-in metrics across step/window/run scales; all run-level compute functions consolidated here), engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController with direct state tracking + CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage (discovers window metrics from registry; scalars.py iterates registry for run_scalars(); cache.py with version-validated .analysis.pkl), plot.py (+ generic plot_metric_timeseries), explorer.py (metric discovery from registry), precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
+**What's built:** All modules in `autoloop/` package. metrics.py (central metric registry: MetricDef + register/get/by_scale + heaps_beta_ols + decorrelation_lag; 18 built-in metrics across step/window/run scales; all run-level compute functions consolidated here), engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController: COOLING→HEATING→TRANSIT cycle, records at gate-fire time, segment_steps=2*L; CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage (discovers window metrics from registry; scalars.py iterates registry for run_scalars(); cache.py with version-validated .analysis.pkl), plot.py (+ generic plot_metric_timeseries), explorer.py (metric discovery from registry), precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
 
-**Data collected:** ~70 runs. Run `loop index query` for the live catalog.
+**Data collected:** ~70 sweep/controller/anneal/probe runs + 3 survey runs (L=8 x seeds 42/123/7 x 100k steps). 201 basin captures, 17 types. Run `loop index query` for the live catalog.
 
 **Key findings** (see observations.md for full log):
 - Four regimes: collapse, suppressed dynamics, rich dynamics, noise
@@ -54,8 +54,12 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 - Closed-loop control finds beta~0.90 equilibrium. Balance T tracks T_escape(L)
 - Compressibility is a collapse detector, not a rich-dynamics discriminator. Entropy and Heaps' beta are the right control signals
 - Suppressed dynamics is scale-invariant: regime depends on basin-depth/thermal-energy ratio
+- Within-basin deepening: small perturbations consistently tighten attractors (25/29 recaptures go deeper)
+- Basin discovery not saturating at L=8: long tail of rare types, last novel at 98% through third seed
 
-**Key parameters:** SmolLM-135M, L in {64..512}, T in {0.50..1.50}, seeds {42,123,7}, 100k tokens/run, pure temperature scaling (no top-k/top-p).
+**Current focus:** Recollect L=8 with survey fixes, then PCA+HDBSCAN clustering to replace cosine threshold. See `docs/basin-clustering-plan.md`.
+
+**Key parameters:** SmolLM-135M, L in {8..512}, T in {0.10..1.50}, seeds {42,123,7}, 100k tokens/run, pure temperature scaling (no top-k/top-p).
 
 ## Dependencies
 
