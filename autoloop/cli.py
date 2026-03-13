@@ -549,7 +549,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_summary.add_argument("--runs-dir", type=str, default="data/runs",
                            help="Runs directory (default: data/runs)")
 
+    # ── basin ────────────────────────────────────────────────────
+    from .basin import add_basin_subparser
+    add_basin_subparser(sub)
+
     return parser
+
+
+def cmd_basin(args: argparse.Namespace) -> None:
+    """Dispatch to basin subcommands."""
+    from .basin import cmd_basin as _basin_dispatch
+    _basin_dispatch(args)
 
 
 _DISPATCH: dict[str, callable] = {
@@ -564,6 +574,7 @@ _DISPATCH: dict[str, callable] = {
     "semantic": cmd_semantic,
     "precollapse": cmd_precollapse,
     "summary": cmd_summary,
+    "basin": cmd_basin,
 }
 
 
