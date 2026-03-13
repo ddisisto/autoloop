@@ -1,7 +1,7 @@
 """Basin survey: systematic basin discovery via cooling/heating ramps.
 
 State machine experiment that cycles through:
-  COOLING  -> CAPTURED -> HEATING -> TRANSIT -> COOLING ...
+  COOLING -> HEATING -> TRANSIT -> COOLING ...
 
 Temperature ramps down during COOLING (finding basins at successively
 lower T) and up during HEATING (probing escape). Each cycle captures
@@ -253,12 +253,9 @@ class SurveyController:
             comp_captured = sensors.comp_W64 < CAPTURE_COMP_THRESHOLD
             if beta_captured or comp_captured:
                 self.ss.basin_entropy_floor = sensors.entropy_mean
-                return "CAPTURED"
+                self._record_capture(sensors)
+                return "HEATING"
             return None
-
-        if self.state == "CAPTURED":
-            self._record_capture(sensors)
-            return "HEATING"
 
         if self.state == "HEATING":
             # Check deeper basin: same gates as capture, plus deeper than current
@@ -268,7 +265,7 @@ class SurveyController:
             if ((beta_captured or comp_captured)
                     and sensors.entropy_mean < self.ss.basin_entropy_floor * 0.8):
                 self.ss.basin_entropy_floor = sensors.entropy_mean
-                return "CAPTURED"
+                self._record_capture(sensors)
             # Check escape
             rise = sensors.entropy_mean - self.ss.basin_entropy_floor
             at_ceiling = self.ss.current_T >= self.ss.T_max - 1e-6
@@ -378,7 +375,7 @@ class SurveyController:
             self.ss.cool()
         elif self.state == "HEATING":
             self.ss.heat()
-        # TRANSIT holds T at escape level; CAPTURED is transient
+        # TRANSIT holds T at escape level
 
         if old_state != self.state:
             log.debug("T=%.3f after %s→%s", self.ss.current_T, old_state, self.state)
@@ -418,7 +415,7 @@ def run_survey(
     if T_max is None:
         T_max = default_t_max
     if segment_steps is None:
-        segment_steps = max(L, 50)
+        segment_steps = 2 * L
     if output_dir is None:
         output_dir = runlib.SURVEY_DIR
     if run_name is None:
