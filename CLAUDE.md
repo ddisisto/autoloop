@@ -57,7 +57,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 - Within-basin deepening: small perturbations consistently tighten attractors (25/29 recaptures go deeper)
 - Basin discovery not saturating at L=8: long tail of rare types, last novel at 98% through third seed
 
-**Current focus:** Recollect L=8 with survey fixes, then PCA+HDBSCAN clustering to replace cosine threshold. See `docs/basin-clustering-plan.md`.
+**Current focus:** Recollect L=8 with survey fixes, then validate HDBSCAN clustering on clean data. See `docs/basin-mapping.md`.
 
 **Key parameters:** SmolLM-135M, L in {8..512}, T in {0.10..1.50}, seeds {42,123,7}, 100k tokens/run, pure temperature scaling (no top-k/top-p).
 

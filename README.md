@@ -60,8 +60,7 @@ Requires SmolLM-135M weights at `data/model/SmolLM-135M/`. See `loop --help` for
 
 - [observations.md](observations.md) — Findings log with current model summary
 - [docs/project-brief.md](docs/project-brief.md) — Full research design
-- [docs/basin-mapping.md](docs/basin-mapping.md) — Basin survey protocol and roadmap
-- [docs/basin-clustering-plan.md](docs/basin-clustering-plan.md) — Clustering and tooling plan
+- [docs/basin-mapping.md](docs/basin-mapping.md) — Basin cartography: protocol, clustering, and roadmap
 - [docs/interaction-topology.md](docs/interaction-topology.md) — Speculative framing: generative dynamics as interaction paradigm
 
 ## License
