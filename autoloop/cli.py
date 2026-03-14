@@ -355,7 +355,6 @@ def cmd_survey(args: argparse.Namespace) -> None:
         run_name=args.run_name,
         output_dir=output_dir,
         save_every=args.save_every,
-        novelty_threshold=args.novelty_threshold,
     )
     auto_index_run(parquet_path)
 
@@ -481,8 +480,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_survey.add_argument("--run-name", type=str, default=None)
     p_survey.add_argument("--output-dir", type=str, default=None)
     p_survey.add_argument("--save-every", type=int, default=50)
-    p_survey.add_argument("--novelty-threshold", type=float, default=0.3,
-                          help="Cosine distance threshold for novel basins")
 
     # ── explore ───────────────────────────────────────────────────
     p_explore = sub.add_parser("explore", help="Start the interactive explorer")

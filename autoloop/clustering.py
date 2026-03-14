@@ -291,3 +291,58 @@ def load_models(models_dir: Path | None = None) -> dict:
         payload = pickle.load(f)
     log.info("Loaded PCA + scaler from %s", load_path)
     return payload
+
+
+# ── Cluster centroids for online matching ─────────────────────────
+
+def compute_cluster_centroids(
+    result: FeatureResult,
+    cr: ClusterResult,
+    models_dir: Path | None = None,
+) -> dict[int, dict]:
+    """Compute per-cluster centroids and max radii in scaled feature space.
+
+    For each cluster, computes the mean (centroid) and the maximum distance
+    from centroid to any member. Saves the result alongside the feature
+    models for use by ClusterCatalogue during surveys.
+
+    Returns dict mapping cluster_id -> {"centroid": ndarray, "max_radius": float}.
+    """
+    if models_dir is None:
+        models_dir = MODELS_DIR
+
+    cluster_info: dict[int, dict] = {}
+    for cid in range(cr.n_clusters):
+        mask = cr.labels == cid
+        members = result.features[mask]
+        centroid = members.mean(axis=0)
+        distances = np.linalg.norm(members - centroid, axis=1)
+        max_radius = float(distances.max())
+        cluster_info[cid] = {
+            "centroid": centroid,
+            "max_radius": max_radius,
+        }
+
+    # Save
+    models_dir.mkdir(parents=True, exist_ok=True)
+    save_path = models_dir / "cluster_centroids.pkl"
+    with open(save_path, "wb") as f:
+        pickle.dump(cluster_info, f)
+    log.info(
+        "Saved %d cluster centroids to %s", len(cluster_info), save_path,
+    )
+    return cluster_info
+
+
+def load_cluster_centroids(models_dir: Path | None = None) -> dict[int, dict]:
+    """Load precomputed cluster centroids and radii.
+
+    Returns dict mapping cluster_id -> {"centroid": ndarray, "max_radius": float}.
+    """
+    if models_dir is None:
+        models_dir = MODELS_DIR
+    load_path = models_dir / "cluster_centroids.pkl"
+    with open(load_path, "rb") as f:
+        centroids = pickle.load(f)
+    log.info("Loaded %d cluster centroids from %s", len(centroids), load_path)
+    return centroids

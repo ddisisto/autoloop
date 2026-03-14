@@ -7,15 +7,14 @@ Temperature ramps down during COOLING (finding basins at successively
 lower T) and up during HEATING (probing escape). Each cycle captures
 one basin with its accessibility temperature (T at capture) and escape
 temperature (T at escape). Captures are accumulated in a .basins.pkl
-sidecar. Novel basins (by embedding distance) extend the centroid
-catalogue.
+sidecar. Novel basins (by cluster membership in the fitted HDBSCAN
+feature space) extend the cluster catalogue.
 
 Usage:
     loop survey --seed 42 -L 8 --total-steps 100000
     loop survey --seed 42 -L 64 --T-min 0.50 --T-max 0.80
 """
 
-import json
 import logging
 import pickle
 from dataclasses import dataclass, field
@@ -23,8 +22,16 @@ from pathlib import Path
 
 import numpy as np
 
+from .clustering import (
+    COMP_WINDOWS,
+    MAX_L,
+    MODELS_DIR,
+    load_cluster_centroids,
+    load_models,
+)
 from .engine import SensorReading, StepEngine, load_model
 from .experiment import Action, run_experiment
+from .utils import compressibility_baseline
 from . import runlib
 
 log = logging.getLogger(__name__)
@@ -49,114 +56,166 @@ def l_defaults(L: int) -> tuple[float, float]:
     return _L_DEFAULTS[-1][1], _L_DEFAULTS[-1][2]
 
 
-# ── Centroid catalogue ────────────────────────────────────────────
+# ── Cluster catalogue ─────────────────────────────────────────────
 
 BASINS_DIR = Path("data/basins")
 
+# Generous margin on cluster radius for matching new captures.
+# 1.5x means a capture up to 50% further than the furthest training
+# member still counts as belonging to that cluster.
+RADIUS_MARGIN = 1.5
+
 
 @dataclass
-class CentroidCatalogue:
-    """In-memory centroid store for online novelty detection."""
-    centroids: np.ndarray  # (N, D) float32, may be empty (0, D)
-    metadata: list[dict]   # one dict per centroid row
-    threshold: float = 0.3
+class ClusterCatalogue:
+    """HDBSCAN-based novelty detection for online basin survey.
+
+    Uses fitted PCA + StandardScaler from the clustering pipeline to
+    project new captures into the 14-dim feature space, then matches
+    against precomputed cluster centroids by Euclidean distance.
+
+    Falls back gracefully when no fitted models exist (everything
+    is novel).
+    """
+    pca: object | None             # fitted PCA, or None if no models
+    scaler: object | None          # fitted StandardScaler, or None
+    cluster_centroids: dict        # cluster_id -> {"centroid", "max_radius"}
+    provisional: list[dict]        # unmatched captures awaiting future clustering
     dirty: bool = False
 
     @staticmethod
-    def load(basins_dir: Path, embed_dim: int = 576) -> "CentroidCatalogue":
-        """Load existing centroids or create empty catalogue."""
-        npy_path = basins_dir / "centroids.npy"
-        json_path = basins_dir / "centroids.json"
+    def load(models_dir: Path | None = None) -> "ClusterCatalogue":
+        """Load fitted models and cluster centroids, or create empty catalogue."""
+        if models_dir is None:
+            models_dir = MODELS_DIR
 
-        if npy_path.exists() and json_path.exists():
-            centroids = np.load(npy_path)
-            with open(json_path) as f:
-                metadata = json.load(f)
-            log.info("Loaded %d existing basin types", len(metadata))
-            return CentroidCatalogue(centroids=centroids, metadata=metadata)
+        pca = None
+        scaler = None
+        cluster_centroids: dict = {}
 
-        return CentroidCatalogue(
-            centroids=np.empty((0, embed_dim), dtype=np.float32),
-            metadata=[],
+        feature_models_path = models_dir / "feature_models.pkl"
+        centroids_path = models_dir / "cluster_centroids.pkl"
+
+        if feature_models_path.exists() and centroids_path.exists():
+            models = load_models(models_dir)
+            pca = models["pca"]
+            scaler = models["scaler"]
+            cluster_centroids = load_cluster_centroids(models_dir)
+            log.info(
+                "ClusterCatalogue: loaded %d clusters from %s",
+                len(cluster_centroids), models_dir,
+            )
+        else:
+            log.info(
+                "ClusterCatalogue: no fitted models at %s, "
+                "all captures will be novel",
+                models_dir,
+            )
+
+        return ClusterCatalogue(
+            pca=pca,
+            scaler=scaler,
+            cluster_centroids=cluster_centroids,
+            provisional=[],
         )
 
-    def match(self, embedding: np.ndarray) -> tuple[int | None, float]:
-        """Find nearest centroid. Returns (type_id, distance).
+    def _build_feature_vector(
+        self, embedding: np.ndarray, capture: dict,
+    ) -> np.ndarray:
+        """Build the 14-dim feature vector for a single capture.
 
-        Returns (None, inf) if catalogue is empty.
+        Mirrors the batch construction in clustering.build_feature_matrix():
+          - PCA-project embedding (8 dims)
+          - Normalize comp spectrum against incompressible baseline (5 dims)
+          - Normalize L (1 dim)
         """
-        if len(self.centroids) == 0:
+        # PCA projection
+        pca_features = self.pca.transform(embedding.reshape(1, -1))  # (1, 8)
+
+        # Normalized compression spectrum
+        text_bytes = len(capture["attractor_text"].encode("utf-8"))
+        L = capture["L"]
+        comp_normed = np.empty((1, len(COMP_WINDOWS)), dtype=np.float64)
+        for j, w in enumerate(COMP_WINDOWS):
+            raw = capture[f"comp_W{w}"]
+            estimated_bytes = max(1, int(text_bytes * w / L))
+            baseline = compressibility_baseline(estimated_bytes)
+            comp_normed[0, j] = raw / baseline
+
+        # Normalized L
+        L_normed = np.array([[L / MAX_L]], dtype=np.float64)
+
+        # Concatenate and scale
+        raw = np.hstack([pca_features, comp_normed, L_normed])  # (1, 14)
+        scaled = self.scaler.transform(raw)  # (1, 14)
+        return scaled[0]  # (14,)
+
+    def match(
+        self, embedding: np.ndarray, capture: dict,
+    ) -> tuple[int | None, float]:
+        """Find nearest cluster centroid. Returns (cluster_id, distance).
+
+        Returns (None, inf) if no fitted models or no clusters.
+        """
+        if self.pca is None or not self.cluster_centroids:
             return None, float("inf")
 
-        # Cosine distance
-        emb_norm = embedding / (np.linalg.norm(embedding) + 1e-10)
-        cent_norms = self.centroids / (
-            np.linalg.norm(self.centroids, axis=1, keepdims=True) + 1e-10
-        )
-        similarities = cent_norms @ emb_norm
-        best_idx = int(np.argmax(similarities))
-        distance = float(1.0 - similarities[best_idx])
-        type_id = self.metadata[best_idx]["type_id"]
-        return type_id, distance
+        fv = self._build_feature_vector(embedding, capture)
+
+        best_id = None
+        best_dist = float("inf")
+        for cid, info in self.cluster_centroids.items():
+            dist = float(np.linalg.norm(fv - info["centroid"]))
+            if dist < best_dist:
+                best_dist = dist
+                best_id = cid
+
+        # Check against radius threshold
+        if best_id is not None:
+            max_radius = self.cluster_centroids[best_id]["max_radius"]
+            if best_dist > max_radius * RADIUS_MARGIN:
+                return None, best_dist
+
+        return best_id, best_dist
 
     def add_type(
         self, embedding: np.ndarray, capture: dict, run_id: str,
     ) -> int:
-        """Register a new basin type. Returns the new type_id."""
-        type_id = len(self.metadata)
-        self.centroids = np.vstack([
-            self.centroids,
-            embedding.reshape(1, -1).astype(np.float32),
-        ])
-        meta = {
-            "type_id": type_id,
-            "hit_count": 1,
-            "first_seen_run": run_id,
-            "first_seen_step": capture["capture_step"],
-            "last_seen_run": run_id,
-            "last_seen_step": capture["capture_step"],
-            "min_L": capture["L"],
-            "max_L": capture["L"],
-        }
-        # Copy spectrum fields
-        for w in [16, 32, 64, 128, 256]:
-            key = f"comp_W{w}"
-            if key in capture:
-                meta[key] = capture[key]
-        if "W_star" in capture:
-            meta["W_star"] = capture["W_star"]
-        for k in ("entropy_mean", "entropy_std", "entropy_floor", "heaps_beta"):
-            if k in capture:
-                meta[k] = capture[k]
-        if "attractor_text" in capture:
-            meta["representative_text"] = capture["attractor_text"]
+        """Record an unmatched capture with a provisional type_id.
 
-        self.metadata.append(meta)
+        Does not create a new cluster online — provisional captures
+        get swept into clusters on the next clustering run.
+        Returns the provisional type_id.
+        """
+        # Provisional IDs start after the highest existing cluster ID
+        existing_max = max(self.cluster_centroids.keys()) if self.cluster_centroids else -1
+        provisional_offset = existing_max + 1 + len(self.provisional)
+        type_id = provisional_offset
+
+        self.provisional.append({
+            "type_id": type_id,
+            "run_id": run_id,
+            "capture_step": capture["capture_step"],
+            "L": capture["L"],
+        })
         self.dirty = True
         return type_id
 
-    def update_type(
-        self, type_id: int, capture: dict, run_id: str,
-    ) -> None:
-        """Update an existing type's stats with a new capture."""
-        meta = self.metadata[type_id]
-        meta["hit_count"] = meta.get("hit_count", 0) + 1
-        meta["last_seen_run"] = run_id
-        meta["last_seen_step"] = capture["capture_step"]
-        L = capture["L"]
-        meta["min_L"] = min(meta.get("min_L", L), L)
-        meta["max_L"] = max(meta.get("max_L", L), L)
-        self.dirty = True
-
-    def save(self, basins_dir: Path) -> None:
-        """Write centroids.npy + centroids.json."""
+    def save(self, models_dir: Path | None = None) -> None:
+        """Persist provisional captures for future clustering."""
         if not self.dirty:
             return
-        basins_dir.mkdir(parents=True, exist_ok=True)
-        np.save(basins_dir / "centroids.npy", self.centroids)
-        with open(basins_dir / "centroids.json", "w") as f:
-            json.dump(self.metadata, f, indent=2)
-        log.info("Saved %d basin types to %s", len(self.metadata), basins_dir)
+        if models_dir is None:
+            models_dir = MODELS_DIR
+        models_dir.mkdir(parents=True, exist_ok=True)
+
+        save_path = models_dir / "provisional_captures.pkl"
+        with open(save_path, "wb") as f:
+            pickle.dump(self.provisional, f)
+        log.info(
+            "Saved %d provisional captures to %s",
+            len(self.provisional), save_path,
+        )
         self.dirty = False
 
 
@@ -227,7 +286,7 @@ class SurveyController:
     def __init__(
         self,
         engine: StepEngine,
-        catalogue: CentroidCatalogue,
+        catalogue: ClusterCatalogue,
         survey_state: SurveyState,
     ):
         self.engine = engine
@@ -323,10 +382,10 @@ class SurveyController:
             capture[f"comp_W{w}"] = val
 
         # Novelty detection
-        type_id, distance = self.catalogue.match(embedding)
+        type_id, distance = self.catalogue.match(embedding, capture)
         capture["novelty_distance"] = distance
 
-        if type_id is None or distance > self.catalogue.threshold:
+        if type_id is None:
             type_id = self.catalogue.add_type(embedding, capture, self.ss.run_id)
             self.ss.novel_count += 1
             self.ss.consecutive_known = 0
@@ -337,7 +396,6 @@ class SurveyController:
                 sensors.entropy_mean, sensors.heaps_beta,
             )
         else:
-            self.catalogue.update_type(type_id, capture, self.ss.run_id)
             self.ss.consecutive_known += 1
             log.info(
                 "KNOWN basin type %d (dist=%.3f) at step %d T=%.3f | "
@@ -402,7 +460,6 @@ def run_survey(
     run_name: str | None = None,
     output_dir: Path | None = None,
     save_every: int = 50,
-    novelty_threshold: float = 0.3,
 ) -> Path:
     """Run a basin survey at fixed L.
 
@@ -430,9 +487,8 @@ def run_survey(
     model, tokenizer = load_model(model_dir, device)
     engine = StepEngine(model, tokenizer, device, seed)
 
-    # Load centroid catalogue
-    catalogue = CentroidCatalogue.load(BASINS_DIR, embed_dim=576)
-    catalogue.threshold = novelty_threshold
+    # Load cluster catalogue
+    catalogue = ClusterCatalogue.load()
 
     # Build survey controller
     survey_state = SurveyState(
@@ -448,7 +504,6 @@ def run_survey(
         "T_min": T_min,
         "T_max": T_max,
         "dT_frac": dT_frac,
-        "novelty_threshold": novelty_threshold,
     }
 
     # Run — start at T_max, cooling will ramp down
@@ -470,11 +525,15 @@ def run_survey(
     _save_basin_data(survey_state, catalogue, output_dir, run_name)
 
     # Summary
+    n_clusters = len(catalogue.cluster_centroids)
+    n_provisional = len(catalogue.provisional)
     log.info(
-        "Survey complete: %d cycles, %d novel types, %d total types",
+        "Survey complete: %d cycles, %d novel types, "
+        "%d known clusters + %d provisional",
         survey_state.cycle_count,
         survey_state.novel_count,
-        len(catalogue.metadata),
+        n_clusters,
+        n_provisional,
     )
 
     return parquet_path
@@ -482,16 +541,16 @@ def run_survey(
 
 def _save_basin_data(
     ss: SurveyState,
-    catalogue: CentroidCatalogue,
+    catalogue: ClusterCatalogue,
     output_dir: Path,
     run_name: str,
 ) -> None:
-    """Save .basins.pkl sidecar and updated centroid catalogue."""
+    """Save .basins.pkl sidecar and updated cluster catalogue."""
     # .basins.pkl — full capture data including embeddings
     pkl_path = output_dir / f"{run_name}.basins.pkl"
     with open(pkl_path, "wb") as f:
         pickle.dump(ss.captures, f)
     log.info("Saved %d captures to %s", len(ss.captures), pkl_path.name)
 
-    # Update global centroids
-    catalogue.save(BASINS_DIR)
+    # Save provisional captures
+    catalogue.save()
