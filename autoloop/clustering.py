@@ -1,19 +1,23 @@
 """Basin clustering: feature extraction and dimensionality reduction.
 
 Loads basin captures from .basins.pkl files, builds a joint feature matrix
-(PCA-reduced embeddings + normalized compression spectrum + scalar metrics),
-and normalizes for downstream clustering (HDBSCAN).
+(PCA-reduced embeddings + normalized compression spectrum + L), and
+normalizes for downstream clustering (HDBSCAN).
 
-Feature vector per capture (16 dims):
+Feature vector per capture (14 dims):
   - PCA(576 → 8) on embeddings (8 dims)
   - Normalized comp_W{16,32,64,128,256} (5 dims)
-  - entropy_mean, heaps_beta (2 dims)
   - L / 512 (1 dim)
+
+Entropy and heaps_beta are excluded from clustering features — they
+reflect observation-time depth (where on the deepening trajectory a
+capture was taken), not basin identity. They remain available as
+per-capture metadata for display and analysis.
 
 Usage:
     from autoloop.clustering import build_feature_matrix
     result = build_feature_matrix()
-    # result.features: (N, 16) ndarray, unit-variance scaled
+    # result.features: (N, 14) ndarray, unit-variance scaled
     # result.captures: list of capture dicts (with metadata)
     # result.pca: fitted PCA model
     # result.scaler: fitted StandardScaler
@@ -41,7 +45,7 @@ EMBED_DIM = 576
 PCA_COMPONENTS = 8
 COMP_WINDOWS = [16, 32, 64, 128, 256]
 MAX_L = 512
-FEATURE_DIM = PCA_COMPONENTS + len(COMP_WINDOWS) + 2 + 1  # 16
+FEATURE_DIM = PCA_COMPONENTS + len(COMP_WINDOWS) + 1  # 14
 
 MODELS_DIR = Path("data/basins/clustering")
 
@@ -144,15 +148,6 @@ def _normalize_comp_spectrum(captures: list[dict]) -> np.ndarray:
     return normed
 
 
-def _extract_scalars(captures: list[dict]) -> np.ndarray:
-    """Extract entropy_mean and heaps_beta as (N, 2) array."""
-    scalars = np.empty((len(captures), 2), dtype=np.float64)
-    for i, cap in enumerate(captures):
-        scalars[i, 0] = cap["entropy_mean"]
-        scalars[i, 1] = cap["heaps_beta"]
-    return scalars
-
-
 def _extract_L_normalized(captures: list[dict]) -> np.ndarray:
     """Extract L normalized to [0, 1] as (N, 1) array."""
     L_vals = np.array([c["L"] for c in captures], dtype=np.float64)
@@ -164,16 +159,19 @@ def _extract_L_normalized(captures: list[dict]) -> np.ndarray:
 def build_feature_matrix(
     survey_dir: Path | None = None,
 ) -> FeatureResult:
-    """Build the 16-dim feature matrix from all basin captures.
+    """Build the 14-dim feature matrix from all basin captures.
 
     Steps:
       1. Load all captures from .basins.pkl files
       2. PCA(576 → 8) on embeddings
       3. Normalize compression spectrum against baselines
-      4. Extract scalar metrics (entropy_mean, heaps_beta)
-      5. Normalize L to [0, 1]
-      6. Concatenate into (N, 16) matrix
-      7. StandardScaler to unit variance
+      4. Normalize L to [0, 1]
+      5. Concatenate into (N, 14) matrix
+      6. StandardScaler to unit variance
+
+    Entropy and heaps_beta are excluded — they describe observation
+    depth, not basin identity. Same attractor at different lock-in
+    stages should cluster together.
 
     Returns a FeatureResult with the scaled feature matrix, capture
     metadata, and fitted PCA/scaler for reuse.
@@ -195,17 +193,13 @@ def build_feature_matrix(
     # 2. Normalized compression spectrum
     comp_features = _normalize_comp_spectrum(captures)
 
-    # 3. Scalar metrics
-    scalar_features = _extract_scalars(captures)
-
-    # 4. Normalized L
+    # 3. Normalized L
     L_features = _extract_L_normalized(captures)
 
     # Concatenate
     raw_features = np.hstack([
         pca_features,       # 8 dims
         comp_features,      # 5 dims
-        scalar_features,    # 2 dims
         L_features,         # 1 dim
     ])
     assert raw_features.shape == (n, FEATURE_DIM), (

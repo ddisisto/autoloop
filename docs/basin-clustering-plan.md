@@ -27,12 +27,13 @@ Implementation: `normalized_compressibility()` and `compressibility_baseline()` 
 
 ### Feature engineering
 
-Joint feature vector per capture (16 dims):
+Joint feature vector per capture (14 dims):
 
 1. **Embedding projection**: PCA(576 → 8) on all L=8 capture embeddings. 8 dims to match context length — captures the real structure, discards hidden-state noise. Save PCA model for projecting future L=8 captures.
 2. **Compression spectrum**: normalized comp_W16, comp_W32, comp_W64, comp_W128, comp_W256 (5 dims). Normalized against incompressible baseline at matched byte length (see Phase 0). Fingerprints cycle structure at multiple scales without gzip overhead bias.
-3. **Scalar metrics**: entropy_mean, heaps_beta (2 dims). Basin depth indicators.
-4. **Context length**: L normalized to [0,1] (1 dim). Constant for L=8-only data (zero impact on clustering), but ready for cross-L integration when multi-L data arrives. Cheap to include; provides gentle separation pressure at different L without dominating the vector.
+3. **Context length**: L normalized to [0,1] (1 dim). Constant for L=8-only data (zero impact on clustering), but ready for cross-L integration when multi-L data arrives. Cheap to include; provides gentle separation pressure at different L without dominating the vector.
+
+**Excluded from clustering:** entropy_mean and heaps_beta. These describe observation-time depth — where on the deepening trajectory a capture was taken — not basin identity. The same attractor captured at different lock-in stages has near-identical embedding and compression spectrum but different entropy/beta. Including them splits single basins into multiple clusters by depth stage. They remain per-capture metadata for display in `loop basin show`.
 
 Normalize each feature to unit variance before clustering.
 
