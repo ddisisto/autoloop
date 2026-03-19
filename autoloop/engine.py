@@ -20,6 +20,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.logging import disable_progress_bar
 
+from .analyze.lz_complexity import lz76_complexity
 from .metrics import heaps_beta_ols
 from .utils import compressibility, fix_decoded_texts
 
@@ -39,6 +40,7 @@ class SensorReading:
     entropy_mean: float
     entropy_std: float
     comp_W64: float
+    lz_W64: float
     heaps_beta: float
     n_words: int
     n_unique: int
@@ -199,6 +201,10 @@ class StepEngine:
         chunk = "".join(texts[-64:]) if len(texts) >= 64 else "".join(texts)
         comp_w64 = compressibility(chunk.encode("utf-8")) if len(chunk) > 10 else 0.0
 
+        # LZ complexity (W=64 from trailing token IDs)
+        token_ids = np.array([r["token_id"] for r in exp_tail[-64:]])
+        lz_w64 = lz76_complexity(token_ids) / len(token_ids) if len(token_ids) > 0 else 1.0
+
         # Heaps' β from trailing window
         text = "".join(texts)
         words = [w.lower() for w in text.split() if len(w) > 1]
@@ -216,6 +222,7 @@ class StepEngine:
             entropy_mean=ent_mean,
             entropy_std=ent_std,
             comp_W64=comp_w64,
+            lz_W64=lz_w64,
             heaps_beta=beta,
             n_words=n_words,
             n_unique=n_unique,
@@ -246,6 +253,25 @@ class StepEngine:
             chunk = "".join(texts[-w:]) if len(texts) >= w else "".join(texts)
             raw = chunk.encode("utf-8")
             result[w] = compressibility(raw) if len(raw) > 10 else float("nan")
+        return result
+
+    def lz_spectrum(
+        self, window_sizes: list[int] | None = None,
+    ) -> dict[int, float]:
+        """Normalized LZ76 complexity at multiple window sizes from trailing records.
+
+        Uses the last W token IDs for each window size W. Returns
+        {W: phrases/W} dict — lower values mean more repetitive.
+        """
+        if window_sizes is None:
+            window_sizes = [16, 32, 64, 128, 256]
+        exp_records = [r for r in self.records if r["phase"] == "experiment"]
+        token_ids = [r["token_id"] for r in exp_records]
+        result: dict[int, float] = {}
+        for w in window_sizes:
+            ids = token_ids[-w:] if len(token_ids) >= w else token_ids
+            arr = np.array(ids)
+            result[w] = lz76_complexity(arr) / len(arr) if len(arr) > 0 else float("nan")
         return result
 
     def embed_context(self) -> np.ndarray:

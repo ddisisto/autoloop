@@ -217,6 +217,7 @@ DT_FRAC = 0.05
 # Either gate fires capture. Both require MIN_COOLING_SEGMENTS.
 CAPTURE_BETA_THRESHOLD = 0.40
 CAPTURE_COMP_THRESHOLD = 0.45
+CAPTURE_LZ_THRESHOLD = 0.55   # normalized LZ76 phrases/W — calibrated from L=8 captures
 MIN_COOLING_SEGMENTS = 5
 
 # Escape detection: entropy must rise this much above the basin floor.
@@ -285,11 +286,11 @@ class SurveyController:
                 return None
             # Two independent capture gates — either sufficient:
             # 1) β < 0.40 (when measurable): vocabulary has died
-            # 2) comp < 0.45: output is highly repetitive/compressible
+            # 2) LZ < 0.55: output is structurally repetitive (token-level)
             beta_captured = (sensors.n_words >= 50
                              and sensors.heaps_beta < CAPTURE_BETA_THRESHOLD)
-            comp_captured = sensors.comp_W64 < CAPTURE_COMP_THRESHOLD
-            if beta_captured or comp_captured:
+            lz_captured = sensors.lz_W64 < CAPTURE_LZ_THRESHOLD
+            if beta_captured or lz_captured:
                 self.ss.basin_entropy_floor = sensors.entropy_mean
                 self._record_capture(sensors)
                 return "HEATING"
@@ -299,8 +300,8 @@ class SurveyController:
             # Check deeper basin: same gates as capture, plus deeper than current
             beta_captured = (sensors.n_words >= 50
                              and sensors.heaps_beta < CAPTURE_BETA_THRESHOLD)
-            comp_captured = sensors.comp_W64 < CAPTURE_COMP_THRESHOLD
-            if ((beta_captured or comp_captured)
+            lz_captured = sensors.lz_W64 < CAPTURE_LZ_THRESHOLD
+            if ((beta_captured or lz_captured)
                     and sensors.entropy_mean < self.ss.basin_entropy_floor * 0.8):
                 self.ss.basin_entropy_floor = sensors.entropy_mean
                 self._record_capture(sensors)
@@ -328,9 +329,10 @@ class SurveyController:
         """Record a basin capture: spectrum, embedding, novelty check."""
         step = self.engine.current_step
 
-        # Compression spectrum
+        # Compression spectrum (gzip + LZ)
         spectrum = self.engine.comp_spectrum()
-        w_star = min(spectrum, key=spectrum.get)
+        lz_spec = self.engine.lz_spectrum()
+        w_star = min(lz_spec, key=lz_spec.get)
 
         # Embedding
         embedding = self.engine.embed_context()
@@ -363,6 +365,8 @@ class SurveyController:
         }
         for w, val in spectrum.items():
             capture[f"comp_W{w}"] = val
+        for w, val in lz_spec.items():
+            capture[f"lz_W{w}"] = val
 
         # Novelty detection
         type_id, distance = self.catalogue.match(embedding, capture)
