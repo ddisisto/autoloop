@@ -56,7 +56,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 - Suppressed dynamics is scale-invariant: regime depends on basin-depth/thermal-energy ratio
 - L=8 basin taxonomy complete: 30 clusters from 327 captures (123+113+91). Two dominant attractors: zeros (64 caps) and decimal loops (49 caps). Within-basin deepening confirmed (71%). Discovery not saturating. 9 universal basins across all seeds, 9 seed-specific
 
-**Current focus:** L=8 complete. Next: adaptive L-ladder (advance to L=12/16), cross-L basin correspondence, or learned controller. See `docs/basin-mapping.md` for roadmap.
+**Current focus:** Info-theoretic metric augmentation complete (surprisal gap, LZ complexity). LZ is uniformly better than gzip compressibility — next step is replacing gzip throughout the pipeline (comp_spectrum, basin fingerprinting, sensors). See `docs/info-theory-metrics.md` for approach and `docs/observations-2026-03-19b.md` for validation. Then: adaptive L-ladder (advance to L=12/16), cross-L basin correspondence, or learned controller. See `docs/basin-mapping.md` for roadmap.
 
 **Key parameters:** SmolLM-135M, L in {8..512}, T in {0.10..1.50}, seeds {42,123,7}, 100k tokens/run, pure temperature scaling (no top-k/top-p).
 
