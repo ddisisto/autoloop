@@ -4,8 +4,6 @@
 
 The phase diagram maps regimes. Basin mapping maps *content*. Each attractor basin is a mode the model "knows how to do" — a register, topic, format, or genre strong enough to capture the system at a given (T, L) operating point. The set of all recoverable basins is an empirical map of the model's behavioral repertoire, extracted from output dynamics without inspecting weights.
 
-Previous work treated basins as obstacles to avoid. This reframes them as the primary object of study. The controller problem (navigate *between* basins) depends on first solving the cartography problem (what basins exist, where are they, what connects to what).
-
 ## System
 
 SmolLM-135M, autoregressive free generation. No external input after initial seed.
@@ -22,41 +20,79 @@ SmolLM-135M, autoregressive free generation. No external input after initial see
 | 256 | 0.87 | sweep |
 | 512 | ~0.90 | sweep |
 
-## Pending Work
+## Survey Protocol
 
-### ~~Recollect L=8~~ DONE
+The SurveyController runs COOLING→HEATING→TRANSIT cycles at fixed L, sweeping temperature down until a basin is captured, then heating to escape:
 
-Recollected 2026-03-14 with gate-fire recording and segment_size=2*L. Pilot data archived in `data/runs/survey/pilot_archive/`, old clustering models cleared. Fresh start.
+- **Capture gates** (either triggers capture):
+  - Heaps' β < 0.40 — vocabulary has died
+  - LZ_W64 (normalized) < 0.55 — token-level structural repetition
+- **Escape detection:** entropy rises 1.0 nat above basin floor, or T hits ceiling
+- **Segment size:** 2×L tokens per segment (10+ context rotations at MIN_COOLING_SEGMENTS=5)
+- **Per-capture data:** 576-dim embedding, LZ spectrum, gzip comp spectrum, context text, attractor text, scalar metrics
 
-- Seed 42: 123 captures (all novel — no catalogue yet). Clustered → 9 clusters + 27 noise
-- Seed 123: 113 captures (8 novel, 105 known against seed 42 clusters)
-- Seed 7: 91 captures (8 novel, 83 known)
-- Full recluster on all 327 captures → 30 clusters + 69 noise (after post-hoc centroid merge)
-- Per-segment logging throttled to every 1000 steps (transition/capture events still log immediately)
+LZ complexity replaced gzip compressibility as the primary capture gate (2026-03-19). LZ is uniformly better at discriminating structural repetition from semantic orbits — see `docs/observations-2026-03-19b.md`.
 
-### Adaptive heating rate
+## Clustering Pipeline
 
-Currently `dT_frac` is fixed at 5%. Adjust based on novelty after `_record_capture`: halve for novel basins (map deepening trajectory and escape T more precisely), double for known basins (save compute).
+### Feature extraction
+PCA(576→8) on model embeddings only. Compression spectrum, entropy, beta, and L are excluded — they describe observation conditions, not basin identity. The embedding already encodes structural and semantic properties of the basin.
 
-### ~~Basin taxonomy~~ DONE
+### Clustering
+HDBSCAN (min_cluster_size=3) on unit-variance-scaled 8-dim features, followed by post-hoc agglomerative merge of clusters whose centroids are within a threshold distance (MERGE_THRESHOLD=0.5). Merge prevents over-splitting without forcing assignment.
 
-Full analysis in [observations-2026-03-19.md](observations-2026-03-19.md). Summary:
+### Online novelty detection
+ClusterCatalogue projects new captures through saved PCA+scaler into the 8-dim feature space, matches against precomputed cluster centroids with per-cluster radius thresholds (1.5× max training radius). Novel captures get provisional IDs and are saved for the next recluster.
 
-- 30 clusters from 327 captures (PCA-only features + post-hoc centroid merge)
-- Two dominant: zeros/numbers (64 caps), decimal loops (49 caps) — 35% of all captures
+### Persistence
+- Fitted PCA + StandardScaler: `data/basins/clustering/feature_models.pkl`
+- Cluster centroids + radii: `data/basins/clustering/cluster_centroids.pkl`
+- Provisional captures: `data/basins/clustering/provisional_captures.pkl`
+- Per-run captures with embeddings: `data/runs/survey/*.basins.pkl`
+
+## Collected Data
+
+### L=8 — Complete (2026-03-14)
+
+3 seeds (42/123/7) × 100k steps. 327 captures, 30 clusters + 69 noise (21%).
+
+- Two dominant attractors: zeros/numbers (64 caps), decimal loops (49 caps) — 35% of all captures
 - 9 universal basins (all 3 seeds), 12 two-seed, 9 seed-specific
 - Within-basin deepening confirmed: 71% of consecutive same-cluster recaptures go deeper
 - Discovery not saturating: last novel type at 85-99% through each seed's run
-- No grab-bags after merge — all clusters internally coherent
-- 21% noise (69 points), likely containing additional rare types below min_cluster_size=3
+- Full analysis: [observations-2026-03-19.md](observations-2026-03-19.md)
 
-### Adaptive L-Ladder
+### L=12 — Collected (2026-03-19), analysis pending
 
-Progress through L values adaptively. Only advance when basin discovery saturates at the current depth.
+3 seeds (42/123/7) × 100k steps. 498 captures (151 + 194 + 153). First survey with LZ capture gates.
 
-**L sequence (each step ≤50% increase):** 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256
+L=12-alone clustering: 50 clusters, 155 noise (31%). More types than L=8 — longer context window supports more diverse template attractors (list cycling, phrase repetition) alongside the tight verbatim loops.
 
-**Saturation criterion:** if the last N captures all match existing types, the current L is exhausted. Advance and check which basins survive, disappear, or emerge.
+### Preliminary cross-L findings (L=8 + L=12 joint)
+
+Joint clustering on all 825 captures (PCA refitted on combined embeddings): 75 clusters, 290 noise (35%).
+
+| Category | Count |
+|----------|-------|
+| Mixed (both L=8 and L=12) | 32 |
+| L=8 only | 16 |
+| L=12 only | 27 |
+
+**Basins that persist across L:** decimal loops (L8=49, L12=34), zeros (L8=61, L12=11), Python code, sentence incompleteness, health advice, LaTeX fractions. These are real attractors in the model's dynamics, not artifacts of a specific context length.
+
+**Basins that disappear at L=12:** character-level loops (`r e r e`, `Boolean,`), single-token patterns, Korean text. These need the tight 8-token window; at 12 tokens the pattern can't fill enough of the context to self-sustain.
+
+**Basins that emerge at L=12:** `#include` loops, longer medical lists, counting sequences, XPath patterns. These need the extra context — the template period exceeds 8 tokens.
+
+**Distribution shift:** zeros dominate at L=8 (64 caps) but recede at L=12 (11 caps). Health advice blooms from 1 to 19 caps. Template/list attractors replace tight verbatim loops as the dominant basin type. This is consistent with the lock-in threshold (~4-8 copies of the cycle in context): at L=12 a 3-token phrase gets only 4 copies, barely enough to lock; at L=8 it gets only 2-3 copies and can't sustain.
+
+These findings are preliminary — the joint clustering has not been validated or persisted. Proper cross-L analysis is pending.
+
+## L-Ladder
+
+Progress through L values, collecting 3 seeds × 100k steps at each depth before advancing.
+
+**L sequence (each step ≤50% increase):** 8 ✓, 12 ✓, 16, 24, 32, 48, 64, 96, 128, 192, 256
 
 **L-dependent parameters:**
 
@@ -67,61 +103,52 @@ Progress through L values adaptively. Only advance when basin discovery saturate
 | 128–192 | 0.40 | 0.57–0.67 | 0.90 | 5–20 |
 | 256 | 0.50 | ~0.87 | 1.00 | 5–15 |
 
-### Cross-L clustering
+**Saturation criterion:** advance when the last N captures all match existing types. Not yet reached at L=8 or L=12 — discovery is still active.
 
-Each L gets its own PCA projection and clustering (PCA dims = L). Cross-L basin correspondence is a separate analysis problem. Approaches:
+## Tooling Roadmap
 
-- Scalar features that are L-comparable (comp spectrum shape, entropy range, beta range)
-- Raw 576-dim embeddings across all L values (same hidden state space) with UMAP/HDBSCAN
-- Multi-scale PCA projection to look for cross-scale structure
+### Persistent clustering (next)
 
-### Learned controller
+The basin CLI (`loop basin`) currently re-runs the full clustering pipeline per session. As capture counts grow, this needs persistent results:
 
-Train a small model on (sensor_state → action) pairs from existing controller runs. Input is ~10D sensor state, output is 2D (delta_T, delta_L).
+- `loop basin recluster` — run full pipeline (load captures → PCA → HDBSCAN → merge → save), persist cluster labels and assignment to disk alongside models/centroids
+- `loop basin list/show/compare` — load from persisted results, no re-clustering
+- Support L-filtered and joint clustering modes
 
-**Objectives (in order of data readiness):**
-- **Beta-tracking:** minimize |beta - target| over time. Trainable today on existing data.
-- **Exploration:** maximize unique basin fingerprints per unit time. Requires survey data.
-- **Exploitation:** reach a target basin from arbitrary starting point. Requires basin catalogue.
+### Cross-L analysis
 
-### Analysis targets
+Joint clustering across L values uses the same 576-dim embedding space (same model hidden states regardless of L). The current approach — refit PCA on the combined set, run HDBSCAN — works at small scale. Needs:
 
-1. **Basin census.** Unique fingerprints at each L. Does count scale with L, saturate, or peak?
-2. **Transition graph.** Directed graph: nodes = types, edges = observed transitions. Identify hubs, dead ends, connected components.
-3. **Depth vs spectrum.** Can depth be predicted from compression spectrum alone?
-4. **Cross-L correspondence.** Minimum L for each basin type = minimum context to express that mode.
-5. **Residue network.** Gzip dictionary overlap across transitions — the transition kernel's content structure.
+- Per-L and joint clustering as first-class operations
+- Basin correspondence tracking: which L=8 clusters map to which L=12 clusters
+- Minimum L for each basin type: the shortest context that can sustain it
 
-## Architecture
+### LZ complexity optimization
 
-### Layer 1 — Terrain (SmolLM-135M)
-The model generates tokens autoregressively. It falls into basins. It does not know what it is doing.
+`lz76_complexity()` is O(W²) per call due to Python set operations on tuples. Acceptable at current scale (~500 captures per L), but will become a bottleneck in batch analysis (`sliding_lz_complexity` over 100k steps at W=256). Options:
 
-### Layer 2 — Perception (sensors)
-Compression spectrum, entropy, Heaps' beta, and EOS rate transform the raw token stream into a ~10-dimensional state vector. Mechanistic, fully automatable. Basins cluster naturally in this space. Built and operational.
+- C extension or Cython implementation (10-100x speedup)
+- Numpy-based phrase counting avoiding set/tuple overhead
+- Pre-compute and cache LZ arrays per run (already done via analysis cache)
 
-### Layer 3 — Navigation (controller)
-**Input:** sensor state vector. **Output:** (delta_T, delta_L).
+### Adaptive heating rate
 
-Three tiers: rule-based (built — BetaController, SurveyController), learned policy (next — train on sensor→action pairs), adaptive (future — online learning during generation with bandit-style exploration/exploitation).
+Currently `dT_frac` is fixed at 5%. Adjust based on novelty after capture: halve for novel basins (map deepening trajectory more precisely), double for known basins (save compute). Not yet implemented.
 
-## Key Design Decisions
+## Analysis Targets
 
-**8-dim feature vector.** PCA(576→8) on model embeddings only. Compression spectrum, entropy, beta, and L are excluded — they describe observation conditions, not basin identity. The embedding already encodes structural and semantic properties of the basin.
+1. **Basin census per L.** Does type count scale with L, saturate, or peak?
+2. **Cross-L correspondence.** Minimum L for each basin type = minimum context to express that mode.
+3. **Transition graph.** Directed graph: nodes = types, edges = observed transitions. Identify hubs, dead ends, connected components.
+4. **Depth vs LZ spectrum.** Can basin depth be predicted from the LZ spectrum shape?
 
-**HDBSCAN + post-hoc centroid merge.** HDBSCAN for variable-density clusters with explicit noise labels. Post-hoc agglomerative merge consolidates clusters whose centroids are within a threshold distance, preventing over-splitting. 30 clusters from 327 L=8 captures.
+## Complexity as Identity
 
-**Online novelty detection.** ClusterCatalogue projects new captures through saved PCA+scaler into the 8-dim feature space, matches against precomputed cluster centroids with per-cluster radius thresholds.
-
-## Compression as Identity
-
-The gzip compression dictionary at the window size of best compression (W*) *is* the basin's mechanistic identity. The repeated byte sequences gzip finds are not measurements of the attractor — they are the attractor's constituent structure.
+The LZ76 phrase count at the window size of lowest normalized complexity (W*) measures the basin's structural repetition. Unlike gzip, LZ operates on token IDs directly — no byte-encoding artifacts, no header overhead at small windows.
 
 **W*** is the characteristic scale of the attractor:
-- Verbatim 12-token loop: W* ≈ 24 (two repetitions for gzip to find the match)
-- Template attractor (header → definition → header): W* ≈ template period
+- Verbatim 12-token loop: W* ≈ 24 (two repetitions for LZ to exhaust novel phrases)
+- Template attractor (cycling list of phrases): W* ≈ template period
 - Self-referential attractor: W* → L (structure visible only at context scale)
 
-**The compressibility-vs-W spectrum** is the basin's signature. The shape — which W dominates, where the ratio is minimized, how steeply it falls off — distinguishes attractor types mechanistically. This replaces manual classification with an empirical, continuous, clusterable representation.
-
-**Basin identity criterion:** Two captures represent the same basin iff they produce the same gzip dictionary content at the same W*. Mechanistic identity, not semantic. The dictionary doesn't know what "Star Wars" means. It knows it repeats. That's sufficient.
+The LZ-vs-W spectrum shape — which W dominates, where normalized complexity is minimized, how steeply it rises — distinguishes attractor types mechanistically.

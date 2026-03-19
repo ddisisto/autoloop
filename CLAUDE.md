@@ -44,7 +44,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 
 **What's built:** All modules in `autoloop/` package. metrics.py (central metric registry: MetricDef + register/get/by_scale + heaps_beta_ols + decorrelation_lag; 23 built-in metrics across step/window/run scales incl. info-theoretic: surprisal, surprisal_gap (derived step), lz_complexity (window), surprisal_gap_mean/std (run); all run-level compute functions consolidated here), engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController: COOLING→HEATING→TRANSIT cycle, records at gate-fire time, segment_steps=2*L; ClusterCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage (discovers window metrics from registry; scalars.py iterates registry for run_scalars(); cache.py with version-validated .analysis.pkl), plot.py (+ generic plot_metric_timeseries), explorer.py (metric discovery from registry), precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
 
-**Data collected:** ~70 sweep/controller/anneal/probe runs + 3 survey runs (L=8 x seeds 42/123/7 x 100k steps). 327 basin captures across 3 seeds, 28 HDBSCAN clusters + 85 noise. Pilot data archived in `data/runs/survey/pilot_archive/`. Run `loop index query` for the live catalog.
+**Data collected:** ~70 sweep/controller/anneal/probe runs + 6 survey runs (L=8 and L=12 x seeds 42/123/7 x 100k steps). 825 basin captures total (327 at L=8, 498 at L=12). Pilot data archived in `data/runs/survey/pilot_archive/`. Run `loop index query` for the live catalog.
 
 **Key findings** (see observations.md for full log):
 - Four regimes: collapse, suppressed dynamics, rich dynamics, noise
@@ -52,11 +52,12 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 - Basin escape hysteresis: exit requires ~0.4T more than avoidance
 - Escape by semantic mutation: period-doubling route to chaos
 - Closed-loop control finds beta~0.90 equilibrium. Balance T tracks T_escape(L)
-- Compressibility is a collapse detector, not a rich-dynamics discriminator. Entropy and Heaps' beta are the right control signals
+- LZ complexity uniformly better than gzip compressibility for regime discrimination (F=80 vs F=54 at W=256). Surprisal gap tracks enriching/degrading boundary
 - Suppressed dynamics is scale-invariant: regime depends on basin-depth/thermal-energy ratio
-- L=8 basin taxonomy complete: 30 clusters from 327 captures (123+113+91). Two dominant attractors: zeros (64 caps) and decimal loops (49 caps). Within-basin deepening confirmed (71%). Discovery not saturating. 9 universal basins across all seeds, 9 seed-specific
+- L=8 basin taxonomy: 30 clusters from 327 captures. Two dominant attractors: zeros (64 caps) and decimal loops (49 caps). Within-basin deepening (71%). Discovery not saturating. 9 universal basins, 9 seed-specific
+- L=12 collected (498 captures), preliminary joint clustering shows 32 mixed (cross-L) basins, 16 L=8-only, 27 L=12-only. Template/list attractors replace tight verbatim loops as L grows
 
-**Current focus:** Info-theoretic metric augmentation complete (surprisal gap, LZ complexity). LZ is uniformly better than gzip compressibility — next step is replacing gzip throughout the pipeline (comp_spectrum, basin fingerprinting, sensors). See `docs/info-theory-metrics.md` for approach and `docs/observations-2026-03-19b.md` for validation. Then: adaptive L-ladder (advance to L=12/16), cross-L basin correspondence, or learned controller. See `docs/basin-mapping.md` for roadmap.
+**Current focus:** L-ladder data collection (L=8 ✓, L=12 ✓, L=16 next). Building persistent catalogue and analysis tooling to support scaling. See `docs/basin-mapping.md` for roadmap.
 
 **Key parameters:** SmolLM-135M, L in {8..512}, T in {0.10..1.50}, seeds {42,123,7}, 100k tokens/run, pure temperature scaling (no top-k/top-p).
 
