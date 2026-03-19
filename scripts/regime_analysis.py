@@ -97,14 +97,15 @@ def compute_all(runs_dir: Path) -> pd.DataFrame:
                 comp_w256 = float(np.mean(valid))
         regime = classify_regime(entropy, scalars.get("heaps_beta", 0.0), comp_w256)
 
-        # Compressibility at multiple windows
-        comp_data = cache.get("compressibility", {})
-        for w in sorted(comp_data.keys()):
-            arr = comp_data[w]
-            valid = arr[~np.isnan(arr)]
-            if len(valid) > 0:
-                scalars[f"comp_W{w}_mean"] = float(np.mean(valid))
-                scalars[f"comp_W{w}_std"] = float(np.std(valid))
+        # Window metrics at multiple window sizes
+        for metric_key, prefix in [("compressibility", "comp"), ("lz_complexity", "lz")]:
+            wdata = cache.get(metric_key, {})
+            for w in sorted(wdata.keys()):
+                arr = wdata[w]
+                valid = arr[~np.isnan(arr)]
+                if len(valid) > 0:
+                    scalars[f"{prefix}_W{w}_mean"] = float(np.mean(valid))
+                    scalars[f"{prefix}_W{w}_std"] = float(np.std(valid))
 
         row = {
             "run_id": stem,
