@@ -31,21 +31,24 @@ Recollected 2026-03-14 with gate-fire recording and segment_size=2*L. Pilot data
 - Seed 42: 123 captures (all novel — no catalogue yet). Clustered → 9 clusters + 27 noise
 - Seed 123: 113 captures (8 novel, 105 known against seed 42 clusters)
 - Seed 7: 91 captures (8 novel, 83 known)
-- Full recluster on all 327 captures → 28 clusters + 85 noise. 4 grab-bags flagged
+- Full recluster on all 327 captures → 30 clusters + 69 noise (after post-hoc centroid merge)
 - Per-segment logging throttled to every 1000 steps (transition/capture events still log immediately)
 
 ### Adaptive heating rate
 
 Currently `dT_frac` is fixed at 5%. Adjust based on novelty after `_record_capture`: halve for novel basins (map deepening trajectory and escape T more precisely), double for known basins (save compute).
 
-### Findings from recollection (pending full analysis)
+### ~~Basin taxonomy~~ DONE
 
-Recollected data (327 captures, 28 HDBSCAN clusters) supersedes pilot findings. Pilot data (201 captures, cosine-threshold method) is archived and should not be referenced for quantitative claims.
+Full analysis in [observations-2026-03-19.md](observations-2026-03-19.md). Summary:
 
-- **Discovery rate**: seeds 123 and 7 each found 8 novel types beyond the 9 seed-42 clusters. Novel rate ~8% — most basins are shared across seeds
-- **Dominant attractor**: decimal loops (`1.1.1.1.`) split into 7 sub-clusters by HDBSCAN, accounting for a large fraction of captures. Zeros/numbers cluster (50 captures) is the single largest
-- **Pending**: within-basin deepening, cross-seed universality, and saturation analyses need to be re-run on the clean data
-- **Pending**: basin taxonomy — tag each cluster with a descriptive label
+- 30 clusters from 327 captures (PCA-only features + post-hoc centroid merge)
+- Two dominant: zeros/numbers (64 caps), decimal loops (49 caps) — 35% of all captures
+- 9 universal basins (all 3 seeds), 12 two-seed, 9 seed-specific
+- Within-basin deepening confirmed: 71% of consecutive same-cluster recaptures go deeper
+- Discovery not saturating: last novel type at 85-99% through each seed's run
+- No grab-bags after merge — all clusters internally coherent
+- 21% noise (69 points), likely containing additional rare types below min_cluster_size=3
 
 ### Adaptive L-Ladder
 
@@ -104,13 +107,11 @@ Three tiers: rule-based (built — BetaController, SurveyController), learned po
 
 ## Key Design Decisions
 
-**14-dim feature vector.** PCA(576→8) + normalized comp spectrum (5) + L (1). Entropy and beta excluded — they describe observation depth, not basin identity. The same attractor captured at different lock-in stages has near-identical embedding and compression spectrum but different entropy/beta.
+**8-dim feature vector.** PCA(576→8) on model embeddings only. Compression spectrum, entropy, beta, and L are excluded — they describe observation conditions, not basin identity. The embedding already encodes structural and semantic properties of the basin.
 
-**HDBSCAN over cosine threshold.** Variable-density clusters, explicit noise labels, no forced assignment. 22 clusters from 201 L=8 captures in validation. The cosine threshold approach produced grab-bag types with unrelated captures grouped together.
+**HDBSCAN + post-hoc centroid merge.** HDBSCAN for variable-density clusters with explicit noise labels. Post-hoc agglomerative merge consolidates clusters whose centroids are within a threshold distance, preventing over-splitting. 30 clusters from 327 L=8 captures.
 
-**Compressibility normalization.** Gzip has fixed overhead (~20B header) that inflates ratios at short byte lengths. Raw ratios normalized against incompressible baseline at matched byte length. Applied at feature-extraction time, not capture time — raw values stay in storage, normalization can be adjusted without re-running surveys.
-
-**Online novelty detection.** ClusterCatalogue projects new captures through saved PCA+scaler into the 14-dim feature space, matches against precomputed cluster centroids with per-cluster radius thresholds. Replaces the earlier cosine-threshold CentroidCatalogue.
+**Online novelty detection.** ClusterCatalogue projects new captures through saved PCA+scaler into the 8-dim feature space, matches against precomputed cluster centroids with per-cluster radius thresholds.
 
 ## Compression as Identity
 

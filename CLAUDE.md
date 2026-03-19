@@ -54,9 +54,9 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 - Closed-loop control finds beta~0.90 equilibrium. Balance T tracks T_escape(L)
 - Compressibility is a collapse detector, not a rich-dynamics discriminator. Entropy and Heaps' beta are the right control signals
 - Suppressed dynamics is scale-invariant: regime depends on basin-depth/thermal-energy ratio
-- L=8 recollection: 327 captures (123+113+91), 28 clusters. Dominant basin types: decimal loops (7 sub-clusters), zeros/numbers (50 captures), Python code, medical/health lists. Online novelty detection works: seeds 123/7 found 8 novel types each against seed 42's catalogue. 4 grab-bag clusters flagged
+- L=8 basin taxonomy complete: 30 clusters from 327 captures (123+113+91). Two dominant attractors: zeros (64 caps) and decimal loops (49 caps). Within-basin deepening confirmed (71%). Discovery not saturating. 9 universal basins across all seeds, 9 seed-specific
 
-**Current focus:** Basin taxonomy and interpretation at L=8. Data is collected and clustered; next step is tagging clusters and analysing cross-seed structure. See `docs/handoff-basin-taxonomy.md`.
+**Current focus:** L=8 complete. Next: adaptive L-ladder (advance to L=12/16), cross-L basin correspondence, or learned controller. See `docs/basin-mapping.md` for roadmap.
 
 **Key parameters:** SmolLM-135M, L in {8..512}, T in {0.10..1.50}, seeds {42,123,7}, 100k tokens/run, pure temperature scaling (no top-k/top-p).
 
