@@ -42,6 +42,7 @@ class SensorReading:
     heaps_beta: float
     n_words: int
     n_unique: int
+    surprisal_gap_mean: float = 0.0
 
 
 @dataclasses.dataclass
@@ -203,6 +204,10 @@ class StepEngine:
         words = [w.lower() for w in text.split() if len(w) > 1]
         beta, n_words, n_unique = heaps_beta_ols(words)
 
+        # Entropy-surprisal gap (compressive novelty signal)
+        gaps = [r["entropy"] + r["log_prob"] for r in exp_tail]
+        gap_mean = sum(gaps) / len(gaps)
+
         last = exp_tail[-1] if exp_tail else self.records[-1]
         return SensorReading(
             step=last["step"],
@@ -214,6 +219,7 @@ class StepEngine:
             heaps_beta=beta,
             n_words=n_words,
             n_unique=n_unique,
+            surprisal_gap_mean=gap_mean,
         )
 
     def comp_spectrum(

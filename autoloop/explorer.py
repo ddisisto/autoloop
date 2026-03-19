@@ -30,9 +30,6 @@ DEFAULT_DOWNSAMPLE = 500
 # Data types
 # ---------------------------------------------------------------------------
 
-# Block-level metric prefix (compressibility at various W)
-BLOCK_METRIC_PREFIX = "compressibility_W"
-
 
 # ---------------------------------------------------------------------------
 # In-memory caches
@@ -310,7 +307,16 @@ def build_metric_registry(
 
     # Step-level metrics from central registry
     for m in by_scale("step"):
-        if m.column and m.column in step_columns_found:
+        if m.derive_fn is not None:
+            # Derived step metrics are always available
+            metrics.append({
+                "id": m.id,
+                "name": m.name,
+                "resolution": "step",
+                "source": "derived",
+                "description": m.description,
+            })
+        elif m.column and m.column in step_columns_found:
             metrics.append({
                 "id": m.id,
                 "name": m.name,
@@ -321,27 +327,30 @@ def build_metric_registry(
             })
 
     # Window-level metrics: discover available window sizes from caches
-    window_sizes_found: set[int] = set()
+    window_metrics_found: dict[str, set[int]] = {}
     for p in index.runs_dir.glob("*.analysis.pkl"):
         try:
             import pickle
             with open(p, "rb") as f:
                 analysis = pickle.load(f)
-            comp = analysis.get("compressibility", {})
-            window_sizes_found.update(comp.keys())
+            for wm in by_scale("window"):
+                ws = analysis.get(wm.id, {})
+                if ws:
+                    window_metrics_found.setdefault(wm.id, set()).update(ws.keys())
             break  # only need one file to discover the W values
         except Exception:
             continue
 
-    for w in sorted(window_sizes_found):
-        metrics.append({
-            "id": f"compressibility_W{w}",
-            "name": f"Compressibility (W={w})",
-            "resolution": "block",
-            "source": "analysis",
-            "window_size": w,
-            "description": f"Gzip compressibility over {w}-token sliding windows",
-        })
+    for wm in by_scale("window"):
+        for w in sorted(window_metrics_found.get(wm.id, set())):
+            metrics.append({
+                "id": f"{wm.id}_W{w}",
+                "name": f"{wm.name} (W={w})",
+                "resolution": "block",
+                "source": "analysis",
+                "window_size": w,
+                "description": f"{wm.description} ({w}-token windows)",
+            })
 
     # EOS rate EMA (derived step-level metric, from registry)
     try:
@@ -383,13 +392,17 @@ def extract_metric(
     except KeyError:
         mdef = None
 
-    if mdef is not None and mdef.scale == "step" and mdef.column:
+    if mdef is not None and mdef.scale == "step" and (mdef.column or mdef.derive_fn):
         exp = cache.get_experiment_df(info)
-        col = mdef.column
-        if col not in exp.columns:
-            return None
 
-        values = exp[col].to_numpy(dtype=np.float64)
+        if mdef.derive_fn is not None:
+            values = mdef.derive_fn(exp).to_numpy(dtype=np.float64)
+        else:
+            col = mdef.column
+            if col not in exp.columns:
+                return None
+            values = exp[col].to_numpy(dtype=np.float64)
+
         n = len(values)
 
         # Downsample by striding
@@ -432,37 +445,35 @@ def extract_metric(
             "y": ema_ds.tolist(),
         }
 
-    # Block-level compressibility metrics
-    m = re.match(r"compressibility_W(\d+)$", metric_id)
-    if m:
-        w = int(m.group(1))
-        analysis = cache.get_analysis(info)
-        comp_dict = analysis.get("compressibility", {})
-        if w not in comp_dict:
-            return None
+    # Block-level window metrics (compressibility_W64, lz_complexity_W128, etc.)
+    for base_id in ("compressibility", "lz_complexity"):
+        m = re.match(rf"{base_id}_W(\d+)$", metric_id)
+        if m:
+            w = int(m.group(1))
+            analysis = cache.get_analysis(info)
+            metric_dict = analysis.get(base_id, {})
+            if w not in metric_dict:
+                return None
 
-        comp = comp_dict[w]
-        valid_mask = ~np.isnan(comp)
-        valid_indices = np.where(valid_mask)[0]
-        valid_values = comp[valid_mask]
+            arr = metric_dict[w]
+            valid_mask = ~np.isnan(arr)
+            valid_indices = np.where(valid_mask)[0]
+            valid_values = arr[valid_mask]
 
-        # Block-level data is already sparser than step-level, but
-        # can still be large (100k points minus window warmup).
-        # Apply same downsampling logic.
-        n = len(valid_values)
-        stride = max(1, n // downsample)
-        if stride > 1:
-            n_trimmed = (n // stride) * stride
-            values_ds = valid_values[:n_trimmed].reshape(-1, stride).mean(axis=1)
-            indices_ds = valid_indices[:n_trimmed].reshape(-1, stride).mean(axis=1).astype(int)
-        else:
-            values_ds = valid_values
-            indices_ds = valid_indices
+            n = len(valid_values)
+            stride = max(1, n // downsample)
+            if stride > 1:
+                n_trimmed = (n // stride) * stride
+                values_ds = valid_values[:n_trimmed].reshape(-1, stride).mean(axis=1)
+                indices_ds = valid_indices[:n_trimmed].reshape(-1, stride).mean(axis=1).astype(int)
+            else:
+                values_ds = valid_values
+                indices_ds = valid_indices
 
-        return {
-            "x": indices_ds.tolist(),
-            "y": values_ds.tolist(),
-        }
+            return {
+                "x": indices_ds.tolist(),
+                "y": values_ds.tolist(),
+            }
 
     return None
 

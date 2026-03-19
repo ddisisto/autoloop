@@ -453,11 +453,14 @@ def plot_metric_timeseries(
     fig, ax = plt.subplots(figsize=(12, 4))
 
     for run in runs:
-        if mdef.scale == "step" and mdef.column:
-            if mdef.column not in run.exp.columns:
+        if mdef.scale == "step" and (mdef.column or mdef.derive_fn):
+            if mdef.derive_fn is not None:
+                values = mdef.derive_fn(run.exp).to_numpy(dtype=np.float64)
+            elif mdef.column not in run.exp.columns:
                 log.warning("Column %s not in %s, skipping", mdef.column, run.label)
                 continue
-            values = run.exp[mdef.column].to_numpy(dtype=np.float64)
+            else:
+                values = run.exp[mdef.column].to_numpy(dtype=np.float64)
         elif mdef.scale == "window" and run.analysis is not None:
             w = window_size if window_size is not None else run.params.get("L", 64)
             metric_data = run.analysis.get(mdef.id, {})

@@ -12,7 +12,7 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 
-CACHE_VERSION = 2  # bump to invalidate all caches
+CACHE_VERSION = 3  # bump to invalidate all caches
 
 
 def cache_path(parquet_path: Path) -> Path:

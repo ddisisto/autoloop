@@ -32,6 +32,7 @@ from .compressibility import (
     stationarity_blocks,
     entropy_autocorrelation,
 )
+from .lz_complexity import sliding_lz_complexity, lz76_complexity
 from .summary import default_window_sizes, comp_stats, summarize_run
 
 log = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ __all__ = [
     "comp_stats",
     "summarize_run",
     "sliding_compressibility",
+    "sliding_lz_complexity",
+    "lz76_complexity",
     "stationarity_blocks",
     "entropy_autocorrelation",
     "load_experiment_df",
@@ -104,6 +107,9 @@ def analyze_run(
         cache["entropy_autocorrelation"] = entropy_autocorrelation(exp.entropy.to_numpy())
 
     # Compute each registered window metric at requested window sizes
+    # Window functions receive either decoded_text or token_id depending
+    # on the metric (token-based metrics like lz_complexity need integer IDs)
+    _TOKEN_METRICS = {"lz_complexity"}
     all_window_sizes: set[int] = set()
     for m in window_mets:
         existing = cache.get(m.id, {})
@@ -112,9 +118,10 @@ def analyze_run(
             cached_ws = sorted(existing.keys()) if existing else []
             log.info("Computing %s for %s (have W=%s, need W=%s)",
                      m.id, parquet_path.name, cached_ws, sorted(missing))
+            series = exp.token_id if m.id in _TOKEN_METRICS else exp.decoded_text
             for w in sorted(missing):
                 log.info("  %s W=%d", m.id, w)
-                existing[w] = m.window_fn(exp.decoded_text, w)
+                existing[w] = m.window_fn(series, w)
         cache[m.id] = existing
         all_window_sizes.update(existing.keys())
 

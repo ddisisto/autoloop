@@ -38,7 +38,9 @@ class MetricDef:
         description: One-line description.
         unit: Unit string, e.g. "nats", "ratio".
         column: For step metrics, the parquet column name.
+        derive_fn: For derived step metrics, fn(DataFrame) -> Series.
         window_fn: For window metrics, fn(decoded_texts, window_size) -> ndarray.
+            For token-based window metrics, fn(token_ids, window_size) -> ndarray.
         run_fn: For run metrics, fn(exp_df, cache_dict) -> float.
         sensor_fn: For real-time reads, fn(records, window) -> float.
     """
@@ -48,6 +50,7 @@ class MetricDef:
     description: str
     unit: str = ""
     column: str | None = None
+    derive_fn: Callable | None = None
     window_fn: Callable | None = None
     run_fn: Callable | None = None
     sensor_fn: Callable | None = None
@@ -181,6 +184,20 @@ def _sensor_entropy_std(records: list[dict], window: int) -> float:
     return (sum((e - mean) ** 2 for e in ent) / len(ent)) ** 0.5
 
 
+def _sensor_surprisal_gap_mean(records: list[dict], window: int) -> float:
+    """Mean entropy-surprisal gap from trailing engine records.
+
+    Gap = entropy + log_prob = entropy - surprisal.
+    Positive: sampled token more predictable than distribution average.
+    Negative: sampled token more surprising than average.
+    """
+    tail = _tail_records(records, window)
+    if not tail:
+        return 0.0
+    gaps = [r["entropy"] + r["log_prob"] for r in tail]
+    return sum(gaps) / len(gaps)
+
+
 # ---------------------------------------------------------------------------
 # Run-level compute functions — fn(exp: DataFrame, cache: dict) -> float
 # ---------------------------------------------------------------------------
@@ -247,6 +264,31 @@ def _eos_gaps(exp: pd.DataFrame) -> np.ndarray:
     return np.diff(eos_steps)
 
 
+# -- Surprisal gap (derived step metric) -----------------------------------
+
+def _derive_surprisal(exp: pd.DataFrame) -> pd.Series:
+    """Surprisal = -log_prob."""
+    return -exp["log_prob"]
+
+
+def _derive_surprisal_gap(exp: pd.DataFrame) -> pd.Series:
+    """Entropy-surprisal gap = entropy + log_prob.
+
+    Positive: sampled token more predictable than distribution average.
+    Negative: sampled token more surprising than average.
+    Maps to Framework's 'compressive novelty' (inverted sign).
+    """
+    return exp["entropy"] + exp["log_prob"]
+
+
+def _run_surprisal_gap_mean(exp: pd.DataFrame, cache: dict) -> float:
+    return float((exp["entropy"] + exp["log_prob"]).mean())
+
+
+def _run_surprisal_gap_std(exp: pd.DataFrame, cache: dict) -> float:
+    return float((exp["entropy"] + exp["log_prob"]).std())
+
+
 # ---------------------------------------------------------------------------
 # Built-in metric registrations
 # ---------------------------------------------------------------------------
@@ -280,6 +322,19 @@ register(MetricDef(
 
 # Derived step-level (computed from other columns)
 register(MetricDef(
+    "surprisal", "Surprisal", "step",
+    "Model surprise at sampled token (-log_prob)",
+    unit="nats",
+    derive_fn=_derive_surprisal,
+))
+register(MetricDef(
+    "surprisal_gap", "Entropy-Surprisal Gap", "step",
+    "Entropy minus surprisal (positive=reinforcing, negative=enriching)",
+    unit="nats",
+    derive_fn=_derive_surprisal_gap,
+    sensor_fn=_sensor_surprisal_gap_mean,
+))
+register(MetricDef(
     "eos_ema", "EOS Rate (EMA)", "step",
     "Exponential moving average of EOS flag (span=1000)",
     column="eos",  # source column; extract_metric() applies eos_ema()
@@ -290,6 +345,12 @@ register(MetricDef(
     "compressibility", "Compressibility", "window",
     "Gzip compression ratio over sliding window",
     unit="ratio",
+    window_fn=None,  # bound at module load via _bind_window_fns()
+))
+register(MetricDef(
+    "lz_complexity", "LZ Complexity", "window",
+    "Lempel-Ziv phrase count over sliding window of token IDs",
+    unit="phrases",
     window_fn=None,  # bound at module load via _bind_window_fns()
 ))
 
@@ -343,6 +404,19 @@ register(MetricDef(
     run_fn=_run_surprisal_kurtosis,
 ))
 register(MetricDef(
+    "surprisal_gap_mean", "Surprisal Gap Mean", "run",
+    "Mean entropy-surprisal gap (positive=reinforcing, negative=enriching)",
+    unit="nats",
+    run_fn=_run_surprisal_gap_mean,
+    sensor_fn=_sensor_surprisal_gap_mean,
+))
+register(MetricDef(
+    "surprisal_gap_std", "Surprisal Gap Std", "run",
+    "Std of entropy-surprisal gap",
+    unit="nats",
+    run_fn=_run_surprisal_gap_std,
+))
+register(MetricDef(
     "eos_rate", "EOS Rate", "run",
     "Fraction of steps producing EOS token",
     run_fn=_run_eos_rate,
@@ -368,8 +442,11 @@ def _bind_window_fns() -> None:
     MetricDef is frozen.
     """
     from .analyze.compressibility import sliding_compressibility
+    from .analyze.lz_complexity import sliding_lz_complexity
     m = _REGISTRY["compressibility"]
     object.__setattr__(m, "window_fn", sliding_compressibility)
+    m = _REGISTRY["lz_complexity"]
+    object.__setattr__(m, "window_fn", sliding_lz_complexity)
 
 
 _bind_window_fns()
