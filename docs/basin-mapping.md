@@ -24,26 +24,28 @@ SmolLM-135M, autoregressive free generation. No external input after initial see
 
 ## Pending Work
 
-### Recollect L=8
+### ~~Recollect L=8~~ DONE
 
-Survey code fixes applied (record at gate-fire time, segment_size = 2*L), but data not yet recollected with these fixes.
+Recollected 2026-03-14 with gate-fire recording and segment_size=2*L. Pilot data archived in `data/runs/survey/pilot_archive/`, old clustering models cleared. Fresh start.
 
-- Smoke test with 2*L segment size — verify MIN_COOLING_SEGMENTS=5 still fires correctly (80 steps = 10 context rotations at L=8)
-- Check capture gate thresholds (beta < 0.40, comp_W64 < 0.45) at finer temporal resolution
-- Recollect 3 seeds (42, 123, 7) x 100k steps
-- Verify capture/sensor consistency: all captures should have scalars consistent with at least one gate
+- Seed 42: 123 captures (all novel — no catalogue yet). Clustered → 9 clusters + 27 noise
+- Seed 123: 113 captures (8 novel, 105 known against seed 42 clusters)
+- Seed 7: 91 captures (8 novel, 83 known)
+- Full recluster on all 327 captures → 28 clusters + 85 noise. 4 grab-bags flagged
+- Per-segment logging throttled to every 1000 steps (transition/capture events still log immediately)
 
 ### Adaptive heating rate
 
 Currently `dT_frac` is fixed at 5%. Adjust based on novelty after `_record_capture`: halve for novel basins (map deepening trajectory and escape T more precisely), double for known basins (save compute).
 
-### Findings to confirm after recollection
+### Findings from recollection (pending full analysis)
 
-These were observed in the original L=8 pilot (201 captures, 17 cosine-threshold types) but need validation with HDBSCAN clustering on clean recollected data:
+Recollected data (327 captures, 28 HDBSCAN clusters) supersedes pilot findings. Pilot data (201 captures, cosine-threshold method) is archived and should not be referenced for quantitative claims.
 
-- **Within-basin deepening**: 25/29 consecutive same-type recaptures go deeper (mean delta_ent = -0.37). Small perturbation consistently tightens the cycle.
-- **Discovery not saturating**: 8 types (seed 42) + 3 new (seed 123) + 6 new (seed 7). Last novel type at 98% through third run.
-- **Universal vs rare types**: 4 types shared across all 3 seeds, 8 unique to one seed.
+- **Discovery rate**: seeds 123 and 7 each found 8 novel types beyond the 9 seed-42 clusters. Novel rate ~8% — most basins are shared across seeds
+- **Dominant attractor**: decimal loops (`1.1.1.1.`) split into 7 sub-clusters by HDBSCAN, accounting for a large fraction of captures. Zeros/numbers cluster (50 captures) is the single largest
+- **Pending**: within-basin deepening, cross-seed universality, and saturation analyses need to be re-run on the clean data
+- **Pending**: basin taxonomy — tag each cluster with a descriptive label
 
 ### Adaptive L-Ladder
 

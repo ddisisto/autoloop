@@ -23,15 +23,12 @@ from pathlib import Path
 import numpy as np
 
 from .clustering import (
-    COMP_WINDOWS,
-    MAX_L,
     MODELS_DIR,
     load_cluster_centroids,
     load_models,
 )
 from .engine import SensorReading, StepEngine, load_model
 from .experiment import Action, run_experiment
-from .utils import compressibility_baseline
 from . import runlib
 
 log = logging.getLogger(__name__)
@@ -122,33 +119,15 @@ class ClusterCatalogue:
     def _build_feature_vector(
         self, embedding: np.ndarray, capture: dict,
     ) -> np.ndarray:
-        """Build the 14-dim feature vector for a single capture.
+        """Build the 8-dim feature vector for a single capture.
 
         Mirrors the batch construction in clustering.build_feature_matrix():
           - PCA-project embedding (8 dims)
-          - Normalize comp spectrum against incompressible baseline (5 dims)
-          - Normalize L (1 dim)
+          - StandardScaler to unit variance
         """
-        # PCA projection
         pca_features = self.pca.transform(embedding.reshape(1, -1))  # (1, 8)
-
-        # Normalized compression spectrum
-        text_bytes = len(capture["attractor_text"].encode("utf-8"))
-        L = capture["L"]
-        comp_normed = np.empty((1, len(COMP_WINDOWS)), dtype=np.float64)
-        for j, w in enumerate(COMP_WINDOWS):
-            raw = capture[f"comp_W{w}"]
-            estimated_bytes = max(1, int(text_bytes * w / L))
-            baseline = compressibility_baseline(estimated_bytes)
-            comp_normed[0, j] = raw / baseline
-
-        # Normalized L
-        L_normed = np.array([[L / MAX_L]], dtype=np.float64)
-
-        # Concatenate and scale
-        raw = np.hstack([pca_features, comp_normed, L_normed])  # (1, 14)
-        scaled = self.scaler.transform(raw)  # (1, 14)
-        return scaled[0]  # (14,)
+        scaled = self.scaler.transform(pca_features)  # (1, 8)
+        return scaled[0]  # (8,)
 
     def match(
         self, embedding: np.ndarray, capture: dict,
@@ -356,10 +335,13 @@ class SurveyController:
         # Embedding
         embedding = self.engine.embed_context()
 
-        # Attractor text (trailing W* tokens decoded)
+        # Attractor text (trailing W* tokens for full collapse context)
         exp_records = [r for r in self.engine.records if r["phase"] == "experiment"]
         tail = exp_records[-w_star:] if len(exp_records) >= w_star else exp_records
         attractor_text = "".join(r["decoded_text"] for r in tail)
+
+        # Context window text (L tokens — matches embedding, pure basin content)
+        context_text = self.engine.tokenizer.decode(self.engine.context[0])
 
         # Build capture dict
         capture: dict = {
@@ -376,6 +358,7 @@ class SurveyController:
             "heaps_beta": sensors.heaps_beta,
             "eos_rate": 0.0,
             "attractor_text": attractor_text[:2000],
+            "context_text": context_text,
             "embedding": embedding,
         }
         for w, val in spectrum.items():

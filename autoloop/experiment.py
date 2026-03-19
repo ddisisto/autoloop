@@ -339,14 +339,18 @@ def run_experiment(
             continue
 
         pct = 100 * experiment_steps / total_steps
-        log.info(
-            "step %d/%d (%.0f%%) | %.0f tok/s | L=%d T=%.2f | "
-            "ent=%.2f β=%.2f comp=%.3f | %s",
-            experiment_steps, total_steps, pct, tok_s,
-            current_L, current_T,
-            sensors.entropy_mean, sensors.heaps_beta, sensors.comp_W64,
-            action.reason,
-        )
+        # Log every 1000 steps (or every segment if segment >= 1000)
+        prev_k = (experiment_steps - seg_size) // 1000
+        curr_k = experiment_steps // 1000
+        if curr_k > prev_k or seg_size >= 1000:
+            log.info(
+                "step %d/%d (%.0f%%) | %.0f tok/s | L=%d T=%.2f | "
+                "ent=%.2f β=%.2f comp=%.3f | %s",
+                experiment_steps, total_steps, pct, tok_s,
+                current_L, current_T,
+                sensors.entropy_mean, sensors.heaps_beta, sensors.comp_W64,
+                action.reason,
+            )
 
         current_L, current_T = action.L, action.T
 

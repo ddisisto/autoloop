@@ -42,9 +42,9 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 
 ## Current state
 
-**What's built:** All modules in `autoloop/` package. metrics.py (central metric registry: MetricDef + register/get/by_scale + heaps_beta_ols + decorrelation_lag; 18 built-in metrics across step/window/run scales; all run-level compute functions consolidated here), engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController: COOLING→HEATING→TRANSIT cycle, records at gate-fire time, segment_steps=2*L; CentroidCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage (discovers window metrics from registry; scalars.py iterates registry for run_scalars(); cache.py with version-validated .analysis.pkl), plot.py (+ generic plot_metric_timeseries), explorer.py (metric discovery from registry), precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
+**What's built:** All modules in `autoloop/` package. metrics.py (central metric registry: MetricDef + register/get/by_scale + heaps_beta_ols + decorrelation_lag; 18 built-in metrics across step/window/run scales; all run-level compute functions consolidated here), engine.py (StepEngine with sensors, comp_spectrum, embed_context, snapshot/rollback), experiment.py (Fixed/Schedule/Beta controllers + StateMachine), survey.py (SurveyController: COOLING→HEATING→TRANSIT cycle, records at gate-fire time, segment_steps=2*L; ClusterCatalogue for online novelty detection), cli.py (unified `loop` CLI, installed via `uv sync`), resolve.py (run resolution from IDs/filters), analyze/ subpackage (discovers window metrics from registry; scalars.py iterates registry for run_scalars(); cache.py with version-validated .analysis.pkl), plot.py (+ generic plot_metric_timeseries), explorer.py (metric discovery from registry), precollapse.py + precollapse_report.py, semantic.py + semantic_clouds.py + semantic_report.py, summary.py, grep_text.py, sweep.py, runlib.py + runindex.py + schema.py (SQLite index v2 with basin_types + basin_captures).
 
-**Data collected:** ~70 sweep/controller/anneal/probe runs + 3 survey runs (L=8 x seeds 42/123/7 x 100k steps). 201 basin captures, 17 types. Run `loop index query` for the live catalog.
+**Data collected:** ~70 sweep/controller/anneal/probe runs + 3 survey runs (L=8 x seeds 42/123/7 x 100k steps). 327 basin captures across 3 seeds, 28 HDBSCAN clusters + 85 noise. Pilot data archived in `data/runs/survey/pilot_archive/`. Run `loop index query` for the live catalog.
 
 **Key findings** (see observations.md for full log):
 - Four regimes: collapse, suppressed dynamics, rich dynamics, noise
@@ -54,10 +54,9 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 - Closed-loop control finds beta~0.90 equilibrium. Balance T tracks T_escape(L)
 - Compressibility is a collapse detector, not a rich-dynamics discriminator. Entropy and Heaps' beta are the right control signals
 - Suppressed dynamics is scale-invariant: regime depends on basin-depth/thermal-energy ratio
-- Within-basin deepening: small perturbations consistently tighten attractors (25/29 recaptures go deeper)
-- Basin discovery not saturating at L=8: long tail of rare types, last novel at 98% through third seed
+- L=8 recollection: 327 captures (123+113+91), 28 clusters. Dominant basin types: decimal loops (7 sub-clusters), zeros/numbers (50 captures), Python code, medical/health lists. Online novelty detection works: seeds 123/7 found 8 novel types each against seed 42's catalogue. 4 grab-bag clusters flagged
 
-**Current focus:** Recollect L=8 with survey fixes, then validate HDBSCAN clustering on clean data. See `docs/basin-mapping.md`.
+**Current focus:** Basin taxonomy and interpretation at L=8. Data is collected and clustered; next step is tagging clusters and analysing cross-seed structure. See `docs/handoff-basin-taxonomy.md`.
 
 **Key parameters:** SmolLM-135M, L in {8..512}, T in {0.10..1.50}, seeds {42,123,7}, 100k tokens/run, pure temperature scaling (no top-k/top-p).
 

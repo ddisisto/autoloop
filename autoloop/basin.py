@@ -163,7 +163,7 @@ def cmd_basin_list(args: argparse.Namespace) -> None:
         # Representative text: capture closest to median entropy
         median_ent = np.nanmedian(ent_vals)
         best_idx = min(indices, key=lambda i: abs(captures[i]["entropy_mean"] - median_ent))
-        text = _truncate_text(captures[best_idx].get("attractor_text", ""), 60)
+        text = _truncate_text(captures[best_idx].get("context_text", captures[best_idx].get("attractor_text", "")), 60)
 
         rows.append([
             label_str,
@@ -215,7 +215,7 @@ def cmd_basin_show(args: argparse.Namespace) -> None:
             f"{cap['heaps_beta']:.3f}",
             f"{cap.get('comp_W64', float('nan')):.4f}",
             f"{dist:.3f}",
-            _truncate_text(cap.get("attractor_text", ""), 50),
+            _truncate_text(cap.get("context_text", cap.get("attractor_text", "")), 50),
         ])
 
     print(_format_aligned_table(headers, rows, alignments))
@@ -284,9 +284,9 @@ def cmd_basin_compare(args: argparse.Namespace) -> None:
     print(_format_aligned_table(headers, rows, alignments))
 
     print(f"\nRepresentative text (cluster {id1}):")
-    print(f"  {_truncate_text(captures[rep1].get('attractor_text', ''), 120)}")
+    print(f"  {_truncate_text(captures[rep1].get('context_text', captures[rep1].get('attractor_text', '')), 120)}")
     print(f"\nRepresentative text (cluster {id2}):")
-    print(f"  {_truncate_text(captures[rep2].get('attractor_text', ''), 120)}")
+    print(f"  {_truncate_text(captures[rep2].get('context_text', captures[rep2].get('attractor_text', '')), 120)}")
 
 
 def cmd_basin_matrix(args: argparse.Namespace) -> None:
@@ -430,7 +430,7 @@ def cmd_basin_captures(args: argparse.Namespace) -> None:
             f"{cap['entropy_mean']:.3f}",
             f"{cap['heaps_beta']:.3f}",
             f"{cap.get('comp_W64', float('nan')):.4f}",
-            _truncate_text(cap.get("attractor_text", ""), 50),
+            _truncate_text(cap.get("context_text", cap.get("attractor_text", "")), 50),
         ])
 
     print(_format_aligned_table(headers, rows, alignments))
