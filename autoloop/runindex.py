@@ -364,6 +364,14 @@ def index_basin_captures(
                         row["capture_id"], run_id,
                     )
                     continue
+            # Nullify type_id if it doesn't exist in basin_types
+            type_id = row.get("type_id")
+            if type_id is not None:
+                exists = conn.execute(
+                    "SELECT 1 FROM basin_types WHERE type_id = ?", (type_id,)
+                ).fetchone()
+                if not exists:
+                    row["type_id"] = None
             sql, params = _upsert_sql("basin_captures", row, "capture_id")
             conn.execute(sql, params)
             count += 1
