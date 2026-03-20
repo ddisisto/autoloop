@@ -20,10 +20,11 @@ from fastapi.staticfiles import StaticFiles
 
 from .analyze import analyze_run, default_window_sizes
 from .metrics import by_scale, get as get_metric
+from .runlib import RUNS_ROOT, discover_runs
 
 log = logging.getLogger(__name__)
 
-RUNS_DIR = Path("data/runs")
+RUNS_DIR = RUNS_ROOT
 DEFAULT_DOWNSAMPLE = 500
 
 # ---------------------------------------------------------------------------
@@ -66,18 +67,22 @@ class RunInfo:
 
     def _classify(self) -> str:
         """Infer run type from filename prefix and metadata."""
-        if self.meta.get("controller"):
-            return "controller"
+        # Prefix-based classification first (more specific than meta flags)
         if self.id.startswith("ctrl_") or self.id.startswith("ctrld_"):
             return "controller"
         if self.id.startswith("anneal_"):
             return "anneal"
         if self.id.startswith("probe_"):
             return "probe"
+        if self.id.startswith("survey_"):
+            return "survey"
         if self.id.startswith("sched_"):
             return "schedule"
         if re.match(r"L\d+_T[\d.]+_S\d+", self.id):
             return "fixed"
+        # Fall back to meta flags for ambiguous names
+        if self.meta.get("controller"):
+            return "controller"
         # Unknown prefix — accept if meta.json exists
         if self.meta:
             return "other"
@@ -123,6 +128,13 @@ class RunInfo:
             T_raw = m.group(2)
             T = int(T_raw) / 100.0
             return L, T, 0
+
+        # Try survey pattern: survey_L{L}_S{seed}
+        m = re.match(r"survey_L(\d+)_S(\d+)", self.id)
+        if m:
+            L = int(m.group(1))
+            seed = int(m.group(2))
+            return L, 0.0, seed
 
         # Fallback: read from meta.json
         meta = self.meta
@@ -241,12 +253,8 @@ class RunIndex:
         self._scan()
 
     def _scan(self) -> None:
-        """Scan directory for parquet files and index them."""
-        if not self.runs_dir.exists():
-            log.warning("Runs directory does not exist: %s", self.runs_dir)
-            return
-
-        parquets = sorted(self.runs_dir.glob("*.parquet"))
+        """Scan subdirectories for parquet files using runlib discovery."""
+        parquets = discover_runs(self.runs_dir)
         for p in parquets:
             try:
                 info = RunInfo(p)
@@ -255,7 +263,7 @@ class RunIndex:
             except ValueError as e:
                 log.warning("Skipping %s: %s", p.name, e)
 
-        type_counts = {}
+        type_counts: dict[str, int] = {}
         for info in self.runs.values():
             type_counts[info.run_type] = type_counts.get(info.run_type, 0) + 1
         log.info("Indexed %d runs: %s", len(self.runs),
@@ -328,7 +336,7 @@ def build_metric_registry(
 
     # Window-level metrics: discover available window sizes from caches
     window_metrics_found: dict[str, set[int]] = {}
-    for p in index.runs_dir.glob("*.analysis.pkl"):
+    for p in index.runs_dir.glob("**/*.analysis.pkl"):
         try:
             import pickle
             with open(p, "rb") as f:
