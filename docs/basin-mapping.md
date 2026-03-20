@@ -22,16 +22,15 @@ SmolLM-135M, autoregressive free generation. No external input after initial see
 
 ## Survey Protocol
 
-The SurveyController runs COOLING→HEATING→TRANSIT cycles at fixed L, sweeping temperature down until a basin is captured, then heating to escape:
+The SurveyController runs COOLING→HEATING→TRANSIT cycles at fixed L, sweeping temperature down until a basin is captured, then heating to escape.
 
-- **Capture gates** (either triggers capture):
-  - Heaps' β < 0.40 — vocabulary has died
-  - LZ_W64 (normalized) < 0.55 — token-level structural repetition
+**Current gate:** LZ_W64 + Heaps' β (dual gate, either fires). See `docs/observations-2026-03-19b.md` for LZ validation.
+
+**Planned redesign:** Replace with surprisal-only gate. Mean segment surprisal < threshold detects the enriching→degrading transition directly — no windowing, no L-dependent parameters, no additional computation. See `docs/survey-redesign.md` for full rationale and validation plan.
+
 - **Escape detection:** entropy rises 1.0 nat above basin floor, or T hits ceiling
 - **Segment size:** 2×L tokens per segment (10+ context rotations at MIN_COOLING_SEGMENTS=5)
 - **Per-capture data:** 576-dim embedding, LZ spectrum, gzip comp spectrum, context text, attractor text, scalar metrics
-
-LZ complexity replaced gzip compressibility as the primary capture gate (2026-03-19). LZ is uniformly better at discriminating structural repetition from semantic orbits — see `docs/observations-2026-03-19b.md`.
 
 ## Clustering Pipeline
 
@@ -138,17 +137,22 @@ Currently `dT_frac` is fixed at 5%. Adjust based on novelty after capture: halve
 ## Analysis Targets
 
 1. **Basin census per L.** Does type count scale with L, saturate, or peak?
-2. **Cross-L correspondence.** Minimum L for each basin type = minimum context to express that mode.
+2. **Cross-L correspondence.** Minimum L for each basin type = minimum context to express that mode. This connects to Framework prediction 7: in-context learning fails when the required regularity type is absent from the weight geometry. Each basin's minimum L is the minimum context for that regularity to be expressible.
 3. **Transition graph.** Directed graph: nodes = types, edges = observed transitions. Identify hubs, dead ends, connected components.
-4. **Depth vs LZ spectrum.** Can basin depth be predicted from the LZ spectrum shape?
+4. **Basin characterization spectrum.** LZ spectrum shape, surprisal profile, and gap dynamics per basin type. These describe the *kind* of attractor — structural vs semantic, tight vs template — without controlling gating.
+5. **Block entropy scaling (future).** Entropy rate as function of block length, computed per basin. Excess entropy approximates statistical complexity — Framework's central quantity. This would directly test prediction 8: do basins with higher statistical complexity correspond to richer content-generation capabilities?
 
-## Complexity as Identity
+## Framework Alignment
 
-The LZ76 phrase count at the window size of lowest normalized complexity (W*) measures the basin's structural repetition. Unlike gzip, LZ operates on token IDs directly — no byte-encoding artifacts, no header overhead at small windows.
+This project is the empirical counterpart to `../framework`. The mapping:
 
-**W*** is the characteristic scale of the attractor:
-- Verbatim 12-token loop: W* ≈ 24 (two repetitions for LZ to exhaust novel phrases)
-- Template attractor (cycling list of phrases): W* ≈ template period
-- Self-referential attractor: W* → L (structure visible only at context scale)
+| Framework concept | autoloop operationalisation |
+|---|---|
+| Enriching/degrading transition | Surprisal gate (surprisal → 0 = degrading) |
+| Compressive novelty | Entropy-surprisal gap (per-token) |
+| Statistical complexity | Block entropy scaling (future, per-basin) |
+| Capability as discrete mode | Basin = a content-generation mode the model possesses |
+| Capability threshold | Basin existence boundary in (L, T) space |
+| In-context learning failure | Basin's minimum L — context too short to express the regularity |
 
-The LZ-vs-W spectrum shape — which W dominates, where normalized complexity is minimized, how steeply it rises — distinguishes attractor types mechanistically.
+The basin catalogue is an empirical inventory of the model's representational modes, discovered from output dynamics. Each basin is a "thing the model knows how to do." The L-ladder maps which capabilities survive, emerge, or disappear as context grows. The transition graph maps how they connect.
