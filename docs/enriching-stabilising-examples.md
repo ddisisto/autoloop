@@ -1,9 +1,9 @@
-# Enriching vs Degrading Dynamics: Concrete Examples
+# Enriching vs Stabilising Dynamics: Concrete Examples
 
-**Date:** 2026-03-20
-**Source data:** SmolLM-135M, L=128, seeds {42}, 100k tokens/run
+**Date:** 2026-03-20 (terminology updated 2026-03-30)
+**Source data:** SmolLM-135M, L in {128, 192}, seed 42, 100k tokens/run
 
-All examples from sweep runs at L=128 with seed 42. Entropy H and surprisal S in nats. Gap = H + log_prob = H - S. Enriching tokens have gap < 0 (the sampled token was more surprising than the distribution's entropy); degrading tokens have gap > 0 (more predictable than average).
+All examples from sweep runs. Entropy H and surprisal S in nats. Gap = H + log_prob = H - S. Enriching tokens have gap < 0 (the sampled token was more surprising than the distribution's entropy); stabilising tokens have gap > 0 (more predictable than average). The spectrum table uses L=128 throughout for consistency.
 
 ## The spectrum is not binary
 
@@ -19,7 +19,7 @@ Five regimes emerge along the temperature axis, each with a distinct relationshi
 
 At the extremes, the gap sign flips. Deep basins have gap ≈ 0+ (surprisal matches near-zero entropy — the model is certain and correct). Noise has gap < 0 on average (surprisal exceeds entropy — the model is uncertain and still wrong). Neither extreme produces structured output.
 
-The functionally interesting regime — where the system generates coherent, non-repetitive text — sits in the middle (T ≈ 0.70–1.00 at this L). Here, most tokens are degrading (reinforcing local structure, maintaining grammaticality) but a minority are enriching (introducing new topics, breaking patterns). The balance between these determines whether the system drifts toward collapse or sustains diverse output.
+The functionally interesting regime — where the system generates coherent, non-repetitive text — sits in the middle (T ≈ 0.70–1.00 at this L). Here, most tokens are stabilising (maintaining local structure, continuing grammatical trajectories) while a minority are enriching (introducing new topics, breaking patterns). This is normal and necessary — stabilising tokens are the scaffolding that makes coherent output possible. The balance between enriching and stabilising determines whether the system drifts toward degeneration or sustains diverse output.
 
 ## Example 1: Collapse in real time
 
@@ -55,37 +55,25 @@ The model assigns ~100% probability to the next token. The loop is a fixed point
 
 This basin persists unchanged from step ~67500 to the end of the run at step 100000 — over 32000 tokens, 250+ context rotations.
 
-## Example 2: Enriching vs degrading tokens
+## Example 2: Enriching vs stabilising tokens in prose
 
-**Run:** `L0128_T0.80_S42`, steps 94500–95000 — H=3.10, surprisal=2.31, 23% enriching
+In the following excerpts, **bold** tokens are enriching (gap < 0: the model found them more surprising than its own uncertainty). Normal tokens are stabilising (gap > 0: more predictable than average). The pattern is consistent: content-bearing words that introduce new information are enriching; grammatical glue, punctuation, and expected continuations are stabilising.
 
-> 4/10/09/education/classroom/09physics.html.&lt;|endoftext|&gt;- About Us - Contact Us - Apply for a Job - Get Involved Biographical Data for Bruce Atkins Bruce Atkins was born in Yarmouth, Massachusetts on the 10th of August 1898. The elder Bruce was born in the 2nd of December 1883, which, according to the Surname Guide, was in the town of Yarmouth...
+**Run:** `L0192_T0.70_S42`, steps 55000–55128 — 20% enriching
 
-Topics shift across sentence boundaries — a URL fragment, a navigation menu, a biographical entry. The text is grammatical and locally coherent but globally wandering. Individual tokens split cleanly into two populations:
+> Now, how does **our** **magical** metal come into play? **Dental** implants are surgically **inserted** into your jawbone through small incisions. Once placed, they fuse with your **bone**, creating a **stable** **base** for your new tooth **roots**. Over time, your **natural** **bone** **returns**,** giving you a brand new set of **roots** that look and feel like your **actual** teeth. **Ne**at, huh? But wait, there's more! Did you know that dental implants **actually** **hide** **their** roots** in** the** soft** tissue inside your mouth?
 
-Sample enriching tokens (gap < 0):
+The enriching tokens are the specific nouns and modifiers that carry semantic content: "magical", "Dental", "inserted", "bone", "stable", "roots". These are the tokens the model did not fully anticipate — each one narrows the topic in a way that wasn't determined by what came before. The stabilising tokens are the structural scaffolding: "into your", "creating a", "that look and feel like" — phrases the model predicted with high confidence because grammar and topic together constrain them.
 
-| Token | Entropy | Surprisal | Gap |
-|---|---|---|---|
-| "physics" | 6.95 | 8.15 | -1.20 |
-| "education" | 2.53 | 5.72 | -3.19 |
-| "class" | 2.50 | 6.09 | -3.59 |
-| "9" | 1.07 | 5.45 | -4.37 |
-| `<endoftext>` | 0.64 | 2.20 | -1.56 |
+**Run:** `L0128_T0.80_S42`, steps 17000–17128 — 16% enriching
 
-These tokens were more surprising than the distribution's entropy — the model did not expect them. They introduce new content ("physics", "education") or mark structural breaks (`<endoftext>`) that redirect the generation.
+> 5,000 was initially borrowed **due** to the collateral. **Sometimes**, such situations happen when **losses** occur. **Should** **a** borrower fail to meet their obligations, the lender could step in and take action. But what happens **now**? Does the lender get to decide who pays back the loan? Or does the borrower simply continue to repay the balance? This brings us **back** to our **concept** of **deb**entures. When **using** a debenture, the borrower agrees to repay the loan **after** **the** **business** **settles** **the** **balance**. **Over** time, **though**, the business might **think** that the loan **has** been **taken**, causing the borrower to default.
 
-Sample degrading tokens (gap > 0):
+**Run:** `L0128_T0.80_S42`, steps 15500–15628 — 17% enriching
 
-| Token | Entropy | Surprisal | Gap |
-|---|---|---|---|
-| " Us" | 3.10 | 0.23 | +2.86 |
-| "-" | 6.29 | 3.52 | +2.77 |
-| " About" | 6.37 | 4.17 | +2.20 |
-| "-" | 1.14 | 0.02 | +1.12 |
-| "." | 1.15 | 0.09 | +1.06 |
+> small town** called** Harmonyville, lived** four** best friends - Timmy the Turtle, Sally the **Sal**amander, Benny the **Beaver**, and Daisy the Deer. They** all** **had** different jobs, but they worked together to make sure **they** were taken care of and happy. One day, while playing near the river, **Sally** noticed something strange. **"**Timmy**,** why **does** your shell look **like** **that**?" she asked **curiously**. Timmy replied, "**Oh**, I **am** a tree, Sally! I **lay** **there** for **days**,** making** my shell.
 
-These are predictable continuations — punctuation, function words, expected phrases — that reinforce the current pattern. The model anticipated them and was right.
+In all three passages, roughly 15–20% of tokens are enriching. Remove them and the text becomes a generic template; remove the stabilising tokens and the text becomes an incoherent keyword list. Functional generation requires both: the stabilising majority maintains structure while the enriching minority injects the content that keeps the system from degenerating into a loop.
 
 ## Example 3: Noise is not enrichment
 
@@ -108,7 +96,7 @@ But the output is unstructured noise — no grammar, no topic, no coherence. The
 | Content | Verbatim loop | Repetitive lists | Coherent prose | Word salad |
 | Vocabulary growth | Zero | Saturating | Sublinear | Linear (random) |
 
-Degrading dynamics taken to their extreme produce attractor basins. Enriching dynamics taken to their extreme produce noise. Structured, diverse output — the regime where autoregressive generation is functional — requires both, in tension.
+Stabilising dynamics taken to their degenerate extreme produce attractor basins — the enrichment fraction drops to zero and the system perfectly self-predicts. Enriching dynamics taken to their extreme produce noise — every token is surprising but none are meaningful. Structured, diverse output — the regime where autoregressive generation is functional — requires both, in tension.
 
 ## Reproduction
 

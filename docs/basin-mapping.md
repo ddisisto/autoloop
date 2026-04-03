@@ -26,7 +26,7 @@ The SurveyController runs COOLING→HEATING→TRANSIT cycles at fixed L, sweepin
 
 **Current gate:** LZ_W64 + Heaps' β (dual gate, either fires). See `docs/observations-2026-03-19b.md` for LZ validation.
 
-**Planned redesign:** Replace with surprisal-only gate. Mean segment surprisal < threshold detects the enriching→degrading transition directly — no windowing, no L-dependent parameters, no additional computation. See `docs/survey-redesign.md` for full rationale and validation plan.
+**Planned redesign:** Replace with surprisal-only gate. Mean segment surprisal < threshold detects degeneration directly — the point where enrichment fraction drops to zero and the system enters complete self-prediction. No windowing, no L-dependent parameters, no additional computation. See `docs/survey-redesign.md` for full rationale and validation plan.
 
 - **Escape detection:** entropy rises 1.0 nat above basin floor, or T hits ceiling
 - **Segment size:** 2×L tokens per segment (10+ context rotations at MIN_COOLING_SEGMENTS=5)
@@ -148,7 +148,7 @@ This project is the empirical counterpart to `../framework`. The mapping:
 
 | Framework concept | autoloop operationalisation |
 |---|---|
-| Enriching/degrading transition | Surprisal gate (surprisal → 0 = degrading) |
+| Degeneration (enrichment → 0) | Surprisal gate (surprisal → 0 = degenerate) |
 | Compressive novelty | Entropy-surprisal gap (per-token) |
 | Statistical complexity | Block entropy scaling (future, per-basin) |
 | Capability as discrete mode | Basin = a content-generation mode the model possesses |

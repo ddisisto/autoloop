@@ -30,7 +30,7 @@ LZ also has tighter standard deviations within regimes, meaning cleaner separati
 
 **Implication:** LZ complexity should replace gzip compressibility as the primary window-level complexity metric. This includes the W* approach in basin detection (compression spectrum), sensor readings, and the three-sensor framework. Gzip can be retained for backward compatibility but LZ is strictly superior.
 
-### Finding: Surprisal gap tracks enriching/degrading regime boundary
+### Finding: Surprisal gap tracks enriching/stabilising regime boundary
 
 The gap's sign cleanly separates regime types:
 
@@ -49,7 +49,7 @@ The gap's overall F-statistic is 48 (8th of 35 metrics). But its value is in spe
 
 **Key insight:** Suppressed dynamics has a *higher* positive gap than collapse. This is counterintuitive until you think about what the gap measures. In collapse, the distribution is already concentrated on the attractor tokens — the gap between expected and sampled surprise is small because both are low. In suppressed dynamics, the distribution is still relatively broad (entropy 0.4-2.9 nats) but sampling consistently lands on the predictable side. The system is *actively* reinforcing, not merely locked.
 
-This maps directly to Framework's prediction: the degrading regime is characterized by compressive novelty approaching zero — each token does less representational work relative to what's already established. Suppressed dynamics is the clearest example: surface statistics (entropy, fluency) look moderate while the gap reveals that the system is consistently choosing the predictable option.
+This maps directly to Framework's prediction: the stabilising extreme — degeneration — is characterized by compressive novelty approaching zero, where each token does less representational work relative to what's already established. Suppressed dynamics is the clearest example: surface statistics (entropy, fluency) look moderate while the gap reveals that the system is consistently choosing the predictable option. Note that stabilising tokens are not inherently pathological — they are the necessary scaffolding of coherent generation. The pathology is when the enrichment fraction drops to zero and only stabilising tokens remain.
 
 ### Finding: metric hierarchy aligns with Framework's compression levels
 

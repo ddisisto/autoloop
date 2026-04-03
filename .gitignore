@@ -12,3 +12,6 @@ wheels/
 # Generated data and model weights (figures tracked)
 data/*
 !data/figures/
+
+# Exports (generated for sister projects)
+exports/

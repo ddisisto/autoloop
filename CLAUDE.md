@@ -52,7 +52,7 @@ Basin topography and learnable steering in autoregressive self-play. See `docs/p
 - Basin escape hysteresis: exit requires ~0.4T more than avoidance
 - Escape by semantic mutation: period-doubling route to chaos
 - Closed-loop control finds beta~0.90 equilibrium. Balance T tracks T_escape(L)
-- LZ complexity uniformly better than gzip compressibility for regime discrimination (F=80 vs F=54 at W=256). Surprisal gap tracks enriching/degrading boundary
+- LZ complexity uniformly better than gzip compressibility for regime discrimination (F=80 vs F=54 at W=256). Surprisal gap tracks enriching/stabilising boundary
 - Suppressed dynamics is scale-invariant: regime depends on basin-depth/thermal-energy ratio
 - L=8 basin taxonomy: 30 clusters from 327 captures. Two dominant attractors: zeros (64 caps) and decimal loops (49 caps). Within-basin deepening (71%). Discovery not saturating. 9 universal basins, 9 seed-specific
 - L=12 collected (498 captures), preliminary joint clustering shows 32 mixed (cross-L) basins, 16 L=8-only, 27 L=12-only. Template/list attractors replace tight verbatim loops as L grows

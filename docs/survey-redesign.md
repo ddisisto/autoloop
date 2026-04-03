@@ -1,6 +1,6 @@
 # Survey Redesign: Surprisal-First Basin Detection
 
-**Date:** 2026-03-20
+**Date:** 2026-03-20 (terminology updated 2026-03-30)
 **Status:** Proposed — replaces current multi-gate approach
 
 ## Motivation
@@ -18,11 +18,11 @@ Empirically, at L=8 and L=12 capture points, mean segment surprisal is < 0.05 (m
 
 ## Connection to Framework
 
-The sister project (`../framework`) identifies the enriching/degrading distinction as the central variable governing autoregressive dynamics. A token is enriching when it surfaces genuinely new structure; degrading when it reinforces existing trajectories. The entropy-surprisal gap (= entropy + log_prob) is the direct measure of this: positive gap means the sampled token was more predictable than the distribution average (degrading/reinforcing); negative means more surprising (enriching).
+The sister project (`../framework`) identifies the enrichment fraction — the proportion of tokens doing novel compressive work — as the central continuous variable governing autoregressive dynamics. A token is **enriching** when it surfaces genuinely new structure; **stabilising** when it maintains trajectories, continues grammar, or restates what the context already implies. The entropy-surprisal gap (= entropy + log_prob) is the direct measure: positive gap means the sampled token was more predictable than the distribution average (stabilising); negative means more surprising (enriching).
 
-Surprisal approaching zero is the extreme degrading case: the model produces exactly what it expects, adding zero new structure. This is Framework's "accumulation" — and it is exactly what a basin is.
+Stabilising tokens are not pathological — they are essential scaffolding. Coherent generation requires a majority of stabilising tokens providing structure while a minority of enriching tokens inject novelty. The pathological endpoint is **degeneration**: the enrichment fraction drops to zero, surprisal approaches zero, and the model produces exactly what it expects, adding length without adding any structure. This is Framework's "accumulation" — and it is exactly what a basin is.
 
-The capture gate, then, is not detecting "repetitive output" or "dead vocabulary." It is detecting the moment the system crosses from enriching to degrading dynamics. This is a cleaner definition, and it is what we should build around.
+The capture gate, then, is not detecting "repetitive output" or "a shift to stabilising dynamics." Stabilising dynamics are normal and necessary. The gate detects **degeneration** — the extreme where the system has lost all enriching tokens and entered complete self-prediction. This is a sharper definition than regime-boundary detection, and it is what we should build around.
 
 ## Proposed Design
 
@@ -45,7 +45,8 @@ Single gate: **mean surprisal over trailing segment < threshold**.
 
 - **Embeddings** for clustering (orthogonal to gating — the model's representation of basin content)
 - **COOLING→HEATING→TRANSIT state machine** (the temperature sweep protocol works)
-- **LZ spectrum, gzip comp spectrum, entropy, beta, gap** as *descriptors* stored per capture. These characterize the basin but don't control the gate.
+- **LZ spectrum, gzip comp spectrum, entropy, beta, gap** as *descriptors* stored per capture. These characterize the basin but don't control the gate
+- **Enrichment fraction** as a per-capture descriptor — what proportion of tokens in the capture segment were enriching? Deep basins will have enrichment ≈ 0; shallower template attractors may retain a small enriching minority
 - **Escape detection** via entropy rise (unchanged)
 
 ### SensorReading simplification
@@ -55,6 +56,8 @@ The sensor reading still computes all metrics for logging and characterization, 
 ```
 captured = mean_surprisal_segment < CAPTURE_SURPRISAL_THRESHOLD
 ```
+
+This is a degeneration detector: it fires when the model's own uncertainty about its next token drops below the threshold across a sustained segment. The lower the threshold, the deeper the degeneration required to trigger capture.
 
 ### Capture record
 
@@ -94,7 +97,7 @@ Surprisal-gated captures should produce more comparable basins across L values, 
 
 ### Future: block entropy scaling
 
-Framework predicts that statistical complexity correlates with capability thresholds. Block entropy scaling (entropy rate as function of block length) approximates statistical complexity from the token stream. This could be computed per basin as a characterization metric — not a gate, but a way to rank basins by structural richness. Deferred until the surprisal gate is validated and the persistent catalogue is in place.
+Framework predicts that statistical complexity correlates with capability thresholds. Block entropy scaling (entropy rate as function of block length) approximates statistical complexity from the token stream. This could be computed per basin as a characterization metric — not a gate, but a way to rank basins by structural richness. Combined with the enrichment fraction, this would give a two-dimensional characterization: how degenerate is the basin (enrichment fraction), and how structurally complex was the content it settled on (block entropy scaling). Deferred until the surprisal gate is validated and the persistent catalogue is in place.
 
 ## Migration
 
